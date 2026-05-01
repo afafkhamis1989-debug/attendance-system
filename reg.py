@@ -7,7 +7,7 @@ from streamlit_local_storage import LocalStorage
 import math
 
 st.set_page_config(
-    page_title="نظام الحضور والانصراف",
+    page_title="نظام الحضور والإنصراف",
     page_icon="🕘",
     layout="centered"
 )
