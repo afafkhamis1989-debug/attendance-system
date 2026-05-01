@@ -27,6 +27,7 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
     st.secrets["gcp_service_account"],
     scope
 )
+
 client = gspread.authorize(creds)
 sheet = client.open_by_key("1svkfgRq4-osKr86_2WJQFZShuoy8Ek5DOiUaaHKL-6Y").sheet1
 
@@ -156,10 +157,6 @@ label, .stSelectbox label, .stTextInput label {
     background-color: #f8fafc !important;
 }
 
-div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stForm"]) {
-    margin-bottom: 5px !important;
-}
-
 div[data-testid="stVerticalBlock"] > div {
     margin-bottom: 5px !important;
 }
@@ -177,7 +174,6 @@ div[data-testid="stVerticalBlock"] > div {
 .footer {
     background: #f3f6fa;
     border-radius: 16px;
-    text-align: left;
     font-size: 18px;
     font-weight: bold;
     margin-top: 28px;
@@ -227,29 +223,33 @@ st.markdown("""
 with st.container(border=True):
     st.markdown('<div class="location-title">📍 التحقق من الموقع</div>', unsafe_allow_html=True)
 
-location = streamlit_geolocation()
+    location = streamlit_geolocation()
 
-location = streamlit_geolocation()
-
-if (
-    location
-    and location.get("latitude") is not None
-    and location.get("longitude") is not None
-):
-    user_lat = float(location["latitude"])
-    user_lon = float(location["longitude"])
-
-    dist = distance_m(user_lat, user_lon, SCHOOL_LAT, SCHOOL_LON)
-
-    if dist <= ALLOWED_RADIUS:
-        allowed = True
-        st.success("أنتِ داخل نطاق المدرسة، يمكنك التسجيل ✅")
-    else:
-        allowed = False
-        st.error("❌ لا يمكن التسجيل خارج نطاق المدرسة")
-else:
     allowed = False
-    st.warning("يرجى تفعيل الموقع من المتصفح ثم الضغط على زر تحديد الموقع")
+
+    if location:
+        lat = location.get("latitude")
+        lon = location.get("longitude")
+
+        if lat is not None and lon is not None:
+            try:
+                user_lat = float(lat)
+                user_lon = float(lon)
+
+                dist = distance_m(user_lat, user_lon, SCHOOL_LAT, SCHOOL_LON)
+
+                if dist <= ALLOWED_RADIUS:
+                    allowed = True
+                    st.success("أنتِ داخل نطاق المدرسة، يمكنك التسجيل ✅")
+                else:
+                    st.error("❌ لا يمكن التسجيل خارج نطاق المدرسة")
+
+            except Exception:
+                st.warning("حدث خطأ في قراءة الموقع، حاول مرة أخرى")
+        else:
+            st.warning("اضغطي زر تحديد الموقع 📍")
+    else:
+        st.warning("اضغطي زر تحديد الموقع 📍")
 
 with st.container(border=True):
     if data_locked:
