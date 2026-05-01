@@ -193,7 +193,7 @@ stored_section = localS.getItem("saved_section")
 stored_name = localS.getItem("saved_name")
 stored_date = localS.getItem("saved_date")
 
-if stored_date != today_for_storage:
+if stored_date and stored_date != today_for_storage:
     stored_school = None
     stored_section = None
     stored_name = None
@@ -476,7 +476,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-localS.setItem("saved_school", school, key="set_saved_school")
-localS.setItem("saved_section", section, key="set_saved_section")
-localS.setItem("saved_name", name, key="set_saved_name")
-localS.setItem("saved_date", today_for_storage, key="set_saved_date")
+localS.setItem("saved_school", school)
+localS.setItem("saved_section", section)
+localS.setItem("saved_name", name)
+localS.setItem("saved_date", today_for_storage)
