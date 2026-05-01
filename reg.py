@@ -240,7 +240,7 @@ with st.container(border=True):
 
                 if dist <= ALLOWED_RADIUS:
                     allowed = True
-                    st.success("أنتِ داخل نطاق المدرسة، يمكنك التسجيل ✅")
+                    st.success("تم تحديد الموقع بنجاح، أنت داخل نطاق المدرسة ويمكنك التسجيل ✅")
                 else:
                     st.error("❌ لا يمكن التسجيل خارج نطاق المدرسة")
 
