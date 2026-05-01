@@ -40,6 +40,28 @@ def distance_m(lat1, lon1, lat2, lon2):
     a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
+def normalize_name(name):
+    name = str(name).strip()
+
+    replacements = {
+        "أ": "ا",
+        "إ": "ا",
+        "آ": "ا",
+        "ى": "ي",
+        "ة": "ه",
+        "ؤ": "و",
+        "ئ": "ي"
+    }
+
+    for old, new in replacements.items():
+        name = name.replace(old, new)
+
+    for ch in [".", "،", ",", "-", "_", "ـ", ":", ";"]:
+        name = name.replace(ch, " ")
+
+    name = " ".join(name.split())
+    return name
+
 schools = [
     "مدرسة النور الثانوية للبنات",
     "مدرسة المعرفة الثانوية للبنات",
@@ -274,9 +296,15 @@ with st.container(border=True):
         name = st.text_input("الاسم الثلاثي", placeholder="اكتبي الاسم الثلاثي", key="name_input")
 
 def find_today_row(data, today, full_name):
+    normalized_input = normalize_name(full_name)
+
     for i, row in enumerate(data):
-        if row.get("التاريخ") == today and row.get("الاسم الثلاثي") == full_name:
+        sheet_name = row.get("الاسم الثلاثي", "")
+        normalized_sheet_name = normalize_name(sheet_name)
+
+        if row.get("التاريخ") == today and normalized_sheet_name == normalized_input:
             return i + 2, row
+
     return None, None
 
 def register_operation(operation, note=""):
@@ -284,7 +312,8 @@ def register_operation(operation, note=""):
         st.error("لا يمكن التسجيل خارج نطاق المدرسة")
         return
 
-    full_name = st.session_state.name_input.strip()
+    original_name = st.session_state.name_input.strip()
+    full_name = normalize_name(original_name)
 
     if full_name == "":
         st.error("الرجاء كتابة الاسم الثلاثي")
