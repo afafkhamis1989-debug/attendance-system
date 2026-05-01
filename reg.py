@@ -71,7 +71,14 @@ sections = [
     "قسم العلوم", "قسم الحاسب الآلي", "قسم التربية الإسلامية",
     "قسم التربية الأسرية", "قسم التربية الفنية", "قسم التربية البدنية",
     "قسم المواد التجارية", "قسم المواد الإجتماعية والإنسانية",
-    "الهيئة الإدارية", "الإشراف التربوي"
+    "الهيئة الإدارية", "الإشراف التربوي",
+    "قسم اللغة العربية — دعم", "قسم اللغة الانجليزية — دعم",
+    "قسم الرياضيات — دعم", "قسم العلوم — دعم",
+    "قسم الحاسب الآلي — دعم", "قسم التربية الإسلامية — دعم",
+    "قسم التربية الأسرية — دعم", "قسم التربية الفنية — دعم",
+    "قسم التربية البدنية — دعم", "قسم المواد التجارية — دعم",
+    "قسم المواد الإجتماعية والإنسانية — دعم",
+    "الهيئة الإدارية — دعم", "الإشراف التربوي — دعم"
 ]
 reasons = ["دوام مرن", "موعد", "مهمة رسمية", "رعاية", "أخرى"]
 
@@ -340,14 +347,37 @@ def register_operation(operation, emp_id, note=""):
         return False
 
     emp_id = str(emp_id).strip()
-    emp    = validate_employee(emp_id)
-    if not emp:
-        st.error("❌ الرقم الشخصي غير مسجّل في النظام، تواصلي مع الأدمن")
+    if not emp_id:
+        st.error("❌ الرقم الشخصي مطلوب")
         return False
 
+    # جيب بيانات الموظفة — من القائمة البيضاء أو من session_state (موظفة جديدة)
+    emp = validate_employee(emp_id)
+    if not emp:
+        emp = st.session_state.get("emp_data")
+        if not emp or str(emp.get("الرقم الشخصي","")).strip() != emp_id:
+            st.error("❌ بيانات غير مكتملة")
+            return False
+
+        # احفظ الموظفة الجديدة في القائمة البيضاء (إلا دعم)
+        is_support = emp.get("دعم", False)
+        if not is_support:
+            try:
+                whitelist_sheet.append_row([
+                    emp_id,
+                    emp.get("الاسم",""),
+                    emp.get("المدرسة",""),
+                    emp.get("القسم",""),
+                    "نعم"
+                ])
+                log_audit(emp_id, emp.get("الاسم",""), "تسجيل موظفة جديدة",
+                          f"مدرسة: {emp.get('المدرسة','')} | قسم: {emp.get('القسم','')}")
+            except Exception as e:
+                st.warning(f"⚠️ تعذّر الحفظ في القائمة البيضاء: {e}")
+
     full_name = normalize_name(emp.get("الاسم",""))
-    school    = emp.get("المدرسة", st.session_state.get("school_input", schools[0]))
-    section   = emp.get("القسم",   st.session_state.get("section_input", sections[0]))
+    school    = emp.get("المدرسة", schools[0])
+    section   = emp.get("القسم",   sections[0])
 
     now      = datetime.now()
     today    = now.strftime("%Y-%m-%d")
@@ -514,43 +544,77 @@ if mode == "👤 موظفة":
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── كارد الرقم الشخصي ────────────────────────────────────────
+    # ── كارد البيانات (نظام مفتوح مع حفظ تلقائي) ────────────────
     with st.container(border=False):
-        st.markdown('<div class="pro-card"><div class="card-head"><div class="card-ico" style="background:#faeeda;">🪪</div><b style="color:#0c3460;font-size:15px;">الرقم الشخصي</b></div>', unsafe_allow_html=True)
+        st.markdown('<div class="pro-card"><div class="card-head"><div class="card-ico" style="background:#faeeda;">🪪</div><b style="color:#0c3460;font-size:15px;">البيانات الشخصية</b></div>', unsafe_allow_html=True)
 
         emp_id_input = st.text_input(
-            "أدخلي رقمك الشخصي",
-            placeholder="مثال: 20241234",
+            "الرقم الشخصي",
+            placeholder="أدخلي رقمك الشخصي",
             max_chars=20,
             key="emp_id_field"
         )
 
-        if st.button("تحقق من الرقم", use_container_width=True):
-            emp = validate_employee(emp_id_input)
-            if emp:
-                st.session_state.emp_verified = True
-                st.session_state.emp_data     = emp
+        # لو الرقم موجود في القائمة البيضاء جيب بياناته تلقائياً
+        if emp_id_input.strip():
+            existing = validate_employee(emp_id_input.strip())
+        else:
+            existing = None
 
-                # تحقق من الشيت هل سجّل اليوم
-                data = sheet.get_all_records()
-                _, row = find_today_row(data, today_str, emp_id_input)
-                st.session_state.today_row = row
-            else:
-                st.session_state.emp_verified = False
-                st.session_state.emp_data     = None
-                st.error("❌ الرقم الشخصي غير موجود، تواصلي مع الأدمن")
-
-        if st.session_state.emp_verified and st.session_state.emp_data:
-            emp = st.session_state.emp_data
-            locked_class = "locked" if st.session_state.get("today_row") and st.session_state.today_row.get("وقت الحضور") else ""
+        if existing:
+            # موظفة معروفة — بياناتها محفوظة
+            emp_name_input    = existing.get("الاسم","")
+            emp_school_input  = existing.get("المدرسة", schools[0])
+            emp_section_input = existing.get("القسم", sections[0])
+            locked_class = "locked"
             st.markdown(f"""
             <div class="field-lbl">الاسم</div>
-            <div class="field-val {locked_class}">{emp.get('الاسم','')}</div>
+            <div class="field-val locked">{emp_name_input}</div>
             <div class="field-lbl">المدرسة</div>
-            <div class="field-val">{emp.get('المدرسة','')}</div>
+            <div class="field-val locked">{emp_school_input}</div>
             <div class="field-lbl">القسم</div>
-            <div class="field-val">{emp.get('القسم','')}</div>
+            <div class="field-val locked">{emp_section_input}</div>
+            <div style="font-size:11px;color:#3B6D11;font-weight:700;margin-top:4px;">✓ موظفة مسجّلة</div>
             """, unsafe_allow_html=True)
+        else:
+            # موظفة جديدة أو دعم — تدخل بياناتها وتُحفظ تلقائياً
+            emp_name_input    = st.text_input("الاسم الثلاثي", placeholder="اكتبي اسمك الثلاثي", key="emp_name_field")
+            emp_school_input  = st.selectbox("المدرسة", schools, key="emp_school_field")
+            emp_section_input = st.selectbox("القسم", sections, key="emp_section_field")
+
+            if emp_id_input.strip() and emp_name_input.strip():
+                is_support = "دعم" in emp_section_input
+                if is_support:
+                    st.markdown('<div style="background:#faeeda;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;color:#633806;margin-top:6px;">📋 موظفة دعم — تسجيل لهذا اليوم فقط</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown('<div style="background:#e6f1fb;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;color:#0C447C;margin-top:6px;">💾 موظفة جديدة — ستُحفظ في القائمة تلقائياً عند التسجيل</div>', unsafe_allow_html=True)
+
+        # حفّظ في session_state
+        if existing:
+            st.session_state.emp_verified = True
+            st.session_state.emp_data = existing
+        elif emp_id_input.strip() and emp_name_input.strip() if not existing else False:
+            is_support = "دعم" in emp_section_input
+            st.session_state.emp_verified = True
+            st.session_state.emp_data = {
+                "الرقم الشخصي": emp_id_input.strip(),
+                "الاسم": normalize_name(emp_name_input.strip()),
+                "المدرسة": emp_school_input,
+                "القسم": emp_section_input,
+                "نشط": "نعم",
+                "جديد": True,
+                "دعم": is_support
+            }
+        else:
+            if not emp_id_input.strip():
+                st.session_state.emp_verified = False
+                st.session_state.emp_data = None
+
+        # تحقق من سجل اليوم
+        if st.session_state.emp_verified and st.session_state.emp_data:
+            data = sheet.get_all_records()
+            _, row = find_today_row(data, today_str, st.session_state.emp_data.get("الرقم الشخصي",""))
+            st.session_state.today_row = row
 
         st.markdown('</div>', unsafe_allow_html=True)
 
