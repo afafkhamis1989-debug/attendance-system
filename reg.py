@@ -7,7 +7,7 @@ from streamlit_local_storage import LocalStorage
 import math
 
 st.set_page_config(
-    page_title="نظام الحضور والإنصراف",
+    page_title="نظام الحضور والانصراف",
     page_icon="🕘",
     layout="centered"
 )
@@ -269,9 +269,9 @@ with st.container(border=True):
             except Exception:
                 st.warning("حدث خطأ في قراءة الموقع، حاول مرة أخرى")
         else:
-            st.warning("اضغط زر تحديد الموقع 📍")
-    else:
-        st.warning("اضغط زر تحديد الموقع 📍")
+            st.warning("يرجى السماح باستخدام الموقع من المتصفح ثم الضغط على زر تحديد الموقع 📍")
+
+
 
 with st.container(border=True):
     if data_locked:
