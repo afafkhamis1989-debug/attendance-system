@@ -482,6 +482,9 @@ for k, v in {
     if k not in st.session_state:
         st.session_state[k] = v
 
+today_str = datetime.now().strftime("%Y-%m-%d")
+fp        = get_device_fingerprint()
+
 # ── تحميل البيانات المحفوظة من LocalStorage ──
 _saved_date    = ls_get("saved_date")
 _saved_id      = ls_get("saved_id")
@@ -516,9 +519,6 @@ if st.session_state.admin_logged_in and st.session_state.admin_last_active:
         st.session_state.admin_logged_in = False
         st.session_state.admin_last_active = None
         st.warning("⏱️ انتهت جلسة الأدمن بسبب الخمول")
-
-today_str = datetime.now().strftime("%Y-%m-%d")
-fp        = get_device_fingerprint()
 
 # ══════════════════════════════════════════════════════════════════
 #  HEADER
@@ -636,20 +636,20 @@ if mode == "👤 موظفة":
 
                 emp_type = st.radio(
                     "نوع التسجيل",
-                    ["👩‍🏫 موظفة دائمة", "🔄 دعم مؤقت"],
+                    ["👩‍🏫 عضوة في المركز", "🔄 عضوة في المركز"],
                     horizontal=True,
                     key="emp_type_radio"
                 )
-                is_support = emp_type == "🔄 دعم مؤقت"
+                is_support = emp_type == "🔄 عضوة في المركز"
 
                 sections_permanent = [s for s in sections if "دعم" not in s]
                 sections_support   = [s for s in sections if "دعم" in s]
 
                 if is_support:
-                    st.warning("🔄 دعم مؤقت — سيُسجّل حضورك لهذا اليوم فقط ولن تُحفظي في القائمة الدائمة")
+                    st.warning("🔄 عضوة في المركز — سيُسجّل حضورك لهذا اليوم فقط ولن تُحفظي في القائمة الدائمة")
                     emp_section_input = st.selectbox("القسم الذي تدعمينه", sections_support, key="emp_section_field")
                 else:
-                    st.info("💾 موظفة دائمة — ستُحفظين في القائمة تلقائياً عند أول تسجيل")
+                    st.info("💾 عضوة في المركز — ستُحفظين في القائمة تلقائياً عند أول تسجيل")
                     emp_section_input = st.selectbox("القسم", sections_permanent, key="emp_section_field")
 
             # حفّظ في session_state
