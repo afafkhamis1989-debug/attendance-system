@@ -515,8 +515,8 @@ mode = st.radio("", ["👤 موظفة", "🛡️ أدمن"], horizontal=True, la
 if mode == "👤 موظفة":
 
     # ── كارد الموقع ──────────────────────────────────────────────
-    with st.container(border=False):
-        st.markdown('<div class="pro-card"><div class="card-head"><div class="card-ico" style="background:#e6f1fb;">📍</div><b style="color:#0c3460;font-size:15px;">التحقق من الموقع</b></div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown('<div class="card-head"><div class="card-ico" style="background:#e6f1fb;">📍</div><b style="color:#0c3460;font-size:15px;">التحقق من الموقع</b></div>', unsafe_allow_html=True)
         location = streamlit_geolocation()
         dist_val = None
 
@@ -528,25 +528,23 @@ if mode == "👤 موظفة":
                     dist_val = distance_m(float(lat), float(lon), SCHOOL_LAT, SCHOOL_LON)
                     if dist_val <= ALLOWED_RADIUS:
                         st.session_state.location_allowed = True
-                        st.markdown(f'<div class="loc-ok"><div class="loc-dot-g"></div><div class="loc-txt-g">داخل نطاق المدرسة ✓ — المسافة: {int(dist_val)} م</div></div>', unsafe_allow_html=True)
+                        st.success(f"✅ داخل نطاق المدرسة — المسافة: {int(dist_val)} م")
                     else:
                         st.session_state.location_allowed = False
-                        st.markdown(f'<div class="loc-err"><div class="loc-dot-r"></div><div class="loc-txt-r">خارج النطاق ✗ — المسافة: {int(dist_val)} م</div></div>', unsafe_allow_html=True)
+                        st.error(f"❌ خارج النطاق — المسافة: {int(dist_val)} م")
                 except Exception:
                     st.session_state.location_allowed = False
-                    st.markdown('<div class="loc-err"><div class="loc-dot-r"></div><div class="loc-txt-r">خطأ في قراءة الموقع</div></div>', unsafe_allow_html=True)
+                    st.error("❌ خطأ في قراءة الموقع")
             else:
                 st.session_state.location_allowed = False
-                st.markdown('<div class="loc-err"><div class="loc-dot-r"></div><div class="loc-txt-r">اضغطي زر تحديد الموقع أولاً</div></div>', unsafe_allow_html=True)
+                st.warning("⚠️ اضغطي زر تحديد الموقع أولاً")
         else:
             st.session_state.location_allowed = False
-            st.markdown('<div class="loc-err"><div class="loc-dot-r"></div><div class="loc-txt-r">لم يتم تحديد الموقع بعد</div></div>', unsafe_allow_html=True)
+            st.warning("⚠️ لم يتم تحديد الموقع بعد")
 
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── كارد البيانات (نظام مفتوح مع حفظ تلقائي) ────────────────
-    with st.container(border=False):
-        st.markdown('<div class="pro-card"><div class="card-head"><div class="card-ico" style="background:#faeeda;">🪪</div><b style="color:#0c3460;font-size:15px;">البيانات الشخصية</b></div>', unsafe_allow_html=True)
+    # ── كارد البيانات الشخصية ────────────────────────────────────
+    with st.container(border=True):
+        st.markdown('<div class="card-head"><div class="card-ico" style="background:#faeeda;">🪪</div><b style="color:#0c3460;font-size:15px;">البيانات الشخصية</b></div>', unsafe_allow_html=True)
 
         emp_id_input = st.text_input(
             "الرقم الشخصي",
@@ -566,7 +564,6 @@ if mode == "👤 موظفة":
             emp_name_input    = existing.get("الاسم","")
             emp_school_input  = existing.get("المدرسة", schools[0])
             emp_section_input = existing.get("القسم", sections[0])
-            locked_class = "locked"
             st.markdown(f"""
             <div class="field-lbl">الاسم</div>
             <div class="field-val locked">{emp_name_input}</div>
@@ -577,7 +574,7 @@ if mode == "👤 موظفة":
             <div style="font-size:11px;color:#3B6D11;font-weight:700;margin-top:4px;">✓ موظفة مسجّلة</div>
             """, unsafe_allow_html=True)
         else:
-            # موظفة جديدة أو دعم — تدخل بياناتها وتُحفظ تلقائياً
+            # موظفة جديدة أو دعم
             emp_name_input    = st.text_input("الاسم الثلاثي", placeholder="اكتبي اسمك الثلاثي", key="emp_name_field")
             emp_school_input  = st.selectbox("المدرسة", schools, key="emp_school_field")
             emp_section_input = st.selectbox("القسم", sections, key="emp_section_field")
@@ -585,15 +582,15 @@ if mode == "👤 موظفة":
             if emp_id_input.strip() and emp_name_input.strip():
                 is_support = "دعم" in emp_section_input
                 if is_support:
-                    st.markdown('<div style="background:#faeeda;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;color:#633806;margin-top:6px;">📋 موظفة دعم — تسجيل لهذا اليوم فقط</div>', unsafe_allow_html=True)
+                    st.info("📋 موظفة دعم — تسجيل لهذا اليوم فقط")
                 else:
-                    st.markdown('<div style="background:#e6f1fb;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;color:#0C447C;margin-top:6px;">💾 موظفة جديدة — ستُحفظ في القائمة تلقائياً عند التسجيل</div>', unsafe_allow_html=True)
+                    st.info("💾 موظفة جديدة — ستُحفظ في القائمة تلقائياً عند التسجيل")
 
         # حفّظ في session_state
         if existing:
             st.session_state.emp_verified = True
             st.session_state.emp_data = existing
-        elif emp_id_input.strip() and emp_name_input.strip() if not existing else False:
+        elif emp_id_input.strip() and (emp_name_input.strip() if not existing else False):
             is_support = "دعم" in emp_section_input
             st.session_state.emp_verified = True
             st.session_state.emp_data = {
@@ -615,8 +612,6 @@ if mode == "👤 موظفة":
             data = sheet.get_all_records()
             _, row = find_today_row(data, today_str, st.session_state.emp_data.get("الرقم الشخصي",""))
             st.session_state.today_row = row
-
-        st.markdown('</div>', unsafe_allow_html=True)
 
     # ── كارد العمليات ────────────────────────────────────────────
     if st.session_state.emp_verified and st.session_state.emp_data:
