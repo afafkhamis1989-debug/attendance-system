@@ -587,11 +587,11 @@ if mode == "👤 موظفة":
             # ── اختيار نوع الموظفة ──
             emp_type = st.radio(
                 "نوع التسجيل",
-                ["👩‍🏫 موظفة دائمة", "🔄 دعم مؤقت"],
+                ["👩‍🏫 عضوة في المركز","🔄 دعم"],
                 horizontal=True,
                 key="emp_type_radio"
             )
-            is_support = emp_type == "🔄 دعم مؤقت"
+            is_support = emp_type == "🔄 دعم "
 
             # أظهر الأقسام المناسبة فقط
             sections_permanent = [s for s in sections if "دعم" not in s]
@@ -605,7 +605,7 @@ if mode == "👤 موظفة":
                     key="emp_section_field"
                 )
             else:
-                st.info("💾 موظفة دائمة — ستُحفظين في القائمة تلقائياً عند أول تسجيل")
+                st.info("💾 عضوة في المركز — ستُحفظين في القائمة تلقائياً عند أول تسجيل")
                 emp_section_input = st.selectbox(
                     "القسم",
                     sections_permanent,
@@ -1103,7 +1103,7 @@ else:
 # ── فوتر ─────────────────────────────────────────────────────────
 st.markdown("""
 <div class="footer-bar">
-    <span>تصميم: <span class="hl">أ. عفاف حسين</span></span>
+    <span>برمجة وتصميم: <span class="hl">أ. عفاف حسين</span></span>
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
