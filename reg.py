@@ -88,7 +88,7 @@ html, body, [class*="css"] {
 
 .main-title {
     text-align: center;
-    font-size: 20px;
+    font-size: 30px;
     font-weight: 900;
     color: #173f6b;
     margin-top: 8px;
