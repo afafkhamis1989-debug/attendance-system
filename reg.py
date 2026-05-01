@@ -648,12 +648,12 @@ else:
         pw = st.text_input("كلمة المرور", type="password", key="admin_pw")
         if st.button("دخول", use_container_width=True):
             ADMIN_PASSWORD = "Afaf1234"
-            if pw == ADMIN_PASSWORD:
+            if pw.strip() == ADMIN_PASSWORD:
                 st.session_state.admin_logged_in   = True
                 st.session_state.admin_last_active = datetime.now()
                 st.rerun()
             else:
-                st.error("❌ كلمة المرور غير صحيحة")
+                st.error(f"❌ كلمة المرور غير صحيحة — كتبتِ: '{pw.strip()}' — المطلوب: 'Afaf1234'")
         st.markdown('</div>', unsafe_allow_html=True)
 
     else:
@@ -856,3 +856,4 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
+
