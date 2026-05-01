@@ -707,8 +707,18 @@ else:
 
         # ── إحصائيات اليوم ──────────────────────────────────────
         if admin_tab == "📊 إحصائيات اليوم":
-            data = sheet.get_all_records()
+            data       = sheet.get_all_records()
             today_rows = [r for r in data if r.get("التاريخ") == today_str]
+
+            # بيانات الغياب
+            try:
+                abs_sheet_stats = get_or_create_sheet("سجل_الغياب", [
+                    "التاريخ","اليوم","الرقم الشخصي","الاسم",
+                    "المدرسة","القسم","سبب الغياب","ملاحظات","سجّله"
+                ])
+                abs_today = [r for r in abs_sheet_stats.get_all_records() if r.get("التاريخ") == today_str]
+            except Exception:
+                abs_today = []
 
             total     = len(today_rows)
             attended  = sum(1 for r in today_rows if r.get("وقت الحضور"))
@@ -716,16 +726,39 @@ else:
             late_list = [r for r in today_rows if r.get("وقت الحضور","") > "07:30:00"]
             early_dep = [r for r in today_rows if r.get("وقت الانصراف","") and r.get("وقت الانصراف","") < "14:00:00"]
             on_leave  = [r for r in today_rows if r.get("خروج استئذان") and not r.get("عودة")]
+            absent    = len(abs_today)
 
+            # صف 1
             c1,c2,c3 = st.columns(3)
             c1.metric("إجمالي المسجّلين", total)
             c2.metric("حاضرون الآن", attended)
             c3.metric("منصرفون", departed)
 
+            # صف 2
             c4,c5,c6 = st.columns(3)
             c4.metric("متأخرون", len(late_list))
             c5.metric("انصراف مبكر", len(early_dep))
             c6.metric("استئذان مفتوح", len(on_leave))
+
+            # صف 3 - الغياب
+            c7,c8,_ = st.columns(3)
+            c7.metric("غائبات اليوم", absent)
+            c8.metric("إجمالي الموظفات", len(get_whitelist()) or "—")
+
+            # قائمة الغائبات
+            if abs_today:
+                st.markdown('<div class="admin-section">الغائبات اليوم</div>', unsafe_allow_html=True)
+                for r in abs_today:
+                    reason = r.get("سبب الغياب","")
+                    name   = r.get("الاسم","")
+                    school = r.get("المدرسة","")
+                    st.markdown(
+                        f'<div class="audit-row" style="border-right-color:#E24B4A;">'
+                        f'<span class="ar-op">🔴 {name}</span>'
+                        f'<div class="ar-det">{school} — سبب: {reason}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
 
             if late_list:
                 st.markdown('<div class="admin-section">المتأخرون اليوم</div>', unsafe_allow_html=True)
