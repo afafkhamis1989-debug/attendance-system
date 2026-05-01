@@ -636,17 +636,17 @@ if mode == "👤 موظفة":
 
                 emp_type = st.radio(
                     "نوع التسجيل",
-                    ["👩‍🏫 عضوة في المركز", "🔄 عضوة في المركز"],
+                    ["👩‍🏫 عضوة في المركز", "🔄 دعم"],
                     horizontal=True,
                     key="emp_type_radio"
                 )
-                is_support = emp_type == "🔄 عضوة في المركز"
+                is_support = emp_type == "🔄 دعم"
 
                 sections_permanent = [s for s in sections if "دعم" not in s]
                 sections_support   = [s for s in sections if "دعم" in s]
 
                 if is_support:
-                    st.warning("🔄 عضوة في المركز — سيُسجّل حضورك لهذا اليوم فقط ولن تُحفظي في القائمة الدائمة")
+                    st.warning("🔄 دعم — سيُسجّل حضورك لهذا اليوم فقط ولن تُحفظي في القائمة الدائمة")
                     emp_section_input = st.selectbox("القسم الذي تدعمينه", sections_support, key="emp_section_field")
                 else:
                     st.info("💾 عضوة في المركز — ستُحفظين في القائمة تلقائياً عند أول تسجيل")
