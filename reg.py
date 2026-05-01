@@ -456,13 +456,24 @@ def register_operation(operation, emp_id, note=""):
     st.session_state.pending_operation = None
     st.success(f"✅ تم {operation} بنجاح")
 
-    # ── احفظ بيانات الموظفة في LocalStorage لتثبيتها طول اليوم ──
+    # ── احفظ بيانات الموظفة لتثبيتها طول اليوم ──
     if operation == "تسجيل حضور":
-        ls_set("saved_date",    today,                    "sv_date")
-        ls_set("saved_id",      emp_id,                   "sv_id")
-        ls_set("saved_name",    full_name,                "sv_name")
-        ls_set("saved_school",  school,                   "sv_school")
-        ls_set("saved_section", section,                  "sv_section")
+        # احفظ في session_state كـ lock دائم
+        st.session_state.data_locked_today = True
+        st.session_state.locked_emp = {
+            "الرقم الشخصي": emp_id,
+            "الاسم": full_name,
+            "المدرسة": school,
+            "القسم": section,
+            "دعم": emp.get("دعم", False)
+        }
+        st.session_state.locked_date = today
+        # احفظ في LocalStorage أيضاً للاستمرارية بين الجلسات
+        ls_set("saved_date",    today,     "sv_date")
+        ls_set("saved_id",      emp_id,    "sv_id")
+        ls_set("saved_name",    full_name, "sv_name")
+        ls_set("saved_school",  school,    "sv_school")
+        ls_set("saved_section", section,   "sv_section")
         ls_set("saved_support", "نعم" if emp.get("دعم") else "لا", "sv_support")
 
     return True
@@ -478,6 +489,9 @@ for k, v in {
     "emp_verified": False,
     "emp_data": None,
     "data_unlocked": False,
+    "data_locked_today": False,
+    "locked_emp": None,
+    "locked_date": None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -493,17 +507,22 @@ _saved_school  = ls_get("saved_school")
 _saved_section = ls_get("saved_section")
 _saved_support = ls_get("saved_support")
 
-# هل البيانات محفوظة من نفس اليوم؟
-_data_locked = (
-    _saved_date == today_str
-    and _saved_id and str(_saved_id).strip() != ""
-    and not st.session_state.data_unlocked
+# هل البيانات مقفلة؟ — نتحقق من session_state أولاً ثم LocalStorage
+_session_locked = (
+    st.session_state.get("data_locked_today", False)
+    and st.session_state.get("locked_date") == today_str
+    and not st.session_state.get("data_unlocked", False)
 )
 
-# لو محفوظة — حمّل emp_data تلقائياً بدون ما تدخل بياناتها
+_data_locked = _session_locked or (
+    _saved_date == today_str
+    and _saved_id and str(_saved_id).strip() != ""
+    and not st.session_state.get("data_unlocked", False)
+)
+
+# لو مقفل — حمّل emp_data من session_state أو LocalStorage
 if _data_locked and not st.session_state.emp_verified:
-    st.session_state.emp_verified = True
-    st.session_state.emp_data = {
+    locked_emp = st.session_state.get("locked_emp") or {
         "الرقم الشخصي": _saved_id,
         "الاسم": _saved_name or "",
         "المدرسة": _saved_school or (schools[0] if schools else ""),
@@ -511,6 +530,8 @@ if _data_locked and not st.session_state.emp_verified:
         "نشط": "نعم",
         "دعم": _saved_support == "نعم"
     }
+    st.session_state.emp_verified = True
+    st.session_state.emp_data = locked_emp
 
 # انتهاء جلسة الأدمن بعد 30 دقيقة خمول
 if st.session_state.admin_logged_in and st.session_state.admin_last_active:
