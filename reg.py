@@ -666,6 +666,7 @@ else:
 
         admin_tab = st.selectbox("القسم", [
             "📊 إحصائيات اليوم",
+            "🔴 تسجيل الغياب",
             "✏️ تعديل سجل",
             "➕ تسجيل يدوي",
             "📋 القائمة البيضاء",
@@ -699,6 +700,110 @@ else:
                 st.markdown('<div class="admin-section">المتأخرون اليوم</div>', unsafe_allow_html=True)
                 for r in late_list:
                     st.markdown(f'<div class="warn-row">⏰ {r.get("الاسم الثلاثي","")} — وصل {r.get("وقت الحضور","")}</div>', unsafe_allow_html=True)
+
+        # ── تسجيل الغياب ────────────────────────────────────────
+        elif admin_tab == "🔴 تسجيل الغياب":
+            absence_reasons = ["مرض", "إجازة اعتيادية", "إجازة طارئة", "بدون عذر", "مهمة رسمية", "أخرى"]
+
+            abs_date = st.date_input("تاريخ الغياب", value=datetime.now().date(), key="abs_date")
+            abs_date_str = str(abs_date)
+
+            # جيب كل الموظفات من القائمة البيضاء
+            wl_all = get_whitelist()
+            if not wl_all:
+                st.warning("⚠️ القائمة البيضاء فارغة — أضيفي الموظفات أولاً من قسم القائمة البيضاء")
+            else:
+                # جيب من سجّل حضور في هذا التاريخ
+                data = sheet.get_all_records()
+                attended_ids = set(
+                    str(r.get("الرقم الشخصي","")).strip()
+                    for r in data
+                    if r.get("التاريخ") == abs_date_str and r.get("وقت الحضور")
+                )
+
+                # جيب من سجّل غياب مسبقاً في هذا التاريخ
+                try:
+                    abs_sheet = get_or_create_sheet("سجل_الغياب", [
+                        "التاريخ", "اليوم", "الرقم الشخصي", "الاسم",
+                        "المدرسة", "القسم", "سبب الغياب", "ملاحظات", "سجّله"
+                    ])
+                    abs_records = abs_sheet.get_all_records()
+                    absent_ids = set(
+                        str(r.get("الرقم الشخصي","")).strip()
+                        for r in abs_records
+                        if r.get("التاريخ") == abs_date_str
+                    )
+                except Exception:
+                    abs_sheet = None
+                    absent_ids = set()
+
+                # الغائبون = كل القائمة البيضاء - الحاضرون - المسجّل غيابهم
+                not_registered = {
+                    eid: emp for eid, emp in wl_all.items()
+                    if eid not in attended_ids and eid not in absent_ids
+                }
+                already_absent = {
+                    eid: emp for eid, emp in wl_all.items()
+                    if eid in absent_ids
+                }
+
+                # إحصائيات
+                c1, c2, c3 = st.columns(3)
+                c1.metric("إجمالي الموظفات", len(wl_all))
+                c2.metric("حاضرات", len(attended_ids))
+                c3.metric("لم يسجّلن بعد", len(not_registered))
+
+                # من سجّل غيابهم مسبقاً
+                if already_absent:
+                    st.markdown('<div class="admin-section">تم تسجيل غيابهن</div>', unsafe_allow_html=True)
+                    for eid, emp in already_absent.items():
+                        rec = next((r for r in abs_records if str(r.get("الرقم الشخصي","")) == eid and r.get("التاريخ") == abs_date_str), {})
+                        st.markdown(f'<div class="audit-row" style="border-color:#E24B4A;"><span class="ar-op">🔴 {emp.get("الاسم","")}</span><div class="ar-det">#{eid} — سبب: {rec.get("سبب الغياب","")}</div></div>', unsafe_allow_html=True)
+
+                # من لم يسجّل بعد
+                if not_registered:
+                    st.markdown('<div class="admin-section">لم يسجّلن بعد — حدّدي من هي غائبة</div>', unsafe_allow_html=True)
+
+                    for eid, emp in not_registered.items():
+                        with st.expander(f"🔴 {emp.get('الاسم','')} — {emp.get('المدرسة','')}"):
+                            reason_key = f"abs_reason_{eid}"
+                            other_key  = f"abs_other_{eid}"
+                            note_key   = f"abs_note_{eid}"
+                            btn_key    = f"abs_btn_{eid}"
+
+                            sel_reason = st.selectbox("سبب الغياب", absence_reasons, key=reason_key)
+                            other_txt  = ""
+                            if sel_reason == "أخرى":
+                                other_txt = st.text_input("اكتبي السبب", key=other_key)
+                            note_txt = st.text_input("ملاحظات إضافية (اختياري)", key=note_key)
+
+                            final_reason = other_txt.strip() if sel_reason == "أخرى" else sel_reason
+
+                            if st.button(f"تسجيل غياب", key=btn_key, use_container_width=True):
+                                if not final_reason:
+                                    st.error("سبب الغياب مطلوب")
+                                elif abs_sheet is None:
+                                    st.error("خطأ في الاتصال بالشيت")
+                                else:
+                                    day_ar = {
+                                        "Saturday":"السبت","Sunday":"الأحد","Monday":"الاثنين",
+                                        "Tuesday":"الثلاثاء","Wednesday":"الأربعاء",
+                                        "Thursday":"الخميس","Friday":"الجمعة"
+                                    }.get(abs_date.strftime("%A"), abs_date.strftime("%A"))
+
+                                    abs_sheet.append_row([
+                                        abs_date_str, day_ar,
+                                        eid, emp.get("الاسم",""),
+                                        emp.get("المدرسة",""), emp.get("القسم",""),
+                                        final_reason, note_txt,
+                                        "أدمن"
+                                    ])
+                                    log_audit(eid, emp.get("الاسم",""), "تسجيل غياب",
+                                              f"التاريخ: {abs_date_str} | السبب: {final_reason}")
+                                    st.success(f"✅ تم تسجيل غياب {emp.get('الاسم','')} بسبب: {final_reason}")
+                                    st.rerun()
+                else:
+                    st.success("✅ تم تسجيل وضع جميع الموظفات لهذا اليوم")
 
         # ── تعديل سجل ────────────────────────────────────────────
         elif admin_tab == "✏️ تعديل سجل":
