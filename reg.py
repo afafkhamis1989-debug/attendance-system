@@ -560,10 +560,11 @@ if mode == "👤 موظفة":
             existing = None
 
         if existing:
-            # موظفة معروفة — بياناتها محفوظة
+            # موظفة معروفة — بياناتها محفوظة ومقفلة
             emp_name_input    = existing.get("الاسم","")
             emp_school_input  = existing.get("المدرسة", schools[0])
             emp_section_input = existing.get("القسم", sections[0])
+            is_support        = "دعم" in emp_section_input
             st.markdown(f"""
             <div class="field-lbl">الاسم</div>
             <div class="field-val locked">{emp_name_input}</div>
@@ -573,25 +574,49 @@ if mode == "👤 موظفة":
             <div class="field-val locked">{emp_section_input}</div>
             <div style="font-size:11px;color:#3B6D11;font-weight:700;margin-top:4px;">✓ موظفة مسجّلة</div>
             """, unsafe_allow_html=True)
-        else:
-            # موظفة جديدة أو دعم
-            emp_name_input    = st.text_input("الاسم الثلاثي", placeholder="اكتبي اسمك الثلاثي", key="emp_name_field")
-            emp_school_input  = st.selectbox("المدرسة", schools, key="emp_school_field")
-            emp_section_input = st.selectbox("القسم", sections, key="emp_section_field")
 
-            if emp_id_input.strip() and emp_name_input.strip():
-                is_support = "دعم" in emp_section_input
-                if is_support:
-                    st.info("📋 موظفة دعم — تسجيل لهذا اليوم فقط")
-                else:
-                    st.info("💾 موظفة جديدة — ستُحفظ في القائمة تلقائياً عند التسجيل")
+        else:
+            # موظفة جديدة — نسأل أولاً دائمة أم دعم
+            emp_name_input = st.text_input(
+                "الاسم الثلاثي",
+                placeholder="اكتبي اسمك الثلاثي",
+                key="emp_name_field"
+            )
+            emp_school_input = st.selectbox("المدرسة", schools, key="emp_school_field")
+
+            # ── اختيار نوع الموظفة ──
+            emp_type = st.radio(
+                "نوع التسجيل",
+                ["👩‍🏫 موظفة دائمة", "🔄 دعم مؤقت"],
+                horizontal=True,
+                key="emp_type_radio"
+            )
+            is_support = emp_type == "🔄 دعم مؤقت"
+
+            # أظهر الأقسام المناسبة فقط
+            sections_permanent = [s for s in sections if "دعم" not in s]
+            sections_support   = [s for s in sections if "دعم" in s]
+
+            if is_support:
+                st.warning("🔄 دعم مؤقت — سيُسجّل حضورك لهذا اليوم فقط ولن تُحفظي في القائمة الدائمة")
+                emp_section_input = st.selectbox(
+                    "القسم الذي تدعمينه",
+                    sections_support,
+                    key="emp_section_field"
+                )
+            else:
+                st.info("💾 موظفة دائمة — ستُحفظين في القائمة تلقائياً عند أول تسجيل")
+                emp_section_input = st.selectbox(
+                    "القسم",
+                    sections_permanent,
+                    key="emp_section_field"
+                )
 
         # حفّظ في session_state
         if existing:
             st.session_state.emp_verified = True
             st.session_state.emp_data = existing
         elif emp_id_input.strip() and (emp_name_input.strip() if not existing else False):
-            is_support = "دعم" in emp_section_input
             st.session_state.emp_verified = True
             st.session_state.emp_data = {
                 "الرقم الشخصي": emp_id_input.strip(),
