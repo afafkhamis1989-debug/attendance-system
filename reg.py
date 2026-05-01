@@ -229,7 +229,7 @@ def normalize_name(name):
     return " ".join(name.split())
 
 def hash_password(pw):
-    return hashlib.sha256(pw.encode()).hexdigest()
+    return hashlib.sha256(Afaf1234.encode()).hexdigest()
 
 def get_device_fingerprint():
     """تولّد بصمة للجهاز تُخزّن في LocalStorage وتبقى ثابتة."""
