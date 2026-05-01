@@ -228,8 +228,6 @@ def normalize_name(name):
         name = name.replace(ch, " ")
     return " ".join(name.split())
 
-def hash_password(pw):
-    return hashlib.sha256(pw.encode()).hexdigest()
 
 def get_device_fingerprint():
     """تولّد بصمة للجهاز تُخزّن في LocalStorage وتبقى ثابتة."""
