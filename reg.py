@@ -476,7 +476,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-localS.setItem("saved_school", school)
-localS.setItem("saved_section", section)
-localS.setItem("saved_name", name)
-localS.setItem("saved_date", today_for_storage)
+localS.setItem("saved_school", school, key="set_saved_school")
+localS.setItem("saved_section", section, key="set_saved_section")
+localS.setItem("saved_name", name, key="set_saved_name")
+localS.setItem("saved_date", today_for_storage, key="set_saved_date")
