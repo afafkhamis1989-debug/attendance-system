@@ -471,7 +471,7 @@ if st.session_state.pending_operation == "تسجيل حضور":
 
 st.markdown("""
 <div class="footer" style="display:flex; justify-content:space-between; direction:rtl;">
-    <div>تصميم وبرمجة: عفاف حسين</div>
+    <div>تصميم وبرمجة: أ. عفاف حسين</div>
     <div>رئيسة المركز: أ. خلود يعقوب بدو</div>
 </div>
 """, unsafe_allow_html=True)
