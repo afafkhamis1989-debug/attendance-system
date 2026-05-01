@@ -229,7 +229,7 @@ def normalize_name(name):
     return " ".join(name.split())
 
 def hash_password(pw):
-    return hashlib.sha256("Afaf1234".encode()).hexdigest()
+    return hashlib.sha256(pw.encode()).hexdigest()
 
 def get_device_fingerprint():
     """تولّد بصمة للجهاز تُخزّن في LocalStorage وتبقى ثابتة."""
@@ -647,8 +647,8 @@ else:
         st.markdown('<div class="pro-card"><div class="card-head"><div class="card-ico" style="background:#EEEDFE;">🛡️</div><b style="color:#26215C;font-size:15px;">دخول الأدمن</b></div>', unsafe_allow_html=True)
         pw = st.text_input("كلمة المرور", type="password", key="admin_pw")
         if st.button("دخول", use_container_width=True):
-            correct_hash = st.secrets.get("admin_password_hash", "")
-            if hash_password(pw) == correct_hash:
+            ADMIN_PASSWORD = "Afaf1234"
+            if pw == ADMIN_PASSWORD:
                 st.session_state.admin_logged_in   = True
                 st.session_state.admin_last_active = datetime.now()
                 st.rerun()
