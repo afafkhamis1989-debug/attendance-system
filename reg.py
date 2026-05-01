@@ -229,9 +229,15 @@ with st.container(border=True):
 
 location = streamlit_geolocation()
 
-if location and "latitude" in location and "longitude" in location:
-    user_lat = location["latitude"]
-    user_lon = location["longitude"]
+location = streamlit_geolocation()
+
+if (
+    location
+    and location.get("latitude") is not None
+    and location.get("longitude") is not None
+):
+    user_lat = float(location["latitude"])
+    user_lon = float(location["longitude"])
 
     dist = distance_m(user_lat, user_lon, SCHOOL_LAT, SCHOOL_LON)
 
@@ -243,7 +249,7 @@ if location and "latitude" in location and "longitude" in location:
         st.error("❌ لا يمكن التسجيل خارج نطاق المدرسة")
 else:
     allowed = False
-    st.warning("يرجى تفعيل الموقع من المتصفح")
+    st.warning("يرجى تفعيل الموقع من المتصفح ثم الضغط على زر تحديد الموقع")
 
 with st.container(border=True):
     if data_locked:
