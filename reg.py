@@ -174,7 +174,7 @@ div[data-testid="stVerticalBlock"] > div {
 .footer {
     background: #f3f6fa;
     border-radius: 16px;
-    font-size: 18px;
+    font-size: 12px;
     font-weight: bold;
     margin-top: 28px;
     padding: 16px 22px;
