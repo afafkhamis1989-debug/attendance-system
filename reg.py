@@ -105,7 +105,7 @@ html, body, [class*="css"] {
 
 .operation-title {
     text-align: center;
-    font-size: 40px;
+    font-size: 30px;
     font-weight: 900;
     color: #0f2f55;
     margin: 30px 0 25px 0;
