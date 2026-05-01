@@ -247,9 +247,9 @@ with st.container(border=True):
             except Exception:
                 st.warning("حدث خطأ في قراءة الموقع، حاول مرة أخرى")
         else:
-            st.warning("اضغطي زر تحديد الموقع 📍")
+            st.warning("اضغط زر تحديد الموقع 📍")
     else:
-        st.warning("اضغطي زر تحديد الموقع 📍")
+        st.warning("اضغط زر تحديد الموقع 📍")
 
 with st.container(border=True):
     if data_locked:
