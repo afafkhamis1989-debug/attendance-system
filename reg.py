@@ -3,7 +3,13 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, time, timedelta
 from streamlit_geolocation import streamlit_geolocation
-from streamlit_local_storage import LocalStorage
+try:
+    from streamlit_local_storage import LocalStorage
+    localS = LocalStorage()
+    LOCAL_STORAGE_OK = True
+except Exception:
+    localS = None
+    LOCAL_STORAGE_OK = False
 import math
 import hashlib
 import json
@@ -14,7 +20,6 @@ st.set_page_config(
     layout="centered"
 )
 
-localS = LocalStorage()
 
 # ─── إعدادات المدرسة ───────────────────────────────────────────
 SCHOOL_LAT = 26.216371784473964
@@ -230,13 +235,39 @@ def normalize_name(name):
 
 
 def get_device_fingerprint():
-    """تولّد بصمة للجهاز تُخزّن في LocalStorage وتبقى ثابتة."""
-    fp = localS.getItem("device_fp")
-    if not fp:
-        import random, string
-        fp = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
-        localS.setItem("device_fp", fp, key="set_device_fp")
-    return fp or "unknown"
+    """تولّد بصمة للجهاز — تحاول LocalStorage أولاً ثم session_state."""
+    import random, string
+    if LOCAL_STORAGE_OK:
+        try:
+            fp = localS.getItem("device_fp")
+            if not fp:
+                fp = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
+                localS.setItem("device_fp", fp, key="set_device_fp")
+            return fp or "unknown"
+        except Exception:
+            pass
+    if "device_fp" not in st.session_state:
+        st.session_state.device_fp = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
+    return st.session_state.device_fp
+
+def ls_get(key):
+    """تجيب قيمة من LocalStorage بأمان."""
+    if LOCAL_STORAGE_OK:
+        try:
+            return localS.getItem(key)
+        except Exception:
+            pass
+    return st.session_state.get(f"ls_{key}")
+
+def ls_set(key, value, ls_key=None):
+    """تحفظ قيمة في LocalStorage بأمان."""
+    if LOCAL_STORAGE_OK:
+        try:
+            localS.setItem(key, value, key=ls_key or f"set_{key}")
+            return
+        except Exception:
+            pass
+    st.session_state[f"ls_{key}"] = value
 
 def get_whitelist():
     """تجيب قائمة الأرقام الشخصية المسموح لها."""
