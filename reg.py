@@ -264,13 +264,18 @@ with st.container(border=True):
                     allowed = True
                     st.success("تم تحديد الموقع بنجاح، أنت داخل نطاق المدرسة ويمكنك التسجيل ✅")
                 else:
-                    st.error("❌ لا يمكن التسجيل خارج نطاق المدرسة")
+                    allowed = False
+                    st.error("❌ تم تحديد الموقع، لكنك خارج نطاق المدرسة ولا يمكن التسجيل")
 
             except Exception:
-                st.warning("حدث خطأ في قراءة الموقع، حاول مرة أخرى")
+                allowed = False
+                st.error("❌ حدث خطأ في قراءة الموقع، حاول مرة أخرى")
         else:
-            st.warning("يرجى السماح باستخدام الموقع من المتصفح ثم الضغط على زر تحديد الموقع 📍")
-
+            allowed = False
+            st.error("❌ لم يتم تحديد الموقع، اضغط زر تحديد الموقع أولًا")
+    else:
+        allowed = False
+        st.error("❌ لا يمكن التسجيل قبل تحديد الموقع")
 
 
 with st.container(border=True):
