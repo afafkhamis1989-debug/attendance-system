@@ -6,6 +6,7 @@ from streamlit_geolocation import streamlit_geolocation
 import math
 import random
 import string
+import time as time_module
 
 try:
     from streamlit_local_storage import LocalStorage
@@ -25,14 +26,14 @@ st.set_page_config(
 )
 
 # =========================================================
-# إعدادات المدرسة
+# الإعدادات الأساسية
 # =========================================================
+SHEET_ID = "1svkfgRq4-osKr86_2WJQFZShuoy8Ek5DOiUaaHKL-6Y"
+MAIN_SHEET_NAME = "sheet1"
+
 SCHOOL_LAT = 26.216371784473964
 SCHOOL_LON = 50.54035843289093
 ALLOWED_RADIUS = 150
-
-SHEET_ID = "1svkfgRq4-osKr86_2WJQFZShuoy8Ek5DOiUaaHKL-6Y"
-MAIN_SHEET_NAME = "sheet1"
 
 # أعمدة sheet1
 COL_DATE = 1
@@ -73,54 +74,6 @@ ATTEMPT_HEADERS = [
 
 SETTINGS_HEADERS = ["المفتاح", "القيمة", "تاريخ_الانتهاء", "ملاحظات"]
 
-# =========================================================
-# الاتصال بـ Google Sheets
-# =========================================================
-scope = [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/drive"
-]
-
-@st.cache_resource
-def connect_google_sheets():
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(
-        st.secrets["gcp_service_account"], scope
-    )
-    client = gspread.authorize(creds)
-    return client.open_by_key(SHEET_ID)
-
-spreadsheet = connect_google_sheets()
-
-def get_or_create_sheet(name, headers, rows=1000):
-    try:
-        ws = spreadsheet.worksheet(name)
-    except gspread.WorksheetNotFound:
-        ws = spreadsheet.add_worksheet(title=name, rows=rows, cols=max(len(headers), 10))
-        ws.append_row(headers)
-        return ws
-
-    # تأكد من وجود الهيدرز الأساسية
-    try:
-        existing = ws.row_values(1)
-        if not existing:
-            ws.append_row(headers)
-        elif len(existing) < len(headers):
-            for i, h in enumerate(headers, start=1):
-                if i > len(existing) or not existing[i - 1]:
-                    ws.update_cell(1, i, h)
-    except Exception:
-        pass
-    return ws
-
-sheet = get_or_create_sheet(MAIN_SHEET_NAME, MAIN_HEADERS, rows=3000)
-whitelist_sheet = get_or_create_sheet("القائمة_البيضاء", WHITELIST_HEADERS, rows=1000)
-device_lock_sheet = get_or_create_sheet("device_lock", DEVICE_HEADERS, rows=1000)
-attempts_sheet = get_or_create_sheet("محاولات_تسجيل_باسم_آخر", ATTEMPT_HEADERS, rows=1000)
-settings_sheet = get_or_create_sheet("إعدادات_النظام", SETTINGS_HEADERS, rows=1000)
-
-# =========================================================
-# بيانات ثابتة
-# =========================================================
 schools = [
     "مدرسة النور الثانوية للبنات",
     "مدرسة المعرفة الثانوية للبنات",
@@ -161,29 +114,61 @@ JOB_TITLES = [
 reasons = ["دوام مرن", "موعد", "مهمة رسمية", "رعاية", "أخرى"]
 
 # =========================================================
-# CSS
+# CSS - RTL كامل
 # =========================================================
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
 
 html, body, [class*="css"] {
-    direction: rtl;
-    text-align: right;
-    font-family: 'Cairo', Tahoma, sans-serif;
+    direction: rtl !important;
+    text-align: right !important;
+    font-family: 'Cairo', Tahoma, sans-serif !important;
 }
-
+.stApp {
+    direction: rtl !important;
+    text-align: right !important;
+}
 .block-container {
     max-width: 680px;
     padding-top: 0px;
     padding-bottom: 40px;
+    direction: rtl !important;
+    text-align: right !important;
 }
-
+[data-testid="stVerticalBlock"],
+[data-testid="stHorizontalBlock"],
+.element-container,
+.stMarkdown,
+.stTextInput,
+.stSelectbox,
+.stRadio,
+.stButton,
+.stAlert {
+    direction: rtl !important;
+    text-align: right !important;
+}
+.stTextInput input {
+    direction: rtl !important;
+    text-align: right !important;
+}
+.stSelectbox div {
+    direction: rtl !important;
+    text-align: right !important;
+}
+label {
+    direction: rtl !important;
+    text-align: right !important;
+    display: block !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    color: #0c3460 !important;
+}
 .app-header {
     background: linear-gradient(135deg, #0c3460 0%, #1a5276 60%, #1f6fa3 100%);
     border-radius: 0 0 28px 28px;
     padding: 28px 24px 32px;
-    text-align: center;
+    text-align: center !important;
     margin: -1rem -1rem 20px -1rem;
 }
 .app-header .sub {
@@ -191,11 +176,13 @@ html, body, [class*="css"] {
     font-size: 12px;
     font-weight: 600;
     margin-bottom: 6px;
+    text-align: center !important;
 }
 .app-header .title {
     color: #fff;
     font-size: 22px;
     font-weight: 900;
+    text-align: center !important;
 }
 .app-header .date-pill {
     display: inline-block;
@@ -208,11 +195,19 @@ html, body, [class*="css"] {
     font-weight: 600;
     margin-top: 10px;
 }
+.card-title {
+    color: #0c3460;
+    font-size: 19px;
+    font-weight: 900;
+    margin-bottom: 14px;
+    text-align: right !important;
+}
 .field-lbl {
     font-size: 12px;
     font-weight: 700;
     color: #888780;
     margin-bottom: 4px;
+    text-align: right !important;
 }
 .field-val {
     background: #eaf3de;
@@ -223,6 +218,13 @@ html, body, [class*="css"] {
     font-weight: 800;
     color: #27500A;
     margin-bottom: 12px;
+    text-align: right !important;
+    direction: rtl !important;
+}
+.field-val.blue {
+    background: #e6f1fb;
+    border-color: #185FA5;
+    color: #185FA5;
 }
 .pro-card {
     background: #fff;
@@ -230,6 +232,7 @@ html, body, [class*="css"] {
     padding: 18px 20px;
     box-shadow: 0 2px 14px rgba(12,52,96,0.07);
     margin-bottom: 14px;
+    text-align: right !important;
 }
 .today-strip {
     display:flex;
@@ -239,9 +242,9 @@ html, body, [class*="css"] {
     padding:12px 8px;
     margin-bottom:14px;
 }
-.stat-cell { text-align:center; }
-.stat-val  { font-size:17px; font-weight:900; color:#0c3460; display:block; }
-.stat-lbl  { font-size:10px; font-weight:600; color:#888780; }
+.stat-cell { text-align:center !important; }
+.stat-val  { font-size:17px; font-weight:900; color:#0c3460; display:block; text-align:center !important; }
+.stat-lbl  { font-size:10px; font-weight:600; color:#888780; text-align:center !important; }
 .footer-bar {
     background:#0c3460;
     border-radius:14px;
@@ -253,12 +256,6 @@ html, body, [class*="css"] {
 }
 .footer-bar span { font-size:11px; font-weight:600; color:rgba(255,255,255,.7); }
 .footer-bar .hl  { color:#fff; }
-
-label, .stSelectbox label, .stTextInput label {
-    font-size:15px !important;
-    font-weight:700 !important;
-    color:#0c3460 !important;
-}
 .stButton button {
     border-radius:14px !important;
     font-size:15px !important;
@@ -267,6 +264,50 @@ label, .stSelectbox label, .stTextInput label {
 }
 </style>
 """, unsafe_allow_html=True)
+
+# =========================================================
+# الاتصال بـ Google Sheets
+# =========================================================
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive"
+]
+
+@st.cache_resource
+def connect_google_sheets():
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(
+        st.secrets["gcp_service_account"], scope
+    )
+    client = gspread.authorize(creds)
+    return client.open_by_key(SHEET_ID)
+
+spreadsheet = connect_google_sheets()
+
+def get_or_create_sheet(name, headers, rows=1000):
+    try:
+        ws = spreadsheet.worksheet(name)
+    except gspread.WorksheetNotFound:
+        ws = spreadsheet.add_worksheet(title=name, rows=rows, cols=max(len(headers), 10))
+        ws.append_row(headers)
+        return ws
+
+    try:
+        existing = ws.row_values(1)
+        if not existing:
+            ws.append_row(headers)
+        elif len(existing) < len(headers):
+            for i, h in enumerate(headers, start=1):
+                if i > len(existing) or not existing[i - 1]:
+                    ws.update_cell(1, i, h)
+    except Exception:
+        pass
+    return ws
+
+sheet = get_or_create_sheet(MAIN_SHEET_NAME, MAIN_HEADERS, rows=3000)
+whitelist_sheet = get_or_create_sheet("القائمة_البيضاء", WHITELIST_HEADERS, rows=1000)
+device_lock_sheet = get_or_create_sheet("device_lock", DEVICE_HEADERS, rows=1000)
+attempts_sheet = get_or_create_sheet("محاولات_تسجيل_باسم_آخر", ATTEMPT_HEADERS, rows=1000)
+settings_sheet = get_or_create_sheet("إعدادات_النظام", SETTINGS_HEADERS, rows=1000)
 
 # =========================================================
 # دوال مساعدة
@@ -313,10 +354,6 @@ def ls_set(key, value, ls_key=None):
     st.session_state[f"ls_{key}"] = value
 
 def get_device_fingerprint():
-    """
-    بصمة جهاز عملية مبنية على LocalStorage.
-    ملاحظة: إذا استخدم المستخدم Private أو مسح الكاش قد تتغير البصمة.
-    """
     if LOCAL_STORAGE_OK:
         try:
             fp = localS.getItem("device_fp")
@@ -337,8 +374,7 @@ def safe_append(ws, row, retries=3):
             ws.append_row(row, value_input_option="USER_ENTERED")
             return True
         except Exception:
-            import time as _time
-            _time.sleep(1.5)
+            time_module.sleep(1.5)
     return False
 
 def safe_update_cell(ws, row, col, value, retries=3):
@@ -347,8 +383,7 @@ def safe_update_cell(ws, row, col, value, retries=3):
             ws.update_cell(row, col, value)
             return True
         except Exception:
-            import time as _time
-            _time.sleep(1.5)
+            time_module.sleep(1.5)
     return False
 
 @st.cache_data(ttl=120)
@@ -376,7 +411,6 @@ def get_whitelist():
 @st.cache_data(ttl=120)
 def get_device_locks():
     try:
-        # الشيت صغير، ونأخذ آخر 200 فقط لتقليل الضغط
         return device_lock_sheet.get_all_records()[-200:]
     except Exception:
         return []
@@ -390,7 +424,6 @@ def get_settings_records():
 
 def clear_caches():
     get_sheet_data.clear()
-    get_whitelist.clear()
     get_device_locks.clear()
     get_settings_records.clear()
 
@@ -461,7 +494,6 @@ def log_attempt(today, fp, locked_id, locked_name, attempted_id, attempted_name)
         attempted_id, attempted_name, now, note
     ])
 
-    # ضع ملاحظة في صف الرقم المقفول عليه إن وجد
     try:
         data = get_sheet_data()
         row_index, _ = find_today_row(data, today, locked_id)
@@ -471,10 +503,6 @@ def log_attempt(today, fp, locked_id, locked_name, attempted_id, attempted_name)
         pass
 
 def check_device_lock(today, emp_id, emp_name):
-    """
-    يرجع True إذا الجهاز مسموح له.
-    إذا نفس الجهاز مقفول على رقم مختلف، يسجل المحاولة ويرجع False.
-    """
     fp = get_device_fingerprint()
     locks = get_device_locks()
 
@@ -527,7 +555,6 @@ def register_operation(operation, emp_id, note=""):
     day_name = now.strftime("%A")
     time_now = now.strftime("%H:%M:%S")
 
-    # قفل الجهاز: نفس الجهاز لا يسجل باسم آخر في نفس اليوم
     if not check_device_lock(today, emp_id, full_name):
         return False
 
@@ -554,7 +581,6 @@ def register_operation(operation, emp_id, note=""):
 
         lock_device_for_today(today, emp_id, full_name)
 
-        # تثبيت البيانات لهذا اليوم
         st.session_state.data_locked_today = True
         st.session_state.locked_emp = {
             "الرقم الشخصي": emp_id,
@@ -646,7 +672,6 @@ for k, v in default_state.items():
 
 today_str = datetime.now().strftime("%Y-%m-%d")
 
-# تحميل البيانات المثبتة
 _saved_date = ls_get("saved_date")
 _saved_id = ls_get("saved_id")
 _saved_name = ls_get("saved_name")
@@ -672,7 +697,6 @@ if _data_locked and not st.session_state.emp_verified:
         "نشط": "نعم"
     }
 
-# انتهاء جلسة الأدمن
 if st.session_state.admin_logged_in and st.session_state.admin_last_active:
     idle = (datetime.now() - st.session_state.admin_last_active).seconds // 60
     if idle >= 30:
@@ -705,7 +729,7 @@ mode = st.radio("", ["👤 موظفة", "🛡️ أدمن"], horizontal=True, la
 if mode == "👤 موظفة":
 
     with st.container(border=True):
-        st.markdown("### 📍 التحقق من الموقع")
+        st.markdown('<div class="card-title">📍 التحقق من الموقع</div>', unsafe_allow_html=True)
         location = streamlit_geolocation()
 
         if location:
@@ -742,7 +766,7 @@ if mode == "👤 موظفة":
         st.session_state.location_allowed = True
 
     with st.container(border=True):
-        st.markdown("### 🪪 البيانات الشخصية")
+        st.markdown('<div class="card-title">🪪 البيانات الشخصية</div>', unsafe_allow_html=True)
 
         if _data_locked:
             emp = st.session_state.emp_data
@@ -754,8 +778,8 @@ if mode == "👤 موظفة":
             <div class="field-lbl">المدرسة</div>
             <div class="field-val">{emp.get("المدرسة","")}</div>
             <div class="field-lbl">المهمة في الكنترول</div>
-            <div class="field-val">{emp.get("المهمة","")}</div>
-            <div style="font-size:12px;color:#3B6D11;font-weight:700;">🔒 بياناتك محفوظة لهذا اليوم</div>
+            <div class="field-val blue">{emp.get("المهمة","")}</div>
+            <div style="font-size:12px;color:#3B6D11;font-weight:700;text-align:right;">🔒 بياناتك محفوظة لهذا اليوم</div>
             """, unsafe_allow_html=True)
 
         else:
@@ -780,7 +804,7 @@ if mode == "👤 موظفة":
                     <div class="field-lbl">المدرسة</div>
                     <div class="field-val">{emp.get("المدرسة","")}</div>
                     <div class="field-lbl">المهمة في الكنترول</div>
-                    <div class="field-val">{emp.get("المهمة","")}</div>
+                    <div class="field-val blue">{emp.get("المهمة","")}</div>
                     """, unsafe_allow_html=True)
                     st.success("✅ تم التحقق من بياناتك.")
                 else:
@@ -802,7 +826,7 @@ if mode == "👤 موظفة":
 
         st.markdown(f"""
         <div class="pro-card">
-        <h3 style="color:#0c3460;">⚡ العمليات</h3>
+        <h3 style="color:#0c3460;text-align:right;">⚡ العمليات</h3>
         <div class="today-strip">
             <div class="stat-cell"><span class="stat-val">{att_time}</span><span class="stat-lbl">وقت الحضور</span></div>
             <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
@@ -840,11 +864,11 @@ if mode == "👤 موظفة":
 
         if st.session_state.pending_operation == "تسجيل حضور":
             with st.container(border=True):
-                st.markdown("### سبب التأخير بعد الساعة 7:30 — اختياري")
-                late_reason = st.selectbox("السبب", ["اختاري السبب (اختياري)"] + reasons)
+                st.markdown('<div class="card-title">سبب التأخير بعد الساعة 7:30 — اختياري</div>', unsafe_allow_html=True)
+                late_reason = st.selectbox("السبب", ["اختاري السبب (اختياري)"] + reasons, key="late_reason")
                 late_other = ""
                 if late_reason == "أخرى":
-                    late_other = st.text_input("اكتبي السبب")
+                    late_other = st.text_input("اكتبي السبب", key="late_other")
                 final = "" if late_reason == "اختاري السبب (اختياري)" else (late_other.strip() if late_reason == "أخرى" else late_reason)
                 if st.button("تأكيد تسجيل الحضور", use_container_width=True, type="primary"):
                     st.session_state.pending_operation = None
@@ -852,11 +876,11 @@ if mode == "👤 موظفة":
 
         if st.session_state.pending_operation == "تسجيل انصراف":
             with st.container(border=True):
-                st.markdown("### سبب الانصراف قبل الساعة 2:00")
-                reason = st.selectbox("السبب", reasons)
+                st.markdown('<div class="card-title">سبب الانصراف قبل الساعة 2:00</div>', unsafe_allow_html=True)
+                reason = st.selectbox("السبب", reasons, key="early_reason")
                 other = ""
                 if reason == "أخرى":
-                    other = st.text_input("اكتبي السبب")
+                    other = st.text_input("اكتبي السبب", key="early_other")
                 final = other.strip() if reason == "أخرى" else reason
                 if st.button("تأكيد تسجيل الانصراف", use_container_width=True, type="primary"):
                     st.session_state.pending_operation = None
@@ -864,11 +888,11 @@ if mode == "👤 موظفة":
 
         if st.session_state.pending_operation == "خروج استئذان":
             with st.container(border=True):
-                st.markdown("### سبب خروج الاستئذان")
-                reason = st.selectbox("السبب", reasons)
+                st.markdown('<div class="card-title">سبب خروج الاستئذان</div>', unsafe_allow_html=True)
+                reason = st.selectbox("السبب", reasons, key="exit_reason")
                 other = ""
                 if reason == "أخرى":
-                    other = st.text_input("اكتبي السبب")
+                    other = st.text_input("اكتبي السبب", key="exit_other")
                 final = other.strip() if reason == "أخرى" else reason
                 if st.button("تأكيد خروج الاستئذان", use_container_width=True, type="primary"):
                     st.session_state.pending_operation = None
@@ -880,7 +904,7 @@ if mode == "👤 موظفة":
 else:
     if not st.session_state.admin_logged_in:
         with st.container(border=True):
-            st.markdown("### 🛡️ دخول الأدمن")
+            st.markdown('<div class="card-title">🛡️ دخول الأدمن</div>', unsafe_allow_html=True)
             pw = st.text_input("كلمة المرور", type="password")
             if st.button("دخول", use_container_width=True):
                 ADMIN_PASSWORD = st.secrets.get("admin_password", "Afaf1234")
