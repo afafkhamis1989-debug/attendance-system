@@ -68,6 +68,10 @@ settings_sheet  = get_or_create_sheet("إعدادات_النظام", [
 device_lock_sheet = get_or_create_sheet("device_lock", [
     "التاريخ", "بصمة الجهاز", "الرقم الشخصي", "الاسم", "وقت_القفل"
 ])
+device_attempt_sheet = get_or_create_sheet("محاولات_تسجيل_باسم_آخر", [
+    "التاريخ", "بصمة الجهاز", "الرقم_المقفول_عليه", "اسم_المقفول_عليه",
+    "الرقم_المحاوِل", "اسم_المحاوِل", "وقت_المحاولة", "ملاحظات"
+])
 # ─── بيانات الموظفات من ملفات Excel (محمّلة مسبقاً) ──────────────
 # مهام كل قسم في الكنترول
 TASK_MAP = {
@@ -225,6 +229,22 @@ JOB_TITLES = [
 
 sections = TASKS_ALL  # للتوافق مع الكود القديم
 reasons = ["دوام مرن", "موعد", "مهمة رسمية", "رعاية", "أخرى"]
+
+# ترتيب أعمدة sheet1 حسب الشيت المعتمد
+COL_DATE = 1
+COL_DAY = 2
+COL_SCHOOL = 3
+COL_TASK = 4
+COL_SUPPORT = 5
+COL_NAME = 6
+COL_ID = 7
+COL_ATTEND = 8
+COL_LATE_REASON = 9
+COL_DEPART = 10
+COL_DEPART_REASON = 11
+COL_EXIT = 12
+COL_RETURN = 13
+COL_OTHER_NAME_ATTEMPT = 14  # N: محاولة تسجيل باسم آخر
 
 # ─── CSS الاحترافي ───────────────────────────────────────────────
 st.markdown("""
@@ -540,15 +560,44 @@ def get_device_locks_today(today):
     except Exception:
         return []
 
+def record_other_name_attempt(today, locked_id, attempted_id, attempted_name=""):
+    """يسجل محاولة استخدام نفس الجهاز لرقم مختلف في عمود N وفي ورقة المحاولات."""
+    fp = get_device_fingerprint()
+    now_time = datetime.now().strftime("%H:%M:%S")
+    locked_name = ""
+
+    try:
+        data = get_sheet_data()
+        row_index, row = find_today_row(data, today, locked_id)
+        if row_index:
+            locked_name = row.get("الاسم الثلاثي", "") or row.get("الاسم", "") or ""
+            msg = f"⚠️ محاولة تسجيل باسم آخر: {attempted_name or attempted_id} ({attempted_id}) الساعة {now_time}"
+            old_msg = str(row.get("محاولة تسجيل باسم آخر", "") or row.get("محاولة_تسجيل_باسم_آخر", "")).strip()
+            final_msg = msg if not old_msg else old_msg + " | " + msg
+            safe_update_cell(sheet, row_index, COL_OTHER_NAME_ATTEMPT, final_msg)
+            invalidate_sheet()
+    except Exception:
+        pass
+
+    try:
+        safe_append(device_attempt_sheet, [
+            today, fp, str(locked_id), locked_name,
+            str(attempted_id), attempted_name, now_time,
+            "محاولة تسجيل رقم شخصي مختلف من نفس الجهاز"
+        ])
+    except Exception:
+        pass
+
 def check_device_lock(today, emp_id, emp_name=""):
-    """يمنع استخدام نفس الجهاز لرقم شخصي مختلف في اليوم نفسه."""
+    """يمنع استخدام نفس الجهاز لرقم شخصي مختلف في اليوم نفسه، ويسجل المحاولة."""
     fp = get_device_fingerprint()
     locks = get_device_locks_today(today)
     for r in locks:
         if str(r.get("بصمة الجهاز", "")).strip() == fp:
             locked_id = str(r.get("الرقم الشخصي", "")).strip()
             if locked_id and locked_id != str(emp_id).strip():
-                st.error("🚫 هذا الجهاز مسجّل لموظفة أخرى اليوم. لا يمكن تسجيل رقم شخصي مختلف من نفس الجهاز.")
+                record_other_name_attempt(today, locked_id, emp_id, emp_name)
+                st.error("🚫 هذا الجهاز مسجّل لموظفة أخرى اليوم. تم تسجيل محاولة استخدام رقم شخصي مختلف.")
                 return False
             return True
     return True
@@ -583,15 +632,18 @@ def get_device_registrations_today(today):
 def log_audit(emp_id, emp_name, operation, details):
     now = datetime.now()
     fp  = get_device_fingerprint()
-    audit_sheet.append_row([
-        now.strftime("%Y-%m-%d"),
-        now.strftime("%H:%M:%S"),
-        emp_name,
-        str(emp_id),
-        operation,
-        details,
-        fp
-    ])
+    try:
+        safe_append(audit_sheet, [
+            now.strftime("%Y-%m-%d"),
+            now.strftime("%H:%M:%S"),
+            emp_name,
+            str(emp_id),
+            operation,
+            details,
+            fp
+        ])
+    except Exception:
+        pass
 
 # ─── تجاوز الموقع ───────────────────────────────────────────────
 def get_location_override():
@@ -727,15 +779,15 @@ def register_operation(operation, emp_id, note=""):
             return False
 
         if row_index:
-            safe_update_cell(sheet, row_index, 8, time_now)   # H وقت الحضور
-            safe_update_cell(sheet, row_index, 9, note)       # I سبب التأخير
+            safe_update_cell(sheet, row_index, COL_ATTEND, time_now)   # H وقت الحضور
+            safe_update_cell(sheet, row_index, COL_LATE_REASON, note)       # I سبب التأخير
         else:
             safe_append(sheet, [
                 today, day_name, school, section,
                 "نعم" if emp.get("دعم") else "لا",
                 full_name, emp_id,
                 time_now, note,
-                "", "", "", ""
+                "", "", "", "", ""
             ])
         save_device_lock(today, emp_id, full_name)
         log_audit(emp_id, full_name, "تسجيل حضور", f"الوقت: {time_now} | السبب: {note or 'بدون'}")
@@ -748,8 +800,8 @@ def register_operation(operation, emp_id, note=""):
         if row.get("وقت الانصراف"):
             st.error("❌ تم تسجيل الانصراف مسبقاً")
             return False
-        safe_update_cell(sheet, row_index, 10, time_now)  # J وقت الانصراف
-        safe_update_cell(sheet, row_index, 11, note)      # K سبب الانصراف
+        safe_update_cell(sheet, row_index, COL_DEPART, time_now)  # J وقت الانصراف
+        safe_update_cell(sheet, row_index, COL_DEPART_REASON, note)      # K سبب الانصراف
         log_audit(emp_id, full_name, "تسجيل انصراف", f"الوقت: {time_now} | السبب: {note or 'بدون'}")
         invalidate_sheet()
 
@@ -763,9 +815,9 @@ def register_operation(operation, emp_id, note=""):
         if row.get("خروج استئذان"):
             st.error("❌ تم تسجيل خروج الاستئذان مسبقاً")
             return False
-        safe_update_cell(sheet, row_index, 12, time_now)  # L خروج استئذان
+        safe_update_cell(sheet, row_index, COL_EXIT, time_now)  # L خروج استئذان
         if note:
-            safe_update_cell(sheet, row_index, 11, note)  # K سبب الانصراف/الاستئذان
+            safe_update_cell(sheet, row_index, COL_DEPART_REASON, note)  # K سبب الانصراف/الاستئذان
         log_audit(emp_id, full_name, "خروج استئذان", f"الوقت: {time_now} | السبب: {note}")
         invalidate_sheet()
 
@@ -779,7 +831,7 @@ def register_operation(operation, emp_id, note=""):
         if row.get("عودة"):
             st.error("❌ تم تسجيل العودة مسبقاً")
             return False
-        safe_update_cell(sheet, row_index, 13, time_now)  # M عودة
+        safe_update_cell(sheet, row_index, COL_RETURN, time_now)  # M عودة
         log_audit(emp_id, full_name, "عودة من استئذان", f"الوقت: {time_now}")
         invalidate_sheet()
 
