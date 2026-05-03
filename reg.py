@@ -303,11 +303,11 @@ def get_or_create_sheet(name, headers, rows=1000):
         pass
     return ws
 
-sheet = get_or_create_sheet(MAIN_SHEET_NAME, MAIN_HEADERS, rows=3000)
-whitelist_sheet = get_or_create_sheet("القائمة_البيضاء", WHITELIST_HEADERS, rows=1000)
-device_lock_sheet = get_or_create_sheet("device_lock", DEVICE_HEADERS, rows=1000)
-attempts_sheet = get_or_create_sheet("محاولات_تسجيل_باسم_آخر", ATTEMPT_HEADERS, rows=1000)
-settings_sheet = get_or_create_sheet("إعدادات_النظام", SETTINGS_HEADERS, rows=1000)
+sheet = spreadsheet.worksheet("sheet1")
+whitelist_sheet = spreadsheet.worksheet("القائمة_البيضاء")
+device_lock_sheet = spreadsheet.worksheet("device_lock")
+attempts_sheet = spreadsheet.worksheet("محاولات_تسجيل_باسم_آخر")
+settings_sheet = spreadsheet.worksheet("إعدادات_النظام")
 
 # =========================================================
 # دوال مساعدة
