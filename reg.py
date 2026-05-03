@@ -509,6 +509,7 @@ def ls_set(key, value, ls_key=None):
             pass
     st.session_state[f"ls_{key}"] = value
 
+@st.cache_data(ttl=120)
 def get_whitelist():
     """تجيب قائمة الأرقام الشخصية المسموح لها."""
     try:
@@ -524,6 +525,56 @@ def get_whitelist():
         return result
     except Exception:
         return {}
+
+def invalidate_whitelist():
+    """تمسح كاش القائمة البيضاء بعد أي تعديل."""
+    try:
+        get_whitelist.clear()
+    except Exception:
+        pass
+
+@st.cache_data(ttl=60)
+def get_sheet_data():
+    """تجيب بيانات الحضور الرئيسية مع كاش لتقليل ضغط Google Sheets."""
+    try:
+        return sheet.get_all_records()
+    except Exception:
+        return []
+
+def invalidate_sheet():
+    """تمسح كاش ورقة الحضور بعد أي تسجيل/تعديل."""
+    try:
+        get_sheet_data.clear()
+    except Exception:
+        pass
+
+@st.cache_data(ttl=60)
+def get_audit_data():
+    """تجيب سجل التدقيق مع كاش."""
+    try:
+        return get_audit_data()
+    except Exception:
+        return []
+
+def invalidate_audit():
+    try:
+        get_audit_data.clear()
+    except Exception:
+        pass
+
+@st.cache_data(ttl=60)
+def get_settings_data():
+    """تجيب إعدادات النظام مع كاش."""
+    try:
+        return settings_sheet.get_all_records()
+    except Exception:
+        return []
+
+def invalidate_settings():
+    try:
+        get_settings_data.clear()
+    except Exception:
+        pass
 
 def validate_employee(emp_id):
     """تتحقق من الرقم الشخصي في القائمة البيضاء."""
@@ -766,6 +817,7 @@ def register_operation(operation, emp_id, note=""):
         safe_update_cell(sheet, row_index, COL_RETURN, time_now)
         log_audit(emp_id, full_name, "عودة من استئذان", f"الوقت: {time_now}")
 
+    invalidate_sheet()
     st.session_state.pending_operation = None
     st.success(f"✅ تم {operation} بنجاح")
 
