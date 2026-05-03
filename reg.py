@@ -1087,6 +1087,8 @@ if mode == "👤 موظفة":
                     st.markdown('<div style="direction:rtl;font-size:12px;color:#185FA5;font-weight:700;margin-bottom:6px;">⚡ رقم جديد — أكملي بياناتك للتسجيل</div>', unsafe_allow_html=True)
 
                     new_name   = st.text_input("الاسم الرباعي", placeholder="اكتبي اسمك الرباعي كاملاً", key="new_name")
+                    if new_name.strip() and not any('؀' <= c <= 'ۿ' for c in new_name):
+                        st.warning("⚠️ يرجى كتابة الاسم باللغة العربية")
                     new_school = st.selectbox("المدرسة", schools, key="new_school")
                     emp_type   = st.radio("نوع التسجيل", ["👩‍🏫 عضوة في المركز", "🔄 دعم"], horizontal=True, key="emp_type_radio")
                     is_support = emp_type == "🔄 دعم"
@@ -1679,6 +1681,8 @@ else:
                     if re_action == "✏️ تعديل جزئي (اسم / مدرسة / مهمة / مسمى)":
                         st.markdown("**اتركي الحقل فارغاً إذا ما تبين تغييره**")
                         new_n = st.text_input("الاسم الجديد", value=emp_rec.get("الاسم",""), key="re_new_name")
+                        if new_n.strip() and not any('؀' <= c <= 'ۿ' for c in new_n):
+                            st.warning("⚠️ يرجى كتابة الاسم باللغة العربية")
                         new_s = st.selectbox("المدرسة", schools, index=schools.index(emp_rec.get("المدرسة", schools[0])) if emp_rec.get("المدرسة") in schools else 0, key="re_new_school")
                         task_options = TASKS_MAIN + TASKS_SUPPORT
                         cur_task_idx = task_options.index(task_r) if task_r in task_options else 0
