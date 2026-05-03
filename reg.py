@@ -820,6 +820,7 @@ def register_operation(operation, emp_id, note=""):
             safe_update_cell(sheet, row_index, COL_DEPART_REASON, note)  # K سبب الانصراف/الاستئذان
         log_audit(emp_id, full_name, "خروج استئذان", f"الوقت: {time_now} | السبب: {note}")
         invalidate_sheet()
+        st.success("✅ تم تسجيل خروج الاستئذان بنجاح")
 
     elif operation == "عودة من استئذان":
         if not row_index or not row.get("وقت الحضور"):
@@ -834,9 +835,11 @@ def register_operation(operation, emp_id, note=""):
         safe_update_cell(sheet, row_index, COL_RETURN, time_now)  # M عودة
         log_audit(emp_id, full_name, "عودة من استئذان", f"الوقت: {time_now}")
         invalidate_sheet()
+        st.success("✅ تم تسجيل العودة من الاستئذان بنجاح")
 
     st.session_state.pending_operation = None
-    st.success(f"✅ تم {operation} بنجاح")
+    if operation not in ["خروج استئذان", "عودة من استئذان"]:
+        st.success(f"✅ تم {operation} بنجاح")
 
     # ── احفظ بيانات الموظفة لتثبيتها طول اليوم ──
     if operation == "تسجيل حضور":
