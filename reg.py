@@ -738,15 +738,17 @@ def register_operation(operation, emp_id, note=""):
             return False
 
         if row_index:
-            sheet.update_cell(row_index, 7, time_now)
-            sheet.update_cell(row_index, 8, note)
+            sheet.update_cell(row_index, 8, time_now)   # H: وقت الحضور
+            sheet.update_cell(row_index, 9, note)       # I: سبب التأخير
         else:
             sheet.append_row([
                 today, day_name, school, section,
+                "نعم" if emp.get("دعم") else "لا",
                 full_name, emp_id,
                 time_now, note,
-                "", "", "", "", ""
+                "", "", "", ""
             ])
+        invalidate_sheet()
         log_audit(emp_id, full_name, "تسجيل حضور", f"الوقت: {time_now} | السبب: {note or 'بدون'}")
 
     elif operation == "تسجيل انصراف":
@@ -756,8 +758,9 @@ def register_operation(operation, emp_id, note=""):
         if row.get("وقت الانصراف"):
             st.error("❌ تم تسجيل الانصراف مسبقاً")
             return False
-        sheet.update_cell(row_index, 9, time_now)
-        sheet.update_cell(row_index, 10, note)
+        sheet.update_cell(row_index, 10, time_now)  # J: وقت الانصراف
+        sheet.update_cell(row_index, 11, note)      # K: سبب الانصراف
+        invalidate_sheet()
         log_audit(emp_id, full_name, "تسجيل انصراف", f"الوقت: {time_now} | السبب: {note or 'بدون'}")
 
     elif operation == "خروج استئذان":
@@ -770,8 +773,8 @@ def register_operation(operation, emp_id, note=""):
         if row.get("خروج استئذان"):
             st.error("❌ تم تسجيل خروج الاستئذان مسبقاً")
             return False
-        sheet.update_cell(row_index, 11, time_now)
-        sheet.update_cell(row_index, 13, note)
+        sheet.update_cell(row_index, 12, time_now)  # L: خروج استئذان
+        invalidate_sheet()
         log_audit(emp_id, full_name, "خروج استئذان", f"الوقت: {time_now} | السبب: {note}")
 
     elif operation == "عودة من استئذان":
@@ -784,7 +787,8 @@ def register_operation(operation, emp_id, note=""):
         if row.get("عودة"):
             st.error("❌ تم تسجيل العودة مسبقاً")
             return False
-        sheet.update_cell(row_index, 12, time_now)
+        sheet.update_cell(row_index, 13, time_now)  # M: عودة
+        invalidate_sheet()
         log_audit(emp_id, full_name, "عودة من استئذان", f"الوقت: {time_now}")
 
     st.session_state.pending_operation = None
@@ -1605,9 +1609,10 @@ else:
                         sheet.append_row([
                             date_str, day_name,
                             emp.get("المدرسة",""), emp.get("المهمة",""),
+                            "نعم" if emp.get("دعم") else "لا",
                             normalize_name(emp.get("الاسم","")), m_id,
                             m_att, f"[يدوي] {m_note}",
-                            m_dep, "", "", "", ""
+                            m_dep, "", "", ""
                         ])
                         invalidate_sheet()
                         log_audit(m_id, emp.get("الاسم",""), "تسجيل يدوي أدمن",
