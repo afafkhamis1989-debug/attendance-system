@@ -347,6 +347,48 @@ html, body, [class*="css"] {
 
 .block-container { max-width: 620px; padding-top: 0px; padding-bottom: 40px; }
 
+/* ── RTL كامل ── */
+.stContainer > div, .element-container, .stMarkdown,
+.stTextInput, .stSelectbox, .stRadio, .stButton {
+    direction: rtl !important;
+    text-align: right !important;
+}
+.stAlert, .stSuccess, .stError, .stWarning, .stInfo {
+    direction: rtl !important;
+    text-align: right !important;
+}
+details > summary {
+    direction: rtl;
+    text-align: right;
+    cursor: pointer;
+    font-family: 'Cairo', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: #185FA5;
+    padding: 8px 12px;
+    background: #e6f1fb;
+    border-radius: 10px;
+    border: 1px solid #b5d4f4;
+    list-style: none;
+    user-select: none;
+}
+details > summary::-webkit-details-marker { display: none; }
+details[open] > summary {
+    background: #b5d4f4;
+    border-radius: 10px 10px 0 0;
+}
+details > div.detail-body {
+    background: #f8fafc;
+    border: 1px solid #b5d4f4;
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    padding: 12px 14px;
+    font-size: 12px;
+    line-height: 2;
+    direction: rtl;
+    text-align: right;
+}
+
 /* ── هيدر ── */
 .app-header {
     background: linear-gradient(135deg, #0c3460 0%, #1a5276 60%, #1f6fa3 100%);
@@ -908,7 +950,11 @@ if mode == "👤 موظفة":
 
     # ── كارد الموقع ──────────────────────────────────────────────
     with st.container(border=True):
-        st.markdown('<div class="card-head"><div class="card-ico" style="background:#e6f1fb;">📍</div><b style="color:#0c3460;font-size:15px;">التحقق من الموقع — Location Check</b></div>', unsafe_allow_html=True)
+        st.markdown('''<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;direction:rtl;">
+<div style="width:36px;height:36px;border-radius:10px;background:#e6f1fb;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;">📍</div>
+<b style="color:#0c3460;font-size:15px;">التحقق من الموقع</b>
+</div>''', unsafe_allow_html=True)
+
         location = streamlit_geolocation()
         dist_val = None
 
@@ -919,61 +965,80 @@ if mode == "👤 موظفة":
 
             if error:
                 st.session_state.location_allowed = False
-                st.markdown("""
-<div style="background:#fcebeb;border:1px solid #f09595;border-radius:12px;padding:14px 16px;font-size:13px;line-height:1.9;">
-<b style="color:#791F1F;font-size:14px;">📵 الموقع غير مفعّل — Location Disabled</b><br><br>
+                st.markdown('''
+<div style="direction:rtl;text-align:right;background:#fcebeb;border:1px solid #f09595;border-radius:12px;padding:12px 14px;font-size:13px;font-weight:700;color:#791F1F;margin-bottom:6px;">
+📵 الموقع غير مفعّل — الرجاء تفعيله من إعدادات الهاتف
+</div>''', unsafe_allow_html=True)
+                with st.expander("📖 تعليمات تفعيل الموقع — Location setup guide"):
+                    st.markdown('''
+<div style="direction:rtl;text-align:right;font-size:12px;line-height:2.2;">
 <b style="color:#A32D2D;">📱 iPhone (iOS):</b><br>
 الإعدادات ← الخصوصية وأمن المعلومات ← خدمات الموقع ← Safari / المتصفح ← <b>أثناء الاستخدام</b><br>
-<span style="color:#5F5E5A;font-size:12px;">Settings → Privacy &amp; Security → Location Services → Safari/Browser → <b>While Using</b></span>
+<span style="color:#5F5E5A;">Settings → Privacy & Security → Location Services → Safari/Browser → <b>While Using</b></span>
 <br><br>
 <b style="color:#A32D2D;">🤖 Android:</b><br>
 الإعدادات ← التطبيقات ← المتصفح ← الأذونات ← الموقع ← <b>السماح أثناء الاستخدام</b><br>
-<span style="color:#5F5E5A;font-size:12px;">Settings → Apps → Browser → Permissions → Location → <b>Allow while using</b></span>
+<span style="color:#5F5E5A;">Settings → Apps → Browser → Permissions → Location → <b>Allow while using</b></span>
 <br><br>
-<span style="color:#791F1F;font-size:12px;">⚡ بعد التفعيل أغلقي المتصفح وافتحيه من جديد — After enabling, close &amp; reopen the browser</span>
-</div>
-""", unsafe_allow_html=True)
+<span style="color:#791F1F;">⚡ بعد التفعيل: أغلقي المتصفح وافتحيه من جديد</span><br>
+<span style="color:#5F5E5A;">After enabling: close & reopen the browser</span>
+</div>''', unsafe_allow_html=True)
 
             elif lat is not None and lon is not None:
                 try:
                     dist_val = distance_m(float(lat), float(lon), SCHOOL_LAT, SCHOOL_LON)
                     if dist_val <= ALLOWED_RADIUS:
                         st.session_state.location_allowed = True
-                        st.success(f"✅ داخل نطاق المدرسة — Inside school zone | {int(dist_val)} م")
+                        st.markdown(f'''
+<div style="direction:rtl;text-align:right;background:#eaf3de;border:1px solid #c0dd97;border-radius:12px;padding:11px 14px;font-size:13px;font-weight:700;color:#27500A;">
+✅ داخل نطاق المدرسة — المسافة: {int(dist_val)} م
+</div>''', unsafe_allow_html=True)
                     else:
                         st.session_state.location_allowed = False
-                        st.error(f"❌ خارج النطاق — Outside zone | {int(dist_val)} م")
+                        st.markdown(f'''
+<div style="direction:rtl;text-align:right;background:#fcebeb;border:1px solid #f09595;border-radius:12px;padding:11px 14px;font-size:13px;font-weight:700;color:#791F1F;">
+❌ خارج النطاق — المسافة: {int(dist_val)} م
+</div>''', unsafe_allow_html=True)
+                        with st.expander("📖 خارج النطاق؟ تواصلي مع المشرفة أو راجعي التعليمات"):
+                            st.markdown('''
+<div style="direction:rtl;text-align:right;font-size:12px;line-height:2;">
+• تأكدي أن GPS مفعّل بدقة عالية<br>
+• جربي في مكان مكشوف بعيداً عن الجدران<br>
+• لو المشكلة مستمرة تواصلي مع الأدمن لتفعيل تجاوز الموقع
+</div>''', unsafe_allow_html=True)
                 except Exception:
                     st.session_state.location_allowed = False
-                    st.error("❌ خطأ في قراءة الموقع — Location read error")
+                    st.error("❌ خطأ في قراءة الموقع")
             else:
                 st.session_state.location_allowed = False
-                st.markdown("""
-<div style="background:#faeeda;border:1px solid #EF9F27;border-radius:12px;padding:12px 16px;font-size:13px;line-height:1.9;">
-<b style="color:#633806;">⚠️ اضغطي زر تحديد الموقع — Press location button first</b><br><br>
-إذا لم يظهر طلب الإذن، فعّلي الموقع من الإعدادات:<br>
-<span style="color:#5F5E5A;font-size:12px;">If no permission prompt appears, enable location in settings:</span><br><br>
+                st.markdown('''
+<div style="direction:rtl;text-align:right;background:#faeeda;border:1px solid #EF9F27;border-radius:12px;padding:11px 14px;font-size:13px;font-weight:700;color:#633806;margin-bottom:6px;">
+⚠️ اضغطي زر تحديد الموقع أعلاه
+</div>''', unsafe_allow_html=True)
+                with st.expander("📖 لم يظهر طلب الإذن؟ اضغطي هنا"):
+                    st.markdown('''
+<div style="direction:rtl;text-align:right;font-size:12px;line-height:2.2;">
 <b>📱 iPhone:</b> الإعدادات ← الخصوصية ← خدمات الموقع ← تفعيل<br>
-<span style="color:#5F5E5A;font-size:12px;">Settings → Privacy → Location Services → Enable</span><br><br>
+<span style="color:#5F5E5A;">Settings → Privacy → Location Services → Enable</span><br><br>
 <b>🤖 Android:</b> الإعدادات ← الموقع ← تفعيل<br>
-<span style="color:#5F5E5A;font-size:12px;">Settings → Location → Turn On</span>
-</div>
-""", unsafe_allow_html=True)
+<span style="color:#5F5E5A;">Settings → Location → Turn On</span>
+</div>''', unsafe_allow_html=True)
         else:
             st.session_state.location_allowed = False
-            st.info("⚠️ اضغطي زر تحديد الموقع — Tap location button above")
+            st.markdown('''
+<div style="direction:rtl;text-align:right;background:#faeeda;border:1px solid #EF9F27;border-radius:12px;padding:11px 14px;font-size:13px;font-weight:700;color:#633806;">
+⚠️ اضغطي زر تحديد الموقع أعلاه
+</div>''', unsafe_allow_html=True)
 
     # ── شريط تجاوز الموقع (لو مفعّل) ──────────────────────────
     _ov_active, _ov_end = get_location_override()
     if _ov_active and _ov_end:
         _ov_remaining = int((_ov_end - datetime.now()).seconds / 60)
-        st.markdown(f"""
-<div style="background:#faeeda;border:1px solid #EF9F27;border-radius:12px;
-padding:11px 16px;font-size:13px;font-weight:700;color:#633806;margin-bottom:4px;">
-⚠️ وضع تجاوز الموقع مفعّل — Location override active<br>
+        st.markdown(f'''
+<div style="direction:rtl;text-align:right;background:#faeeda;border:1px solid #EF9F27;border-radius:12px;padding:11px 16px;font-size:13px;font-weight:700;color:#633806;margin-bottom:4px;">
+⚠️ وضع تجاوز الموقع مفعّل<br>
 <span style="font-size:11px;font-weight:600;">ينتهي بعد {_ov_remaining} دقيقة — Expires in {_ov_remaining} min</span>
-</div>
-""", unsafe_allow_html=True)
+</div>''', unsafe_allow_html=True)
         if not st.session_state.get("location_allowed", False):
             st.session_state.location_allowed = True
 
