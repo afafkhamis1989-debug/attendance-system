@@ -58,6 +58,122 @@ audit_sheet     = get_or_create_sheet("سجل_التدقيق", [
 whitelist_sheet = get_or_create_sheet("القائمة_البيضاء", [
     "الرقم الشخصي", "الاسم", "المدرسة", "القسم", "نشط"
 ])
+# ─── بيانات الموظفات من ملفات Excel (محمّلة مسبقاً) ──────────────
+# مهام كل قسم في الكنترول
+TASK_MAP = {
+    "اللغة الانجليزية":      "مصححة — اللغة الإنجليزية / Examiner — English",
+    "الرياضيات":              "مصححة — الرياضيات / Examiner — Maths",
+    "العلوم-فيز":             "مصححة — الفيزياء / Examiner — Physics",
+    "العلوم-كيم":             "مصححة — الكيمياء / Examiner — Chemistry",
+    "العلوم-حيا":             "مصححة — الأحياء / Examiner — Biology",
+    "اللغة العربية":          "مصححة — اللغة العربية / Examiner — Arabic",
+    "العلوم التجارية":        "مصححة — العلوم التجارية / Examiner — Commerce",
+    "المواد الاجتماعية":      "مصححة — المواد الاجتماعية / Examiner — Social Studies",
+    "التربية الاسلامية":      "مصححة — التربية الإسلامية / Examiner — Islamic Studies",
+    "التربية الأسرية":        "مصححة — التربية الأسرية / Examiner — Home Economics",
+    "التربية الفنية":         "مصححة — التربية الفنية / Examiner — Art",
+    "التقن":                  "مصححة — الحاسب الآلي / Examiner — Computer",
+    "التربية البدنية ":       "مصححة — التربية البدنية / Examiner — PE",
+    " الكنترول الخارجي الدعم الفني":       "كنترول خارجي — دعم فني / External Control — IT Support",
+    " الكنترول الخارجي رصد الدرجات":      "كنترول خارجي — رصد الدرجات / External Control — Grade Entry",
+    " الكنترول الخارجي الضبط المركزي":    "كنترول خارجي — ضبط مركزي / External Control — Central Control",
+}
+
+@st.cache_data(ttl=3600)
+def load_excel_employees():
+    """تقرأ ملفات Excel وتبني قاموس الموظفات بمهامهن."""
+    import os
+    import pandas as pd
+
+    excel_files = [
+        "كشف_المعلمات_المصححات_وعضوات_الكنترول_الخارجي__الفصل_الدراسي_الثاني_للعام_الدراسي_20252026.xlsx",
+        "كشف_المعلمات_المصححات_وعضوات_الكنترول_الخارجي__الفصل_الدراسي_الثاني_للعام_الدراسي_20252026_1.xlsx",
+        "كشف_المعلمات_المصححات_وعضوات_الكنترول_الخارجي__الفصل_الدراسي_الثاني_للعام_الدراسي_20252026_2.xlsx",
+        "كشف_المعلمات_المصححات_وعضوات_الكنترول_الخارجي__الفصل_الدراسي_الثاني_للعام_الدراسي_20252026_1_1.xlsx",
+    ]
+
+    subject_sheets = [
+        "اللغة الانجليزية","الرياضيات","العلوم-فيز","العلوم-كيم","العلوم-حيا",
+        "اللغة العربية","العلوم التجارية","المواد الاجتماعية","التربية الاسلامية",
+        "التربية الأسرية","التربية الفنية","التقن","التربية البدنية ",
+    ]
+    control_sheets = [
+        " الكنترول الخارجي الدعم الفني",
+        " الكنترول الخارجي رصد الدرجات",
+        " الكنترول الخارجي الضبط المركزي",
+    ]
+
+    employees = {}
+
+    for fpath in excel_files:
+        if not os.path.exists(fpath):
+            continue
+        try:
+            xl = pd.ExcelFile(fpath)
+            school_df = pd.read_excel(fpath, sheet_name="بيانات المدرسة", header=None)
+            school_name = str(school_df.iloc[3, 1]).strip() if pd.notna(school_df.iloc[3, 1]) else ""
+
+            # شيتات المصححات
+            for sheet_name in subject_sheets:
+                if sheet_name not in xl.sheet_names:
+                    continue
+                task = TASK_MAP.get(sheet_name, "مصححة / Examiner")
+                df = pd.read_excel(fpath, sheet_name=sheet_name, header=None)
+                for _, row in df.iloc[6:].iterrows():
+                    emp_id = str(row.iloc[3]).strip() if pd.notna(row.iloc[3]) else ""
+                    name   = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else ""
+                    phone  = str(row.iloc[4]).strip() if pd.notna(row.iloc[4]) else ""
+                    job    = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else ""
+                    skip   = ["nan","NaN","","لا يوجد","لايوجد","_"]
+                    if emp_id in skip or name in skip or not emp_id.isdigit():
+                        continue
+                    if emp_id not in employees:
+                        employees[emp_id] = {
+                            "الرقم الشخصي": emp_id, "الاسم": name,
+                            "المدرسة": school_name, "رقم التواصل": phone,
+                            "المسمى الوظيفي": job, "المهمة": task,
+                        }
+                    else:
+                        existing_task = employees[emp_id]["المهمة"]
+                        if task not in existing_task:
+                            employees[emp_id]["المهمة"] = existing_task + "\n" + task
+
+            # شيتات الكنترول الخارجي
+            for sheet_name in control_sheets:
+                if sheet_name not in xl.sheet_names:
+                    continue
+                task = TASK_MAP.get(sheet_name, "كنترول خارجي / External Control")
+                df = pd.read_excel(fpath, sheet_name=sheet_name, header=None)
+                for _, row in df.iloc[7:].iterrows():
+                    emp_id = str(row.iloc[5]).strip() if pd.notna(row.iloc[5]) else ""
+                    name   = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else ""
+                    phone  = str(row.iloc[6]).strip() if pd.notna(row.iloc[6]) else ""
+                    job    = str(row.iloc[3]).strip() if pd.notna(row.iloc[3]) else ""
+                    skip   = ["nan","NaN","","لا يوجد","لايوجد","_"]
+                    if emp_id in skip or name in skip or not emp_id.isdigit():
+                        continue
+                    if emp_id not in employees:
+                        employees[emp_id] = {
+                            "الرقم الشخصي": emp_id, "الاسم": name,
+                            "المدرسة": school_name, "رقم التواصل": phone,
+                            "المسمى الوظيفي": job, "المهمة": task,
+                        }
+                    else:
+                        existing_task = employees[emp_id]["المهمة"]
+                        if task not in existing_task:
+                            employees[emp_id]["المهمة"] = existing_task + "\n" + task
+        except Exception:
+            continue
+
+    return employees
+
+EXCEL_EMPLOYEES = load_excel_employees()
+
+def get_excel_employee(emp_id):
+    """تجيب بيانات الموظفة من Excel مباشرة بالرقم الشخصي."""
+    return EXCEL_EMPLOYEES.get(str(emp_id).strip())
+
+
 
 # ─── بيانات ثابتة ───────────────────────────────────────────────
 schools = [
@@ -575,31 +691,60 @@ if mode == "👤 موظفة":
 
     # ── كارد الموقع ──────────────────────────────────────────────
     with st.container(border=True):
-        st.markdown('<div class="card-head"><div class="card-ico" style="background:#e6f1fb;">📍</div><b style="color:#0c3460;font-size:15px;">التحقق من الموقع</b></div>', unsafe_allow_html=True)
+        st.markdown('<div class="card-head"><div class="card-ico" style="background:#e6f1fb;">📍</div><b style="color:#0c3460;font-size:15px;">التحقق من الموقع — Location Check</b></div>', unsafe_allow_html=True)
         location = streamlit_geolocation()
         dist_val = None
 
         if location:
-            lat = location.get("latitude")
-            lon = location.get("longitude")
-            if lat is not None and lon is not None:
+            lat   = location.get("latitude")
+            lon   = location.get("longitude")
+            error = location.get("error", "")
+
+            if error:
+                st.session_state.location_allowed = False
+                st.markdown("""
+<div style="background:#fcebeb;border:1px solid #f09595;border-radius:12px;padding:14px 16px;font-size:13px;line-height:1.9;">
+<b style="color:#791F1F;font-size:14px;">📵 الموقع غير مفعّل — Location Disabled</b><br><br>
+<b style="color:#A32D2D;">📱 iPhone (iOS):</b><br>
+الإعدادات ← الخصوصية وأمن المعلومات ← خدمات الموقع ← Safari / المتصفح ← <b>أثناء الاستخدام</b><br>
+<span style="color:#5F5E5A;font-size:12px;">Settings → Privacy &amp; Security → Location Services → Safari/Browser → <b>While Using</b></span>
+<br><br>
+<b style="color:#A32D2D;">🤖 Android:</b><br>
+الإعدادات ← التطبيقات ← المتصفح ← الأذونات ← الموقع ← <b>السماح أثناء الاستخدام</b><br>
+<span style="color:#5F5E5A;font-size:12px;">Settings → Apps → Browser → Permissions → Location → <b>Allow while using</b></span>
+<br><br>
+<span style="color:#791F1F;font-size:12px;">⚡ بعد التفعيل أغلقي المتصفح وافتحيه من جديد — After enabling, close &amp; reopen the browser</span>
+</div>
+""", unsafe_allow_html=True)
+
+            elif lat is not None and lon is not None:
                 try:
                     dist_val = distance_m(float(lat), float(lon), SCHOOL_LAT, SCHOOL_LON)
                     if dist_val <= ALLOWED_RADIUS:
                         st.session_state.location_allowed = True
-                        st.success(f"✅ داخل نطاق المدرسة — المسافة: {int(dist_val)} م")
+                        st.success(f"✅ داخل نطاق المدرسة — Inside school zone | {int(dist_val)} م")
                     else:
                         st.session_state.location_allowed = False
-                        st.error(f"❌ خارج النطاق — المسافة: {int(dist_val)} م")
+                        st.error(f"❌ خارج النطاق — Outside zone | {int(dist_val)} م")
                 except Exception:
                     st.session_state.location_allowed = False
-                    st.error("❌ خطأ في قراءة الموقع")
+                    st.error("❌ خطأ في قراءة الموقع — Location read error")
             else:
                 st.session_state.location_allowed = False
-                st.warning("⚠️ اضغطي زر تحديد الموقع أولاً")
+                st.markdown("""
+<div style="background:#faeeda;border:1px solid #EF9F27;border-radius:12px;padding:12px 16px;font-size:13px;line-height:1.9;">
+<b style="color:#633806;">⚠️ اضغطي زر تحديد الموقع — Press location button first</b><br><br>
+إذا لم يظهر طلب الإذن، فعّلي الموقع من الإعدادات:<br>
+<span style="color:#5F5E5A;font-size:12px;">If no permission prompt appears, enable location in settings:</span><br><br>
+<b>📱 iPhone:</b> الإعدادات ← الخصوصية ← خدمات الموقع ← تفعيل<br>
+<span style="color:#5F5E5A;font-size:12px;">Settings → Privacy → Location Services → Enable</span><br><br>
+<b>🤖 Android:</b> الإعدادات ← الموقع ← تفعيل<br>
+<span style="color:#5F5E5A;font-size:12px;">Settings → Location → Turn On</span>
+</div>
+""", unsafe_allow_html=True)
         else:
             st.session_state.location_allowed = False
-            st.warning("⚠️ لم يتم تحديد الموقع بعد")
+            st.info("⚠️ اضغطي زر تحديد الموقع — Tap location button above")
 
     # ── كارد البيانات الشخصية ────────────────────────────────────
     with st.container(border=True):
@@ -608,16 +753,22 @@ if mode == "👤 موظفة":
         if _data_locked:
             # ── وضع مقفل — البيانات محفوظة من اليوم ──
             emp = st.session_state.emp_data
+            locked_id = emp.get('الرقم الشخصي','')
+            locked_excel = get_excel_employee(locked_id)
+            locked_task  = locked_excel.get("المهمة","") if locked_excel else emp.get('القسم','')
+            locked_lines  = locked_task.replace("\n","<br>")
+            badge_color   = "#185FA5" if "كنترول" in locked_task else "#3B6D11"
+            badge_bg      = "#e6f1fb" if "كنترول" in locked_task else "#eaf3de"
             st.markdown(f"""
             <div class="field-lbl">الرقم الشخصي</div>
-            <div class="field-val locked">{emp.get('الرقم الشخصي','')}</div>
+            <div class="field-val locked">{locked_id}</div>
             <div class="field-lbl">الاسم</div>
             <div class="field-val locked">{emp.get('الاسم','')}</div>
             <div class="field-lbl">المدرسة</div>
             <div class="field-val locked">{emp.get('المدرسة','')}</div>
-            <div class="field-lbl">القسم</div>
-            <div class="field-val locked">{emp.get('القسم','')}</div>
-            <div style="font-size:11px;color:#3B6D11;font-weight:700;margin-top:4px;">🔒 بياناتك محفوظة لهذا اليوم</div>
+            <div class="field-lbl">المهمة في الكنترول / Role</div>
+            <div class="field-val locked" style="background:{badge_bg};border-color:{badge_color};color:{badge_color};font-size:12px;line-height:1.8;">{locked_lines}</div>
+            <div style="font-size:11px;color:#3B6D11;font-weight:700;margin-top:4px;">🔒 بياناتك محفوظة لهذا اليوم — Data locked for today</div>
             """, unsafe_allow_html=True)
 
         else:
@@ -629,25 +780,38 @@ if mode == "👤 موظفة":
                 key="emp_id_field"
             )
 
-            # لو الرقم موجود في القائمة البيضاء جيب بياناته تلقائياً
+            # البحث: أولاً في Excel، ثم في القائمة البيضاء
             if emp_id_input.strip():
-                existing = validate_employee(emp_id_input.strip())
+                excel_emp   = get_excel_employee(emp_id_input.strip())
+                whitelist_emp = validate_employee(emp_id_input.strip())
+                existing    = whitelist_emp or (excel_emp and {
+                    "الرقم الشخصي": excel_emp["الرقم الشخصي"],
+                    "الاسم":         excel_emp["الاسم"],
+                    "المدرسة":       excel_emp["المدرسة"],
+                    "القسم":         excel_emp.get("المهمة", ""),
+                    "نشط":           "نعم",
+                })
             else:
-                existing = None
+                excel_emp   = None
+                existing    = None
 
             if existing:
                 emp_name_input    = existing.get("الاسم","")
                 emp_school_input  = existing.get("المدرسة", schools[0])
-                emp_section_input = existing.get("القسم", sections[0])
+                emp_section_input = existing.get("القسم", "")
                 is_support        = "دعم" in emp_section_input
+                task_display      = excel_emp.get("المهمة","") if excel_emp else emp_section_input
+                task_lines        = task_display.replace("\n","<br>")
+                badge_color       = "#185FA5" if "كنترول" in task_display else "#3B6D11"
+                badge_bg          = "#e6f1fb" if "كنترول" in task_display else "#eaf3de"
                 st.markdown(f"""
                 <div class="field-lbl">الاسم</div>
                 <div class="field-val locked">{emp_name_input}</div>
                 <div class="field-lbl">المدرسة</div>
                 <div class="field-val locked">{emp_school_input}</div>
-                <div class="field-lbl">القسم</div>
-                <div class="field-val locked">{emp_section_input}</div>
-                <div style="font-size:11px;color:#3B6D11;font-weight:700;margin-top:4px;">✓ موظفة مسجّلة</div>
+                <div class="field-lbl">المهمة في الكنترول / Role</div>
+                <div class="field-val locked" style="background:{badge_bg};border-color:{badge_color};color:{badge_color};font-size:12px;line-height:1.8;">{task_lines}</div>
+                <div style="font-size:11px;color:#3B6D11;font-weight:700;margin-top:4px;">✓ موظفة مسجّلة — Registered</div>
                 """, unsafe_allow_html=True)
 
             else:
@@ -820,13 +984,13 @@ else:
         st.markdown('<div class="pro-card"><div class="card-head"><div class="card-ico" style="background:#EEEDFE;">🛡️</div><b style="color:#26215C;font-size:15px;">دخول الأدمن</b></div>', unsafe_allow_html=True)
         pw = st.text_input("كلمة المرور", type="password", key="admin_pw")
         if st.button("دخول", use_container_width=True):
-            ADMIN_PASSWORD = "Afaf1234"
+            ADMIN_PASSWORD = st.secrets.get("admin_password", "Afaf1234")
             if pw.strip() == ADMIN_PASSWORD:
                 st.session_state.admin_logged_in   = True
                 st.session_state.admin_last_active = datetime.now()
                 st.rerun()
             else:
-                st.error(f"❌ كلمة المرور غير صحيحة — كتبتِ: '{pw.strip()}' — المطلوب: 'Afaf1234'")
+                st.error("❌ كلمة المرور غير صحيحة")
         st.markdown('</div>', unsafe_allow_html=True)
 
     else:
@@ -845,6 +1009,7 @@ else:
             "✏️ تعديل سجل",
             "➕ تسجيل يدوي",
             "📋 القائمة البيضاء",
+            "📥 استيراد Excel",
             "🔍 سجل التدقيق",
             "⚠️ تقرير الأجهزة"
         ])
@@ -1113,6 +1278,66 @@ else:
             for eid, emp in wl_all.items():
                 st.markdown(f'<div class="audit-row"><span class="ar-op">{emp.get("الاسم","")}</span><div class="ar-det">#{eid} — {emp.get("المدرسة","")}</div></div>', unsafe_allow_html=True)
 
+        # ── استيراد Excel ────────────────────────────────────────
+        elif admin_tab == "📥 استيراد Excel":
+            st.markdown('<div class="admin-section">استيراد بيانات المعلمات من ملفات Excel إلى القائمة البيضاء</div>', unsafe_allow_html=True)
+
+            total_excel = len(EXCEL_EMPLOYEES)
+            wl_now      = get_whitelist()
+            new_count   = sum(1 for eid in EXCEL_EMPLOYEES if eid not in wl_now)
+            already     = sum(1 for eid in EXCEL_EMPLOYEES if eid in wl_now)
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("موظفات في Excel", total_excel)
+            c2.metric("موجودات مسبقاً", already)
+            c3.metric("جديدات للاستيراد", new_count)
+
+            if new_count == 0:
+                st.success("✅ جميع الموظفات موجودات في القائمة البيضاء")
+            else:
+                st.info(f"سيتم إضافة {new_count} موظفة جديدة من ملفات Excel")
+                if st.button(f"استيراد {new_count} موظفة الآن", use_container_width=True, key="btn_import_excel"):
+                    imported = 0
+                    errors   = 0
+                    wl_now   = get_whitelist()
+                    for eid, emp in EXCEL_EMPLOYEES.items():
+                        if eid in wl_now:
+                            continue
+                        try:
+                            whitelist_sheet.append_row([
+                                eid,
+                                emp.get("الاسم",""),
+                                emp.get("المدرسة",""),
+                                emp.get("المهمة",""),
+                                "نعم"
+                            ])
+                            imported += 1
+                        except Exception:
+                            errors += 1
+                    log_audit("أدمن", "النظام", "استيراد Excel",
+                              f"تم استيراد {imported} موظفة | أخطاء: {errors}")
+                    if errors == 0:
+                        st.success(f"✅ تم استيراد {imported} موظفة بنجاح")
+                    else:
+                        st.warning(f"⚠️ تم استيراد {imported} | فشل {errors}")
+                    st.rerun()
+
+            # عرض جدول الموظفات من Excel
+            st.markdown('<div class="admin-section">جميع الموظفات في ملفات Excel</div>', unsafe_allow_html=True)
+            for eid, emp in EXCEL_EMPLOYEES.items():
+                is_in_wl  = eid in wl_now
+                badge_txt = "✓ مضافة" if is_in_wl else "⬆ جديدة"
+                badge_col = "#3B6D11" if is_in_wl else "#185FA5"
+                task_short = emp.get("المهمة","").split("/")[0].strip()
+                st.markdown(
+                    f'<div class="audit-row" style="border-right-color:{badge_col};">' +
+                    f'<span class="ar-op">{emp.get("الاسم","")}' +
+                    f' <span style="font-size:10px;color:{badge_col};font-weight:700;">{badge_txt}</span></span>' +
+                    f'<div class="ar-det">#{eid} — {emp.get("المدرسة","")} — {task_short}</div>' +
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+
         # ── سجل التدقيق ─────────────────────────────────────────
         elif admin_tab == "🔍 سجل التدقيق":
             st.markdown('<div class="admin-section">آخر 30 عملية</div>', unsafe_allow_html=True)
@@ -1179,4 +1404,5 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
+
 
