@@ -58,6 +58,9 @@ audit_sheet     = get_or_create_sheet("سجل_التدقيق", [
 whitelist_sheet = get_or_create_sheet("القائمة_البيضاء", [
     "الرقم الشخصي", "الاسم", "المدرسة", "القسم", "نشط"
 ])
+settings_sheet  = get_or_create_sheet("إعدادات_النظام", [
+    "المفتاح", "القيمة", "تاريخ_الانتهاء", "ملاحظات"
+])
 # ─── بيانات الموظفات من ملفات Excel (محمّلة مسبقاً) ──────────────
 # مهام كل قسم في الكنترول
 TASK_MAP = {
@@ -457,8 +460,72 @@ def log_audit(emp_id, emp_name, operation, details):
         fp
     ])
 
+# ─── تجاوز الموقع ───────────────────────────────────────────────
+def get_location_override():
+    """تقرأ حالة تجاوز الموقع من Google Sheets."""
+    try:
+        records = settings_sheet.get_all_records()
+        for r in records:
+            if str(r.get("المفتاح","")).strip() == "location_override":
+                val      = str(r.get("القيمة","")).strip()
+                end_time = str(r.get("تاريخ_الانتهاء","")).strip()
+                if val == "true" and end_time:
+                    try:
+                        end_dt = datetime.strptime(end_time, "%Y-%m-%d %H:%M")
+                        if datetime.now() < end_dt:
+                            return True, end_dt
+                        else:
+                            # انتهى الوقت — أبطله تلقائياً
+                            _disable_location_override_silent()
+                            return False, None
+                    except Exception:
+                        return False, None
+    except Exception:
+        pass
+    return False, None
+
+def _disable_location_override_silent():
+    """تبطل تجاوز الموقع بهدوء."""
+    try:
+        records = settings_sheet.get_all_records()
+        for i, r in enumerate(records):
+            if str(r.get("المفتاح","")).strip() == "location_override":
+                settings_sheet.update_cell(i + 2, 2, "false")
+                break
+    except Exception:
+        pass
+
+def set_location_override(minutes, admin_note=""):
+    """تفعّل تجاوز الموقع لعدد من الدقائق."""
+    end_dt  = datetime.now() + timedelta(minutes=minutes)
+    end_str = end_dt.strftime("%Y-%m-%d %H:%M")
+    try:
+        records = settings_sheet.get_all_records()
+        row_found = None
+        for i, r in enumerate(records):
+            if str(r.get("المفتاح","")).strip() == "location_override":
+                row_found = i + 2
+                break
+        if row_found:
+            settings_sheet.update(f"A{row_found}:D{row_found}", [
+                ["location_override", "true", end_str, admin_note]
+            ])
+        else:
+            settings_sheet.append_row(["location_override", "true", end_str, admin_note])
+        log_audit("أدمن", "النظام", "تفعيل تجاوز الموقع",
+                  f"المدة: {minutes} دقيقة | ينتهي: {end_str} | {admin_note}")
+        return True, end_dt
+    except Exception as e:
+        return False, None
+
+def disable_location_override():
+    """تبطل تجاوز الموقع يدوياً."""
+    _disable_location_override_silent()
+    log_audit("أدمن", "النظام", "إيقاف تجاوز الموقع", "أوقفه الأدمن يدوياً")
+
 def register_operation(operation, emp_id, note=""):
-    if not st.session_state.get("location_allowed", False):
+    override_active, _ = get_location_override()
+    if not st.session_state.get("location_allowed", False) and not override_active:
         st.error("❌ لا يمكن التسجيل خارج نطاق المدرسة")
         return False
 
@@ -746,6 +813,20 @@ if mode == "👤 موظفة":
             st.session_state.location_allowed = False
             st.info("⚠️ اضغطي زر تحديد الموقع — Tap location button above")
 
+    # ── شريط تجاوز الموقع (لو مفعّل) ──────────────────────────
+    _ov_active, _ov_end = get_location_override()
+    if _ov_active and _ov_end:
+        _ov_remaining = int((_ov_end - datetime.now()).seconds / 60)
+        st.markdown(f"""
+<div style="background:#faeeda;border:1px solid #EF9F27;border-radius:12px;
+padding:11px 16px;font-size:13px;font-weight:700;color:#633806;margin-bottom:4px;">
+⚠️ وضع تجاوز الموقع مفعّل — Location override active<br>
+<span style="font-size:11px;font-weight:600;">ينتهي بعد {_ov_remaining} دقيقة — Expires in {_ov_remaining} min</span>
+</div>
+""", unsafe_allow_html=True)
+        if not st.session_state.get("location_allowed", False):
+            st.session_state.location_allowed = True
+
     # ── كارد البيانات الشخصية ────────────────────────────────────
     with st.container(border=True):
         st.markdown('<div class="card-head"><div class="card-ico" style="background:#faeeda;">🪪</div><b style="color:#0c3460;font-size:15px;">البيانات الشخصية</b></div>', unsafe_allow_html=True)
@@ -1010,6 +1091,7 @@ else:
             "➕ تسجيل يدوي",
             "📋 القائمة البيضاء",
             "📥 استيراد Excel",
+            "📡 تجاوز الموقع",
             "🔍 سجل التدقيق",
             "⚠️ تقرير الأجهزة"
         ])
@@ -1338,6 +1420,68 @@ else:
                     unsafe_allow_html=True
                 )
 
+        # ── تجاوز الموقع ─────────────────────────────────────────
+        elif admin_tab == "📡 تجاوز الموقع":
+            st.markdown('<div class="admin-section">تجاوز فحص الموقع مؤقتاً — Temporary Location Override</div>', unsafe_allow_html=True)
+
+            ov_active, ov_end = get_location_override()
+
+            if ov_active and ov_end:
+                remaining_min = int((ov_end - datetime.now()).seconds / 60)
+                st.markdown(f"""
+<div style="background:#faeeda;border:1px solid #EF9F27;border-radius:12px;padding:14px 16px;">
+<b style="color:#633806;font-size:15px;">⚠️ التجاوز مفعّل الآن — Override is ACTIVE</b><br>
+<span style="color:#854F0B;font-size:13px;">ينتهي الساعة: {ov_end.strftime('%H:%M')} — بعد {remaining_min} دقيقة</span>
+</div>
+""", unsafe_allow_html=True)
+                if st.button("🔴 إيقاف التجاوز الآن — Stop Override", use_container_width=True, key="btn_stop_ov"):
+                    disable_location_override()
+                    st.success("✅ تم إيقاف تجاوز الموقع — الفحص الطبيعي مفعّل الآن")
+                    st.rerun()
+
+            else:
+                st.markdown("""
+<div style="background:#eaf3de;border:1px solid #c0dd97;border-radius:12px;padding:12px 16px;font-size:13px;color:#27500A;">
+✅ الفحص الطبيعي مفعّل — Normal location check is active
+</div>
+""", unsafe_allow_html=True)
+
+                st.markdown("---")
+                st.markdown("**تفعيل التجاوز المؤقت:**")
+
+                ov_duration = st.selectbox(
+                    "مدة التجاوز",
+                    [30, 60, 90, 120, 180, 240],
+                    format_func=lambda x: f"{x} دقيقة ({x//60} ساعة {x%60} د)" if x >= 60 else f"{x} دقيقة",
+                    key="ov_duration"
+                )
+                ov_reason = st.text_input(
+                    "سبب التجاوز (مطلوب)",
+                    placeholder="مثال: مشكلة في GPS اليوم",
+                    key="ov_reason"
+                )
+
+                if st.button("✅ تفعيل تجاوز الموقع", use_container_width=True, key="btn_start_ov"):
+                    if not ov_reason.strip():
+                        st.error("❌ سبب التجاوز مطلوب")
+                    else:
+                        ok, end_dt = set_location_override(ov_duration, ov_reason.strip())
+                        if ok:
+                            st.success(f"✅ تم تفعيل التجاوز لمدة {ov_duration} دقيقة — ينتهي {end_dt.strftime('%H:%M')}")
+                            st.rerun()
+                        else:
+                            st.error("❌ فشل في حفظ الإعداد — تحققي من الاتصال بـ Google Sheets")
+
+                st.markdown("""
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;font-size:12px;color:#5F5E5A;margin-top:8px;">
+<b>📌 ملاحظات:</b><br>
+• يُسجَّل كل تفعيل وإيقاف في سجل التدقيق<br>
+• ينتهي التجاوز تلقائياً بعد المدة المحددة<br>
+• يظهر شريط تحذير أصفر للموظفات طوال فترة التجاوز<br>
+• لا تفعّليه إلا عند الضرورة
+</div>
+""", unsafe_allow_html=True)
+
         # ── سجل التدقيق ─────────────────────────────────────────
         elif admin_tab == "🔍 سجل التدقيق":
             st.markdown('<div class="admin-section">آخر 30 عملية</div>', unsafe_allow_html=True)
@@ -1404,5 +1548,3 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
-
-
