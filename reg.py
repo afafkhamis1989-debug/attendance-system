@@ -304,20 +304,34 @@ schools = [
     "مدرسة الرفاع الغربي الثانوية للبنات",
     "مدرسة جدحفص الثانوية للبنات"
 ]
-sections = [
-    "قسم اللغة العربية", "قسم اللغة الانجليزية", "قسم الرياضيات",
-    "قسم العلوم", "قسم الحاسب الآلي", "قسم التربية الإسلامية",
-    "قسم التربية الأسرية", "قسم التربية الفنية", "قسم التربية البدنية",
-    "قسم المواد التجارية", "قسم المواد الإجتماعية والإنسانية",
-    "الهيئة الإدارية", "الإشراف التربوي",
-    "قسم اللغة العربية — دعم", "قسم اللغة الانجليزية — دعم",
-    "قسم الرياضيات — دعم", "قسم العلوم — دعم",
-    "قسم الحاسب الآلي — دعم", "قسم التربية الإسلامية — دعم",
-    "قسم التربية الأسرية — دعم", "قسم التربية الفنية — دعم",
-    "قسم التربية البدنية — دعم", "قسم المواد التجارية — دعم",
-    "قسم المواد الإجتماعية والإنسانية — دعم",
-    "الهيئة الإدارية — دعم", "الإشراف التربوي — دعم"
+# ── مهام الكنترول ──
+TASKS_MAIN = [
+    "مصححة — اللغة العربية",
+    "مصححة — اللغة الإنجليزية",
+    "مصححة — الرياضيات",
+    "مصححة — الفيزياء",
+    "مصححة — الكيمياء",
+    "مصححة — الأحياء",
+    "مصححة — العلوم التجارية",
+    "مصححة — المواد الاجتماعية",
+    "مصححة — التربية الإسلامية",
+    "مصححة — التربية الأسرية",
+    "مصححة — التربية الفنية",
+    "مصححة — الحاسب الآلي",
+    "مصححة — التربية البدنية",
+    "كنترول خارجي — دعم فني",
+    "كنترول خارجي — رصد الدرجات",
+    "كنترول خارجي — ضبط مركزي",
 ]
+TASKS_SUPPORT = [t + " — دعم" for t in TASKS_MAIN]
+TASKS_ALL = TASKS_MAIN + TASKS_SUPPORT
+
+JOB_TITLES = [
+    "منسقة", "معلمة أولى", "معلمة", "معلم أول", "معلم",
+    "فني دعم تقنية المعلومات", "مشرف تربوي", "أخرى"
+]
+
+sections = TASKS_ALL  # للتوافق مع الكود القديم
 reasons = ["دوام مرن", "موعد", "مهمة رسمية", "رعاية", "أخرى"]
 
 # ─── CSS الاحترافي ───────────────────────────────────────────────
@@ -478,6 +492,15 @@ def normalize_name(name):
         name = name.replace(ch, " ")
     return " ".join(name.split())
 
+def ar_to_en_digits(text):
+    """تحول الأرقام العربية/الهندية لإنجليزية."""
+    ar = "٠١٢٣٤٥٦٧٨٩"
+    en = "0123456789"
+    result = str(text).strip()
+    for a, e in zip(ar, en):
+        result = result.replace(a, e)
+    return result
+
 
 def get_device_fingerprint():
     """تولّد بصمة للجهاز — تحاول LocalStorage أولاً ثم session_state."""
@@ -522,9 +545,9 @@ def get_whitelist():
         for r in records:
             if str(r.get("نشط","")).strip() == "نعم":
                 eid = str(r["الرقم الشخصي"]).strip()
-                # دعم العمود القديم "القسم" والجديد "المهمة"
+                # دعم العمود القديم "المهمة" والجديد "المهمة"
                 if "المهمة" not in r or not r.get("المهمة"):
-                    r["المهمة"] = r.get("القسم","")
+                    r["المهمة"] = r.get("المهمة","")
                 result[eid] = r
         return result
     except Exception:
@@ -677,17 +700,17 @@ def register_operation(operation, emp_id, note=""):
                     emp_id,
                     emp.get("الاسم",""),
                     emp.get("المدرسة",""),
-                    emp.get("القسم",""),
+                    emp.get("المهمة",""),
                     "نعم"
                 ])
                 log_audit(emp_id, emp.get("الاسم",""), "تسجيل موظفة جديدة",
-                          f"مدرسة: {emp.get('المدرسة','')} | قسم: {emp.get('القسم','')}")
+                          f"مدرسة: {emp.get('المدرسة','')} | قسم: {emp.get('المهمة','')}")
             except Exception as e:
                 st.warning(f"⚠️ تعذّر الحفظ في القائمة البيضاء: {e}")
 
     full_name = normalize_name(emp.get("الاسم",""))
     school    = emp.get("المدرسة", schools[0])
-    section   = emp.get("القسم",   sections[0])
+    section   = emp.get("المهمة",   sections[0])
 
     now      = datetime.now()
     today    = now.strftime("%Y-%m-%d")
@@ -774,7 +797,7 @@ def register_operation(operation, emp_id, note=""):
             "الرقم الشخصي": emp_id,
             "الاسم": full_name,
             "المدرسة": school,
-            "القسم": section,
+            "المهمة": section,
             "دعم": emp.get("دعم", False)
         }
         st.session_state.locked_date = today
@@ -836,7 +859,7 @@ if _data_locked and not st.session_state.emp_verified:
         "الرقم الشخصي": _saved_id,
         "الاسم": _saved_name or "",
         "المدرسة": _saved_school or (schools[0] if schools else ""),
-        "القسم": _saved_section or (sections[0] if sections else ""),
+        "المهمة": _saved_section or (sections[0] if sections else ""),
         "نشط": "نعم",
         "دعم": _saved_support == "نعم"
     }
@@ -959,110 +982,93 @@ padding:11px 16px;font-size:13px;font-weight:700;color:#633806;margin-bottom:4px
         st.markdown('<div class="card-head"><div class="card-ico" style="background:#faeeda;">🪪</div><b style="color:#0c3460;font-size:15px;">البيانات الشخصية</b></div>', unsafe_allow_html=True)
 
         if _data_locked:
-            # ── وضع مقفل — البيانات محفوظة من اليوم ──
-            emp = st.session_state.emp_data
-            locked_id = emp.get('الرقم الشخصي','')
-            locked_excel = get_excel_employee(locked_id)
-            locked_task  = locked_excel.get("المهمة","") if locked_excel else emp.get('القسم','')
-            locked_lines  = locked_task.replace("\n","<br>")
-            badge_color   = "#185FA5" if "كنترول" in locked_task else "#3B6D11"
-            badge_bg      = "#e6f1fb" if "كنترول" in locked_task else "#eaf3de"
+            emp       = st.session_state.emp_data
+            locked_id = emp.get("الرقم الشخصي","")
+            locked_task = emp.get("المهمة","") or emp.get("القسم","")
+            task_ar   = locked_task.split("/")[0].strip() if "/" in locked_task else locked_task
+            badge_color = "#185FA5" if "كنترول" in task_ar else "#3B6D11"
+            badge_bg    = "#e6f1fb" if "كنترول" in task_ar else "#eaf3de"
             st.markdown(f"""
             <div class="field-lbl">الرقم الشخصي</div>
             <div class="field-val locked">{locked_id}</div>
             <div class="field-lbl">الاسم</div>
-            <div class="field-val locked">{emp.get('الاسم','')}</div>
+            <div class="field-val locked">{emp.get("الاسم","")}</div>
             <div class="field-lbl">المدرسة</div>
-            <div class="field-val locked">{emp.get('المدرسة','')}</div>
-            <div class="field-lbl">المهمة في الكنترول / Role</div>
-            <div class="field-val locked" style="background:{badge_bg};border-color:{badge_color};color:{badge_color};font-size:12px;line-height:1.8;">{locked_lines}</div>
-            <div style="font-size:11px;color:#3B6D11;font-weight:700;margin-top:4px;">🔒 بياناتك محفوظة لهذا اليوم — Data locked for today</div>
+            <div class="field-val locked">{emp.get("المدرسة","")}</div>
+            <div class="field-lbl">المهمة في الكنترول</div>
+            <div class="field-val locked" style="background:{badge_bg};border-color:{badge_color};color:{badge_color};font-size:13px;">{task_ar}</div>
+            <div style="font-size:11px;color:#3B6D11;font-weight:700;margin-top:4px;">🔒 بياناتك محفوظة لهذا اليوم</div>
             """, unsafe_allow_html=True)
 
         else:
-            # ── وضع مفتوح — إدخال البيانات ──
-            emp_id_input = st.text_input(
-                "الرقم الشخصي",
-                placeholder="أدخلي رقمك الشخصي",
-                max_chars=20,
-                key="emp_id_field"
-            )
+            # رقم شخصي — تحويل عربي/هندي لإنجليزي تلقائياً
+            emp_id_raw   = st.text_input("الرقم الشخصي", placeholder="أدخلي رقمك الشخصي", max_chars=20, key="emp_id_field")
+            emp_id_input = ar_to_en_digits(emp_id_raw).strip()
 
-            # البحث: أولاً في Excel، ثم في القائمة البيضاء
-            if emp_id_input.strip():
-                excel_emp   = get_excel_employee(emp_id_input.strip())
-                whitelist_emp = validate_employee(emp_id_input.strip())
-                existing    = whitelist_emp or (excel_emp and {
-                    "الرقم الشخصي": excel_emp["الرقم الشخصي"],
-                    "الاسم":         excel_emp["الاسم"],
-                    "المدرسة":       excel_emp["المدرسة"],
-                    "القسم":         excel_emp.get("المهمة", ""),
-                    "نشط":           "نعم",
-                })
-            else:
-                excel_emp   = None
-                existing    = None
+            if emp_id_input:
+                wl_emp = validate_employee(emp_id_input)
 
-            if existing:
-                emp_name_input    = existing.get("الاسم","")
-                emp_school_input  = existing.get("المدرسة", schools[0])
-                emp_section_input = existing.get("القسم", "")
-                is_support        = "دعم" in emp_section_input
-                task_display      = excel_emp.get("المهمة","") if excel_emp else emp_section_input
-                task_lines        = task_display.replace("\n","<br>")
-                badge_color       = "#185FA5" if "كنترول" in task_display else "#3B6D11"
-                badge_bg          = "#e6f1fb" if "كنترول" in task_display else "#eaf3de"
-                st.markdown(f"""
-                <div class="field-lbl">الاسم</div>
-                <div class="field-val locked">{emp_name_input}</div>
-                <div class="field-lbl">المدرسة</div>
-                <div class="field-val locked">{emp_school_input}</div>
-                <div class="field-lbl">المهمة في الكنترول / Role</div>
-                <div class="field-val locked" style="background:{badge_bg};border-color:{badge_color};color:{badge_color};font-size:12px;line-height:1.8;">{task_lines}</div>
-                <div style="font-size:11px;color:#3B6D11;font-weight:700;margin-top:4px;">✓ موظفة مسجّلة — Registered</div>
-                """, unsafe_allow_html=True)
-
-            else:
-                emp_name_input    = "" if not emp_id_input.strip() else st.session_state.get("_tmp_name","")
-                emp_name_input    = st.text_input("الاسم الثلاثي", placeholder="اكتبي اسمك الثلاثي", key="emp_name_field")
-                emp_school_input  = st.selectbox("المدرسة", schools, key="emp_school_field")
-
-                emp_type = st.radio(
-                    "نوع التسجيل",
-                    ["👩‍🏫 عضوة في المركز", "🔄 دعم"],
-                    horizontal=True,
-                    key="emp_type_radio"
-                )
-                is_support = emp_type == "🔄 دعم"
-
-                sections_permanent = [s for s in sections if "دعم" not in s]
-                sections_support   = [s for s in sections if "دعم" in s]
-
-                if is_support:
-                    st.warning("🔄 دعم — سيُسجّل حضورك لهذا اليوم فقط ولن تُحفظي في القائمة الدائمة")
-                    emp_section_input = st.selectbox("القسم الذي تدعمينه", sections_support, key="emp_section_field")
+                if wl_emp:
+                    # ── موجودة ──
+                    task_raw = wl_emp.get("المهمة","") or wl_emp.get("القسم","")
+                    task_ar  = task_raw.split("/")[0].strip() if "/" in task_raw else task_raw
+                    badge_color = "#185FA5" if "كنترول" in task_ar else "#3B6D11"
+                    badge_bg    = "#e6f1fb" if "كنترول" in task_ar else "#eaf3de"
+                    st.markdown(f"""
+                    <div class="field-lbl">الاسم</div>
+                    <div class="field-val locked">{wl_emp.get("الاسم","")}</div>
+                    <div class="field-lbl">المدرسة</div>
+                    <div class="field-val locked">{wl_emp.get("المدرسة","")}</div>
+                    <div class="field-lbl">المهمة في الكنترول</div>
+                    <div class="field-val locked" style="background:{badge_bg};border-color:{badge_color};color:{badge_color};font-size:13px;">{task_ar}</div>
+                    <div style="font-size:11px;color:#3B6D11;font-weight:700;margin-top:4px;">✓ موظفة مسجّلة</div>
+                    """, unsafe_allow_html=True)
+                    st.session_state.emp_verified = True
+                    st.session_state.emp_data = {
+                        "الرقم الشخصي": emp_id_input,
+                        "الاسم":   wl_emp.get("الاسم",""),
+                        "المدرسة": wl_emp.get("المدرسة",""),
+                        "المهمة":  task_raw,
+                        "نشط":     "نعم",
+                        "دعم":     "دعم" in task_raw,
+                    }
                 else:
-                    st.info("💾 عضوة في المركز — ستُحفظين في القائمة تلقائياً عند أول تسجيل")
-                    emp_section_input = st.selectbox("القسم", sections_permanent, key="emp_section_field")
+                    # ── غير موجودة — استمارة ──
+                    st.markdown('<div style="font-size:12px;color:#185FA5;font-weight:700;margin-bottom:6px;">⚡ رقم جديد — أكملي بياناتك للتسجيل</div>', unsafe_allow_html=True)
+                    new_name   = st.text_input("الاسم الرباعي", placeholder="اكتبي اسمك الرباعي كاملاً", key="new_name")
+                    new_school = st.selectbox("المدرسة", schools, key="new_school")
+                    emp_type   = st.radio("نوع التسجيل", ["👩‍🏫 عضوة في المركز", "🔄 دعم"], horizontal=True, key="emp_type_radio")
+                    is_support = emp_type == "🔄 دعم"
 
-            # حفّظ في session_state
-            if existing:
-                st.session_state.emp_verified = True
-                st.session_state.emp_data = existing
-            elif emp_id_input.strip() and emp_name_input.strip():
-                st.session_state.emp_verified = True
-                st.session_state.emp_data = {
-                    "الرقم الشخصي": emp_id_input.strip(),
-                    "الاسم": normalize_name(emp_name_input.strip()),
-                    "المدرسة": emp_school_input,
-                    "القسم": emp_section_input,
-                    "نشط": "نعم",
-                    "جديد": True,
-                    "دعم": is_support
-                }
+                    if is_support:
+                        new_task = st.selectbox("المهمة (دعم)", TASKS_SUPPORT, key="new_task")
+                        st.warning("🔄 دعم — سيُسجَّل حضورك لهذا اليوم فقط")
+                    else:
+                        new_task = st.selectbox("المهمة في الكنترول", TASKS_MAIN, key="new_task")
+                        st.info("💾 ستُحفظين في القائمة عند أول تسجيل حضور")
+
+                    new_job = st.selectbox("المسمى الوظيفي", JOB_TITLES, key="new_job")
+                    if new_job == "أخرى":
+                        new_job = st.text_input("اكتبي المسمى الوظيفي", key="new_job_other") or "أخرى"
+
+                    if new_name.strip():
+                        st.session_state.emp_verified = True
+                        st.session_state.emp_data = {
+                            "الرقم الشخصي": emp_id_input,
+                            "الاسم":   normalize_name(new_name.strip()),
+                            "المدرسة": new_school,
+                            "المهمة":  new_task,
+                            "المسمى الوظيفي": new_job,
+                            "نشط":     "نعم",
+                            "جديد":    True,
+                            "دعم":     is_support,
+                        }
+                    else:
+                        st.session_state.emp_verified = False
+                        st.session_state.emp_data     = None
             else:
                 st.session_state.emp_verified = False
-                st.session_state.emp_data = None
+                st.session_state.emp_data     = None
 
         # تحقق من سجل اليوم
         if st.session_state.emp_verified and st.session_state.emp_data:
@@ -1145,11 +1151,11 @@ padding:11px 16px;font-size:13px;font-weight:700;color:#633806;margin-bottom:4px
         if st.session_state.pending_operation == "تسجيل حضور":
             with st.container(border=True):
                 st.markdown("**سبب التأخير بعد الساعة 7:30 — اختياري**")
-                late_reason = st.selectbox("السبب", ["بدون سبب"] + reasons, key="late_reason")
+                late_reason = st.selectbox("السبب", ["اختاري السبب (اختياري)"] + reasons, key="late_reason")
                 late_other  = ""
                 if late_reason == "أخرى":
                     late_other = st.text_input("اكتبي السبب", key="late_other")
-                final = "" if late_reason == "بدون سبب" else (late_other.strip() if late_reason == "أخرى" else late_reason)
+                final = "" if late_reason == "اختاري السبب (اختياري)" else (late_other.strip() if late_reason == "أخرى" else late_reason)
                 if st.button("تأكيد تسجيل الحضور", use_container_width=True):
                     register_operation("تسجيل حضور", emp_id, final)
                     st.rerun()
@@ -1211,7 +1217,7 @@ else:
         </div>
         """, unsafe_allow_html=True)
 
-        admin_tab = st.selectbox("القسم", [
+        admin_tab = st.selectbox("المهمة", [
             "📊 إحصائيات اليوم",
             "🔴 تسجيل الغياب",
             "✏️ تعديل سجل",
@@ -1232,7 +1238,7 @@ else:
             try:
                 abs_sheet_stats = get_or_create_sheet("سجل_الغياب", [
                     "التاريخ","اليوم","الرقم الشخصي","الاسم",
-                    "المدرسة","القسم","سبب الغياب","ملاحظات","سجّله"
+                    "المدرسة","المهمة","سبب الغياب","ملاحظات","سجّله"
                 ])
                 abs_today = [r for r in abs_sheet_stats.get_all_records() if r.get("التاريخ") == today_str]
             except Exception:
@@ -1307,7 +1313,7 @@ else:
                 try:
                     abs_sheet = get_or_create_sheet("سجل_الغياب", [
                         "التاريخ", "اليوم", "الرقم الشخصي", "الاسم",
-                        "المدرسة", "القسم", "سبب الغياب", "ملاحظات", "سجّله"
+                        "المدرسة", "المهمة", "سبب الغياب", "ملاحظات", "سجّله"
                     ])
                     abs_records = abs_sheet.get_all_records()
                     absent_ids = set(
@@ -1376,7 +1382,7 @@ else:
                                     abs_sheet.append_row([
                                         abs_date_str, day_ar,
                                         eid, emp.get("الاسم",""),
-                                        emp.get("المدرسة",""), emp.get("القسم",""),
+                                        emp.get("المدرسة",""), emp.get("المهمة",""),
                                         final_reason, note_txt,
                                         "أدمن"
                                     ])
@@ -1453,7 +1459,7 @@ else:
                         day_name = m_date.strftime("%A")
                         sheet.append_row([
                             date_str, day_name,
-                            emp.get("المدرسة",""), emp.get("القسم",""),
+                            emp.get("المدرسة",""), emp.get("المهمة",""),
                             normalize_name(emp.get("الاسم","")), m_id,
                             m_att, f"[يدوي] {m_note}",
                             m_dep, "", "", "", ""
@@ -1468,7 +1474,7 @@ else:
             wl_id      = st.text_input("الرقم الشخصي", key="wl_id")
             wl_name    = st.text_input("الاسم الثلاثي", key="wl_name")
             wl_school  = st.selectbox("المدرسة", schools, key="wl_school")
-            wl_section = st.selectbox("القسم", sections, key="wl_section")
+            wl_section = st.selectbox("المهمة", sections, key="wl_section")
 
             if st.button("إضافة للقائمة", use_container_width=True):
                 if not wl_id.strip() or not wl_name.strip():
