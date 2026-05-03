@@ -867,6 +867,8 @@ for k, v in {
     "data_locked_today": False,
     "locked_emp": None,
     "locked_date": None,
+    "data_confirmed": False,
+    "confirm_reupload": False,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -1097,9 +1099,17 @@ if mode == "👤 موظفة":
                         "نشط":     "نعم",
                         "دعم":     "دعم" in task_raw,
                     }
+                    # زر متابعة للعمليات
+                    st.markdown('''<div id="ops-anchor"></div>''', unsafe_allow_html=True)
+                    st.markdown('''
+<a href="#ops-anchor" style="display:block;text-decoration:none;">
+<div style="background:linear-gradient(135deg,#0c3460,#1a5276);border-radius:14px;padding:14px;text-align:center;margin-top:10px;cursor:pointer;">
+<span style="color:#fff;font-size:15px;font-weight:800;">متابعة للعمليات ↓</span>
+</div>
+</a>''', unsafe_allow_html=True)
                 else:
                     # ── غير موجودة — استمارة ──
-                    st.markdown('<div style="font-size:12px;color:#185FA5;font-weight:700;margin-bottom:6px;">⚡ رقم جديد — أكملي بياناتك للتسجيل</div>', unsafe_allow_html=True)
+                    st.markdown('<div style="direction:rtl;font-size:12px;color:#185FA5;font-weight:700;margin-bottom:6px;">⚡ رقم جديد — أكملي بياناتك للتسجيل</div>', unsafe_allow_html=True)
                     new_name   = st.text_input("الاسم الرباعي", placeholder="اكتبي اسمك الرباعي كاملاً", key="new_name")
                     new_school = st.selectbox("المدرسة", schools, key="new_school")
                     emp_type   = st.radio("نوع التسجيل", ["👩‍🏫 عضوة في المركز", "🔄 دعم"], horizontal=True, key="emp_type_radio")
@@ -1116,21 +1126,46 @@ if mode == "👤 موظفة":
                     if new_job == "أخرى":
                         new_job = st.text_input("اكتبي المسمى الوظيفي", key="new_job_other") or "أخرى"
 
+                    # ── زر تأكيد البيانات ──
                     if new_name.strip():
-                        st.session_state.emp_verified = True
-                        st.session_state.emp_data = {
-                            "الرقم الشخصي": emp_id_input,
-                            "الاسم":   normalize_name(new_name.strip()),
-                            "المدرسة": new_school,
-                            "المهمة":  new_task,
-                            "المسمى الوظيفي": new_job,
-                            "نشط":     "نعم",
-                            "جديد":    True,
-                            "دعم":     is_support,
-                        }
+                        if st.button("✅ تأكيد البيانات والمتابعة", use_container_width=True, key="btn_confirm_data"):
+                            st.session_state.data_confirmed = True
+                            st.session_state.emp_verified = True
+                            st.session_state.emp_data = {
+                                "الرقم الشخصي": emp_id_input,
+                                "الاسم":   normalize_name(new_name.strip()),
+                                "المدرسة": new_school,
+                                "المهمة":  new_task,
+                                "المسمى الوظيفي": new_job,
+                                "نشط":     "نعم",
+                                "جديد":    True,
+                                "دعم":     is_support,
+                            }
+                            st.rerun()
+
+                        if st.session_state.get("data_confirmed") and st.session_state.get("emp_verified"):
+                            # عرض ملخص البيانات بعد التأكيد
+                            task_ar_new = new_task.split("/")[0].strip() if "/" in new_task else new_task
+                            badge_color_new = "#185FA5" if "كنترول" in new_task else "#3B6D11"
+                            badge_bg_new    = "#e6f1fb" if "كنترول" in new_task else "#eaf3de"
+                            st.markdown(f"""
+<div style="direction:rtl;text-align:right;background:#eaf3de;border:1px solid #c0dd97;border-radius:12px;padding:12px 14px;margin-top:6px;">
+<div style="font-size:11px;color:#27500A;font-weight:700;margin-bottom:8px;">✓ تم تأكيد البيانات</div>
+<div style="font-size:13px;color:#0c3460;font-weight:700;">{normalize_name(new_name.strip())}</div>
+<div style="font-size:12px;color:#5F5E5A;">{new_school}</div>
+<div style="font-size:12px;font-weight:700;color:{badge_color_new};margin-top:4px;">{task_ar_new}</div>
+</div>
+""", unsafe_allow_html=True)
+                            st.markdown('''
+<a href="#ops-anchor" style="display:block;text-decoration:none;margin-top:8px;">
+<div style="background:linear-gradient(135deg,#0c3460,#1a5276);border-radius:14px;padding:14px;text-align:center;cursor:pointer;">
+<span style="color:#fff;font-size:15px;font-weight:800;">متابعة لتسجيل الحضور ↓</span>
+</div>
+</a>''', unsafe_allow_html=True)
                     else:
                         st.session_state.emp_verified = False
                         st.session_state.emp_data     = None
+                        st.session_state.data_confirmed = False
             else:
                 st.session_state.emp_verified = False
                 st.session_state.emp_data     = None
@@ -1142,6 +1177,7 @@ if mode == "👤 موظفة":
             st.session_state.today_row = row
 
     # ── كارد العمليات ────────────────────────────────────────────
+    st.markdown('<div id="ops-anchor" style="margin-top:-10px;padding-top:10px;"></div>', unsafe_allow_html=True)
     if st.session_state.emp_verified and st.session_state.emp_data:
         emp    = st.session_state.emp_data
         emp_id = str(emp.get("الرقم الشخصي", "")).strip()
@@ -1825,5 +1861,3 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
-
-
