@@ -468,21 +468,43 @@ def ls_set(key, value, ls_key=None):
             pass
     st.session_state[f"ls_{key}"] = value
 
+@st.cache_data(ttl=120)
 def get_whitelist():
-    """تجيب قائمة الأرقام الشخصية المسموح لها."""
+    """تجيب قائمة الأرقام الشخصية المسموح لها مع كاش لتقليل الضغط."""
     try:
         records = whitelist_sheet.get_all_records()
         result = {}
         for r in records:
             if str(r.get("نشط","")).strip() == "نعم":
-                eid = str(r["الرقم الشخصي"]).strip()
-                # دعم العمود القديم "المهمة" والجديد "المهمة"
+                eid = str(r.get("الرقم الشخصي", "")).strip()
+                if not eid:
+                    continue
                 if "المهمة" not in r or not r.get("المهمة"):
-                    r["المهمة"] = r.get("المهمة","")
+                    r["المهمة"] = r.get("القسم","")
                 result[eid] = r
         return result
     except Exception:
         return {}
+
+def invalidate_whitelist():
+    try:
+        get_whitelist.clear()
+    except Exception:
+        pass
+
+@st.cache_data(ttl=20)
+def get_sheet_data():
+    """تجيب بيانات الحضور مع كاش قصير لتقليل طلبات القراءة من Google Sheets."""
+    try:
+        return sheet.get_all_records()
+    except Exception:
+        return []
+
+def invalidate_sheet():
+    try:
+        get_sheet_data.clear()
+    except Exception:
+        pass
 
 def validate_employee(emp_id):
     """تتحقق من الرقم الشخصي في القائمة البيضاء."""
