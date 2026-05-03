@@ -30,27 +30,19 @@ ALLOWED_RADIUS = 150
 DEVICE_COOLDOWN_MINUTES = 10
 
 # ─── Google Sheets ──────────────────────────────────────────────
-# نسخة محسنة لتقليل الضغط على Google Sheets وتفادي خطأ 429
 scope = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive"
 ]
-SPREADSHEET_ID = "1svkfgRq4-osKr86_2WJQFZShuoy8Ek5DOiUaaHKL-6Y"
+creds = ServiceAccountCredentials.from_json_keyfile_dict(
+    st.secrets["gcp_service_account"], scope
+)
+client = gspread.authorize(creds)
+spreadsheet = client.open_by_key("1svkfgRq4-osKr86_2WJQFZShuoy8Ek5DOiUaaHKL-6Y")
+sheet       = spreadsheet.sheet1  # ورقة الحضور الرئيسية
 
-@st.cache_resource
-def connect_google_sheets():
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(
-        st.secrets["gcp_service_account"], scope
-    )
-    client = gspread.authorize(creds)
-    return client.open_by_key(SPREADSHEET_ID)
-
-spreadsheet = connect_google_sheets()
-sheet = spreadsheet.sheet1  # ورقة الحضور الرئيسية
-
-@st.cache_resource
 def get_or_create_sheet(name, headers):
-    """تجيب ورقة موجودة أو تنشئها بالهيدرز المحددة مع كاش لتقليل طلبات القراءة."""
+    """تجيب ورقة موجودة أو تنشئها بالهيدرز المحددة."""
     try:
         return spreadsheet.worksheet(name)
     except gspread.WorksheetNotFound:
@@ -216,13 +208,8 @@ TASKS_SUPPORT = [t + " — دعم" for t in TASKS_MAIN]
 TASKS_ALL = TASKS_MAIN + TASKS_SUPPORT
 
 JOB_TITLES = [
-    "منسقة",
-    "معلمة أولى",
-    "معلمة",
-    "الهيئة الإدارية",
-    "فني دعم تقنية المعلومات",
-    "مشرف تربوي",
-    "أخرى"
+    "منسقة", "معلمة أولى", "معلمة", "معلم أول", "معلم",
+    "فني دعم تقنية المعلومات", "مشرف تربوي", "أخرى"
 ]
 
 sections = TASKS_ALL  # للتوافق مع الكود القديم
@@ -473,18 +460,16 @@ def ls_set(key, value, ls_key=None):
             pass
     st.session_state[f"ls_{key}"] = value
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=60)
 def get_whitelist():
-    """تجيب قائمة الأرقام الشخصية المسموح لها مع كاش لتقليل الضغط."""
+    """تجيب القائمة البيضاء — مخزّنة 60 ثانية لتقليل طلبات Sheets."""
     try:
         records = whitelist_sheet.get_all_records()
         result = {}
         for r in records:
             if str(r.get("نشط","")).strip() == "نعم":
-                eid = str(r.get("الرقم الشخصي", "")).strip()
-                if not eid:
-                    continue
-                if "المهمة" not in r or not r.get("المهمة"):
+                eid = str(r["الرقم الشخصي"]).strip()
+                if not r.get("المهمة"):
                     r["المهمة"] = r.get("القسم","")
                 result[eid] = r
         return result
@@ -492,42 +477,38 @@ def get_whitelist():
         return {}
 
 def invalidate_whitelist():
-    try:
-        get_whitelist.clear()
-    except Exception:
-        pass
-
-@st.cache_data(ttl=20)
-def get_sheet_data():
-    """تجيب بيانات الحضور مع كاش قصير لتقليل طلبات القراءة من Google Sheets."""
-    try:
-        return sheet.get_all_records()
-    except Exception:
-        return []
-
-def invalidate_sheet():
-    try:
-        get_sheet_data.clear()
-    except Exception:
-        pass
+    """تمسح الـ cache لإجبار إعادة القراءة."""
+    get_whitelist.clear()
 
 def validate_employee(emp_id):
     """تتحقق من الرقم الشخصي في القائمة البيضاء."""
     wl = get_whitelist()
     return wl.get(str(emp_id).strip())
 
+@st.cache_data(ttl=30)
+def get_sheet_data():
+    """تجيب بيانات الحضور — مخزّنة 30 ثانية."""
+    try:
+        return sheet.get_all_records()
+    except Exception:
+        return []
+
+def invalidate_sheet():
+    """تمسح cache الحضور."""
+    get_sheet_data.clear()
+
 def find_today_row(data, today, emp_id):
     for i, row in enumerate(data):
-        if str(row.get("الرقم الشخصي","")).strip() == str(emp_id).strip() \
-           and row.get("التاريخ") == today:
+        if str(row.get("الرقم الشخصي","")).strip() == str(emp_id).strip()            and row.get("التاريخ") == today:
             return i + 2, row
     return None, None
+
 
 def get_device_last_attendance(today):
     """تجيب آخر وقت سُجّل فيه حضور من هذا الجهاز اليوم."""
     fp = get_device_fingerprint()
     try:
-        records = get_audit_data()
+        records = audit_sheet.get_all_records()
         times = []
         for r in records:
             if r.get("التاريخ") == today \
@@ -545,7 +526,7 @@ def get_device_registrations_today(today):
     fp = get_device_fingerprint()
     ids = []
     try:
-        records = get_audit_data()
+        records = audit_sheet.get_all_records()
         for r in records:
             if r.get("التاريخ") == today \
                and str(r.get("بصمة الجهاز","")) == fp \
@@ -567,54 +548,12 @@ def log_audit(emp_id, emp_name, operation, details):
         details,
         fp
     ])
-    try:
-        invalidate_audit()
-    except Exception:
-        pass
-
-@st.cache_data(ttl=30)
-def get_audit_data():
-    """قراءة سجل التدقيق مع كاش قصير لتقليل الضغط."""
-    try:
-        return audit_sheet.get_all_records()
-    except Exception:
-        return []
-
-def invalidate_audit():
-    get_audit_data.clear()
-
-@st.cache_data(ttl=30)
-def get_settings_data():
-    """قراءة إعدادات النظام مع كاش قصير."""
-    try:
-        return settings_sheet.get_all_records()
-    except Exception:
-        return []
-
-def invalidate_settings():
-    get_settings_data.clear()
-
-@st.cache_data(ttl=30)
-def get_absence_data():
-    """قراءة سجل الغياب مع كاش قصير."""
-    try:
-        abs_ws = get_or_create_sheet("سجل_الغياب", [
-            "التاريخ", "اليوم", "الرقم الشخصي", "الاسم",
-            "المدرسة", "المهمة", "سبب الغياب", "ملاحظات", "سجّله"
-        ])
-        return abs_ws.get_all_records()
-    except Exception:
-        return []
-
-def invalidate_absence():
-    get_absence_data.clear()
-
 
 # ─── تجاوز الموقع ───────────────────────────────────────────────
 def get_location_override():
     """تقرأ حالة تجاوز الموقع من Google Sheets."""
     try:
-        records = get_settings_data()
+        records = settings_sheet.get_all_records()
         for r in records:
             if str(r.get("المفتاح","")).strip() == "location_override":
                 val      = str(r.get("القيمة","")).strip()
@@ -637,11 +576,10 @@ def get_location_override():
 def _disable_location_override_silent():
     """تبطل تجاوز الموقع بهدوء."""
     try:
-        records = get_settings_data()
+        records = settings_sheet.get_all_records()
         for i, r in enumerate(records):
             if str(r.get("المفتاح","")).strip() == "location_override":
                 settings_sheet.update_cell(i + 2, 2, "false")
-                invalidate_settings()
                 break
     except Exception:
         pass
@@ -651,7 +589,7 @@ def set_location_override(minutes, admin_note=""):
     end_dt  = datetime.now() + timedelta(minutes=minutes)
     end_str = end_dt.strftime("%Y-%m-%d %H:%M")
     try:
-        records = get_settings_data()
+        records = settings_sheet.get_all_records()
         row_found = None
         for i, r in enumerate(records):
             if str(r.get("المفتاح","")).strip() == "location_override":
@@ -663,7 +601,6 @@ def set_location_override(minutes, admin_note=""):
             ])
         else:
             settings_sheet.append_row(["location_override", "true", end_str, admin_note])
-        invalidate_settings()
         log_audit("أدمن", "النظام", "تفعيل تجاوز الموقع",
                   f"المدة: {minutes} دقيقة | ينتهي: {end_str} | {admin_note}")
         return True, end_dt
@@ -708,7 +645,6 @@ def register_operation(operation, emp_id, note=""):
                     emp.get("المسمى الوظيفي",""),
                     "نعم"
                 ])
-                invalidate_whitelist()
                 log_audit(emp_id, emp.get("الاسم",""), "تسجيل موظفة جديدة",
                           f"مدرسة: {emp.get('المدرسة','')} | قسم: {emp.get('المهمة','')}")
             except Exception as e:
@@ -743,18 +679,17 @@ def register_operation(operation, emp_id, note=""):
             return False
 
         if row_index:
-            sheet.update_cell(row_index, 8, time_now)   # H: وقت الحضور
-            sheet.update_cell(row_index, 9, note)       # I: سبب التأخير
+            sheet.update_cell(row_index, 7, time_now)
+            sheet.update_cell(row_index, 8, note)
         else:
             sheet.append_row([
                 today, day_name, school, section,
-                "نعم" if emp.get("دعم") else "لا",
                 full_name, emp_id,
                 time_now, note,
-                "", "", "", ""
+                "", "", "", "", ""
             ])
-        invalidate_sheet()
         log_audit(emp_id, full_name, "تسجيل حضور", f"الوقت: {time_now} | السبب: {note or 'بدون'}")
+        invalidate_sheet()
 
     elif operation == "تسجيل انصراف":
         if not row_index or not row.get("وقت الحضور"):
@@ -763,10 +698,10 @@ def register_operation(operation, emp_id, note=""):
         if row.get("وقت الانصراف"):
             st.error("❌ تم تسجيل الانصراف مسبقاً")
             return False
-        sheet.update_cell(row_index, 10, time_now)  # J: وقت الانصراف
-        sheet.update_cell(row_index, 11, note)      # K: سبب الانصراف
-        invalidate_sheet()
+        sheet.update_cell(row_index, 9, time_now)
+        sheet.update_cell(row_index, 10, note)
         log_audit(emp_id, full_name, "تسجيل انصراف", f"الوقت: {time_now} | السبب: {note or 'بدون'}")
+        invalidate_sheet()
 
     elif operation == "خروج استئذان":
         if not row_index or not row.get("وقت الحضور"):
@@ -778,9 +713,10 @@ def register_operation(operation, emp_id, note=""):
         if row.get("خروج استئذان"):
             st.error("❌ تم تسجيل خروج الاستئذان مسبقاً")
             return False
-        sheet.update_cell(row_index, 12, time_now)  # L: خروج استئذان
-        invalidate_sheet()
+        sheet.update_cell(row_index, 11, time_now)
+        sheet.update_cell(row_index, 13, note)
         log_audit(emp_id, full_name, "خروج استئذان", f"الوقت: {time_now} | السبب: {note}")
+        invalidate_sheet()
 
     elif operation == "عودة من استئذان":
         if not row_index or not row.get("وقت الحضور"):
@@ -792,9 +728,9 @@ def register_operation(operation, emp_id, note=""):
         if row.get("عودة"):
             st.error("❌ تم تسجيل العودة مسبقاً")
             return False
-        sheet.update_cell(row_index, 13, time_now)  # M: عودة
-        invalidate_sheet()
+        sheet.update_cell(row_index, 12, time_now)
         log_audit(emp_id, full_name, "عودة من استئذان", f"الوقت: {time_now}")
+        invalidate_sheet()
 
     st.session_state.pending_operation = None
     st.success(f"✅ تم {operation} بنجاح")
@@ -1108,7 +1044,6 @@ if mode == "👤 موظفة":
                                             whitelist_sheet.update_cell(i+2, 5, "")
                                             whitelist_sheet.update_cell(i+2, 7, new_member_job)
                                             break
-                                    invalidate_whitelist()
                                     log_audit(emp_id_input, wl_emp.get("الاسم",""),
                                               "تحويل من دعم لعضوة أصلية",
                                               f"المهمة الجديدة: {new_member_task}")
@@ -1152,6 +1087,8 @@ if mode == "👤 موظفة":
                     st.markdown('<div style="direction:rtl;font-size:12px;color:#185FA5;font-weight:700;margin-bottom:6px;">⚡ رقم جديد — أكملي بياناتك للتسجيل</div>', unsafe_allow_html=True)
 
                     new_name   = st.text_input("الاسم الرباعي", placeholder="اكتبي اسمك الرباعي كاملاً", key="new_name")
+                    if new_name.strip() and not any('؀' <= c <= 'ۿ' for c in new_name):
+                        st.warning("⚠️ يرجى كتابة الاسم باللغة العربية")
                     new_school = st.selectbox("المدرسة", schools, key="new_school")
                     emp_type   = st.radio("نوع التسجيل", ["👩‍🏫 عضوة في المركز", "🔄 دعم"], horizontal=True, key="emp_type_radio")
                     is_support = emp_type == "🔄 دعم"
@@ -1369,12 +1306,14 @@ else:
         </div>
         """, unsafe_allow_html=True)
 
-        admin_tab = st.selectbox("المهمة", [
+        admin_tab = st.selectbox("القسم", [
             "📊 إحصائيات اليوم",
             "🔴 تسجيل الغياب",
             "✏️ تعديل سجل",
             "➕ تسجيل يدوي",
             "📋 القائمة البيضاء",
+            "📋 القائمة البيضاء",
+            "🔄 إعادة تسجيل موظفة",
             "🚀 تهيئة القائمة البيضاء",
             "📡 تجاوز الموقع",
             "🔍 سجل التدقيق",
@@ -1383,7 +1322,7 @@ else:
 
         # ── إحصائيات اليوم ──────────────────────────────────────
         if admin_tab == "📊 إحصائيات اليوم":
-            data       = get_sheet_data()
+            data       = sheet.get_all_records()
             today_rows = [r for r in data if r.get("التاريخ") == today_str]
 
             # بيانات الغياب
@@ -1392,7 +1331,7 @@ else:
                     "التاريخ","اليوم","الرقم الشخصي","الاسم",
                     "المدرسة","المهمة","سبب الغياب","ملاحظات","سجّله"
                 ])
-                abs_today = [r for r in get_absence_data() if r.get("التاريخ") == today_str]
+                abs_today = [r for r in abs_sheet_stats.get_all_records() if r.get("التاريخ") == today_str]
             except Exception:
                 abs_today = []
 
@@ -1454,7 +1393,7 @@ else:
                 st.warning("⚠️ القائمة البيضاء فارغة — أضيفي الموظفات أولاً من قسم القائمة البيضاء")
             else:
                 # جيب من سجّل حضور في هذا التاريخ
-                data = get_sheet_data()
+                data = sheet.get_all_records()
                 attended_ids = set(
                     str(r.get("الرقم الشخصي","")).strip()
                     for r in data
@@ -1467,7 +1406,7 @@ else:
                         "التاريخ", "اليوم", "الرقم الشخصي", "الاسم",
                         "المدرسة", "المهمة", "سبب الغياب", "ملاحظات", "سجّله"
                     ])
-                    abs_records = get_absence_data()
+                    abs_records = abs_sheet.get_all_records()
                     absent_ids = set(
                         str(r.get("الرقم الشخصي","")).strip()
                         for r in abs_records
@@ -1538,7 +1477,6 @@ else:
                                         final_reason, note_txt,
                                         "أدمن"
                                     ])
-                                    invalidate_absence()
                                     log_audit(eid, emp.get("الاسم",""), "تسجيل غياب",
                                               f"التاريخ: {abs_date_str} | السبب: {final_reason}")
                                     st.success(f"✅ تم تسجيل غياب {emp.get('الاسم','')} بسبب: {final_reason}")
@@ -1553,7 +1491,7 @@ else:
             search_date = st.date_input("التاريخ", value=datetime.now().date(), key="edit_date")
 
             if st.button("بحث", key="btn_search"):
-                data = get_sheet_data()
+                data = sheet.get_all_records()
                 idx, row = find_today_row(data, str(search_date), search_id)
                 if row:
                     st.session_state.edit_row_idx = idx
@@ -1578,7 +1516,6 @@ else:
                     else:
                         sheet.update_cell(idx, 7, new_att)
                         sheet.update_cell(idx, 9, new_dep)
-                        invalidate_sheet()
                         log_audit(
                             search_id,
                             row.get("الاسم الثلاثي",""),
@@ -1614,12 +1551,10 @@ else:
                         sheet.append_row([
                             date_str, day_name,
                             emp.get("المدرسة",""), emp.get("المهمة",""),
-                            "نعم" if emp.get("دعم") else "لا",
                             normalize_name(emp.get("الاسم","")), m_id,
                             m_att, f"[يدوي] {m_note}",
-                            m_dep, "", "", ""
+                            m_dep, "", "", "", ""
                         ])
-                        invalidate_sheet()
                         log_audit(m_id, emp.get("الاسم",""), "تسجيل يدوي أدمن",
                                   f"التاريخ: {date_str} | حضور: {m_att} | انصراف: {m_dep} | السبب: {m_note}")
                         st.success("✅ تم التسجيل اليدوي بنجاح")
@@ -1640,8 +1575,7 @@ else:
                     if wl_id.strip() in wl:
                         st.error("الرقم الشخصي موجود مسبقاً")
                     else:
-                        whitelist_sheet.append_row([wl_id.strip(), wl_name.strip(), wl_school, wl_section, "", "", "", "نعم"])
-                        invalidate_whitelist()
+                        whitelist_sheet.append_row([wl_id.strip(), wl_name.strip(), wl_school, wl_section, "نعم"])
                         log_audit(wl_id, wl_name, "إضافة للقائمة البيضاء", f"مدرسة: {wl_school} | قسم: {wl_section}")
                         st.success(f"✅ تمت إضافة {wl_name} للقائمة")
 
@@ -1681,15 +1615,11 @@ else:
                                 emp.get("الاسم",""),
                                 emp.get("المدرسة",""),
                                 emp.get("المهمة",""),
-                                emp.get("رقم التواصل",""),
-                                "",
-                                emp.get("المسمى الوظيفي",""),
                                 "نعم"
                             ])
                             imported += 1
                         except Exception:
                             errors += 1
-                    invalidate_whitelist()
                     log_audit("أدمن", "النظام", "استيراد Excel",
                               f"تم استيراد {imported} موظفة | أخطاء: {errors}")
                     if errors == 0:
@@ -1719,6 +1649,134 @@ else:
             wl_now = get_whitelist()
             st.success(f"✅ القائمة البيضاء تحتوي {len(wl_now)} موظفة — البيانات محمّلة من Google Sheets")
             st.info("لإضافة موظفات جديدة استخدمي قسم 📋 القائمة البيضاء")
+
+        # ── إعادة تسجيل موظفة ──────────────────────────────────────
+        elif admin_tab == "🔄 إعادة تسجيل موظفة":
+            st.markdown('<div class="admin-section">البحث عن موظفة لتعديل أو حذف بياناتها</div>', unsafe_allow_html=True)
+
+            re_id = st.text_input("الرقم الشخصي", key="re_emp_id", placeholder="أدخلي الرقم الشخصي")
+
+            if re_id.strip():
+                re_id_clean = ar_to_en_digits(re_id).strip()
+                wl_all = get_whitelist()
+                emp_rec = wl_all.get(re_id_clean)
+
+                if emp_rec:
+                    task_r = emp_rec.get("المهمة","") or emp_rec.get("القسم","")
+                    task_a = task_r.split("/")[0].strip() if "/" in task_r else task_r
+                    st.markdown(f'''
+<div class="audit-row">
+<span class="ar-op">{emp_rec.get("الاسم","")}</span>
+<div class="ar-det">#{re_id_clean} — {emp_rec.get("المدرسة","")} — {task_a}</div>
+</div>''', unsafe_allow_html=True)
+
+                    re_action = st.radio("اختاري العملية", [
+                        "✏️ تعديل جزئي (اسم / مدرسة / مهمة / مسمى)",
+                        "🔄 إعادة تسجيل كاملة (حذف وإعادة إدخال)",
+                        "⛔ تعطيل الموظفة (نشط = لا)",
+                        "🗑️ حذف نهائي من القائمة",
+                    ], key="re_action")
+
+                    # ── تعديل جزئي ──
+                    if re_action == "✏️ تعديل جزئي (اسم / مدرسة / مهمة / مسمى)":
+                        st.markdown("**اتركي الحقل فارغاً إذا ما تبين تغييره**")
+                        new_n = st.text_input("الاسم الجديد", value=emp_rec.get("الاسم",""), key="re_new_name")
+                        if new_n.strip() and not any('؀' <= c <= 'ۿ' for c in new_n):
+                            st.warning("⚠️ يرجى كتابة الاسم باللغة العربية")
+                        new_s = st.selectbox("المدرسة", schools, index=schools.index(emp_rec.get("المدرسة", schools[0])) if emp_rec.get("المدرسة") in schools else 0, key="re_new_school")
+                        task_options = TASKS_MAIN + TASKS_SUPPORT
+                        cur_task_idx = task_options.index(task_r) if task_r in task_options else 0
+                        new_t = st.selectbox("المهمة", task_options, index=cur_task_idx, key="re_new_task")
+                        cur_job = emp_rec.get("المسمى الوظيفي","")
+                        job_idx = JOB_TITLES.index(cur_job) if cur_job in JOB_TITLES else 0
+                        new_j = st.selectbox("المسمى الوظيفي", JOB_TITLES, index=job_idx, key="re_new_job")
+                        if new_j == "أخرى":
+                            new_j = st.text_input("اكتبي المسمى", key="re_new_job_other") or cur_job
+                        re_reason = st.text_input("سبب التعديل (مطلوب)", key="re_reason")
+
+                        if st.button("💾 حفظ التعديل", use_container_width=True, key="btn_re_save", type="primary"):
+                            if not re_reason.strip():
+                                st.error("❌ سبب التعديل مطلوب")
+                            else:
+                                try:
+                                    wl_records = whitelist_sheet.get_all_records()
+                                    for i, r in enumerate(wl_records):
+                                        if str(r.get("الرقم الشخصي","")).strip() == re_id_clean:
+                                            whitelist_sheet.update_cell(i+2, 2, normalize_name(new_n))
+                                            whitelist_sheet.update_cell(i+2, 3, new_s)
+                                            whitelist_sheet.update_cell(i+2, 4, new_t)
+                                            whitelist_sheet.update_cell(i+2, 7, new_j)
+                                            break
+                                    log_audit(re_id_clean, emp_rec.get("الاسم",""), "تعديل جزئي أدمن",
+                                              f"السبب: {re_reason} | مهمة: {new_t}")
+                                    invalidate_whitelist()
+                                    st.success("✅ تم التعديل بنجاح")
+                                    st.rerun()
+                                except Exception as ex:
+                                    st.error(f"❌ خطأ: {ex}")
+
+                    # ── إعادة تسجيل كاملة ──
+                    elif re_action == "🔄 إعادة تسجيل كاملة (حذف وإعادة إدخال)":
+                        st.warning("⚠️ سيتم حذف جميع بيانات الموظفة من القائمة البيضاء وإعادة إدخالها")
+                        re_reason2 = st.text_input("سبب إعادة التسجيل (مطلوب)", key="re_reason2")
+
+                        if st.button("🗑️ حذف البيانات القديمة والمتابعة", use_container_width=True, key="btn_re_full", type="primary"):
+                            if not re_reason2.strip():
+                                st.error("❌ السبب مطلوب")
+                            else:
+                                try:
+                                    wl_records = whitelist_sheet.get_all_records()
+                                    for i, r in enumerate(wl_records):
+                                        if str(r.get("الرقم الشخصي","")).strip() == re_id_clean:
+                                            whitelist_sheet.delete_rows(i+2)
+                                            break
+                                    log_audit(re_id_clean, emp_rec.get("الاسم",""), "حذف لإعادة التسجيل",
+                                              f"السبب: {re_reason2}")
+                                    invalidate_whitelist()
+                                    st.success("✅ تم حذف البيانات — الموظفة ستُسجَّل بياناتها من جديد عند دخولها")
+                                    st.rerun()
+                                except Exception as ex:
+                                    st.error(f"❌ خطأ: {ex}")
+
+                    # ── تعطيل ──
+                    elif re_action == "⛔ تعطيل الموظفة (نشط = لا)":
+                        st.warning("⚠️ الموظفة لن تقدر تسجّل حضور بعد التعطيل")
+                        if st.button("⛔ تعطيل", use_container_width=True, key="btn_re_disable"):
+                            try:
+                                wl_records = whitelist_sheet.get_all_records()
+                                for i, r in enumerate(wl_records):
+                                    if str(r.get("الرقم الشخصي","")).strip() == re_id_clean:
+                                        whitelist_sheet.update_cell(i+2, 9, "لا")
+                                        break
+                                log_audit(re_id_clean, emp_rec.get("الاسم",""), "تعطيل موظفة", "")
+                                invalidate_whitelist()
+                                st.success(f"✅ تم تعطيل {emp_rec.get('الاسم','')}")
+                                st.rerun()
+                            except Exception as ex:
+                                st.error(f"❌ خطأ: {ex}")
+
+                    # ── حذف نهائي ──
+                    elif re_action == "🗑️ حذف نهائي من القائمة":
+                        st.error("⚠️ الحذف النهائي لا يمكن التراجع عنه")
+                        confirm_del = st.text_input(f"اكتبي الرقم الشخصي '{re_id_clean}' للتأكيد", key="re_confirm_del")
+                        if st.button("🗑️ حذف نهائي", use_container_width=True, key="btn_re_delete"):
+                            if confirm_del.strip() != re_id_clean:
+                                st.error("❌ الرقم الشخصي غير مطابق")
+                            else:
+                                try:
+                                    wl_records = whitelist_sheet.get_all_records()
+                                    for i, r in enumerate(wl_records):
+                                        if str(r.get("الرقم الشخصي","")).strip() == re_id_clean:
+                                            whitelist_sheet.delete_rows(i+2)
+                                            break
+                                    log_audit(re_id_clean, emp_rec.get("الاسم",""), "حذف نهائي", "")
+                                    invalidate_whitelist()
+                                    st.success("✅ تم الحذف النهائي")
+                                    st.rerun()
+                                except Exception as ex:
+                                    st.error(f"❌ خطأ: {ex}")
+                else:
+                    st.warning(f"⚠️ الرقم {re_id_clean} غير موجود في القائمة البيضاء")
 
         # ── تجاوز الموقع ─────────────────────────────────────────
         elif admin_tab == "📡 تجاوز الموقع":
@@ -1786,7 +1844,7 @@ else:
         elif admin_tab == "🔍 سجل التدقيق":
             st.markdown('<div class="admin-section">آخر 30 عملية</div>', unsafe_allow_html=True)
             try:
-                audit_data = get_audit_data()
+                audit_data = audit_sheet.get_all_records()
                 for r in reversed(audit_data[-30:]):
                     st.markdown(f"""
                     <div class="audit-row">
@@ -1802,7 +1860,7 @@ else:
         elif admin_tab == "⚠️ تقرير الأجهزة":
             st.markdown('<div class="admin-section">أجهزة سجّلت أكثر من موظفة اليوم</div>', unsafe_allow_html=True)
             try:
-                audit_data = get_audit_data()
+                audit_data = audit_sheet.get_all_records()
                 device_map = {}
                 for r in audit_data:
                     if r.get("التاريخ") == today_str and r.get("نوع العملية") == "تسجيل حضور":
