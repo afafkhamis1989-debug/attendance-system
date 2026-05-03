@@ -43,7 +43,10 @@ def connect_google_sheets():
     return client.open_by_key("1svkfgRq4-osKr86_2WJQFZShuoy8Ek5DOiUaaHKL-6Y")
 
 spreadsheet = connect_google_sheets()
-sheet       = spreadsheet.sheet1  # ورقة الحضور الرئيسية
+try:
+    sheet = spreadsheet.worksheet("sheet1")  # ورقة الحضور الرئيسية
+except Exception:
+    sheet = spreadsheet.sheet1
 
 def get_or_create_sheet(name, headers):
     """تجيب ورقة موجودة أو تنشئها بالهيدرز المحددة."""
@@ -491,7 +494,7 @@ def ls_set(key, value, ls_key=None):
             pass
     st.session_state[f"ls_{key}"] = value
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=120)
 def get_whitelist():
     """تجيب القائمة البيضاء — مخزّنة 60 ثانية لتقليل طلبات Sheets."""
     try:
@@ -516,7 +519,7 @@ def validate_employee(emp_id):
     wl = get_whitelist()
     return wl.get(str(emp_id).strip())
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=120)
 def get_sheet_data():
     """تجيب بيانات الحضور — مخزّنة 30 ثانية."""
     try:
@@ -553,10 +556,12 @@ def safe_update_cell(ws, row, col, value, retries=3, delay=1):
             _time.sleep(delay)
     return False
 
+@st.cache_data(ttl=120)
 def get_device_locks_today(today):
     """قراءة خفيفة لقفل الأجهزة اليوم فقط."""
     try:
-        return [r for r in device_lock_sheet.get_all_records() if str(r.get("التاريخ", "")).strip() == today]
+        records = device_lock_sheet.get_all_records()[-200:]
+        return [r for r in records if str(r.get("التاريخ", "")).strip() == today]
     except Exception:
         return []
 
@@ -611,6 +616,7 @@ def save_device_lock(today, emp_id, emp_name=""):
             return
     try:
         safe_append(device_lock_sheet, [today, fp, str(emp_id), emp_name, datetime.now().strftime("%H:%M:%S")])
+        get_device_locks_today.clear()
     except Exception:
         pass
 
@@ -1665,6 +1671,7 @@ else:
                         invalidate_sheet()
                         log_audit(m_id, emp.get("الاسم",""), "تسجيل يدوي أدمن",
                                   f"التاريخ: {date_str} | حضور: {m_att} | انصراف: {m_dep} | السبب: {m_note}")
+                        invalidate_sheet()
                         st.success("✅ تم التسجيل اليدوي بنجاح")
 
         # ── القائمة البيضاء ──────────────────────────────────────
