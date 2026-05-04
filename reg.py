@@ -486,22 +486,42 @@ if mode=="👤 موظفة":
                     st.success("✅ تم التحقق من بياناتك.")
                 else:
                     # موظفة جديدة — تدخل بياناتها
-                    emp_name=st.text_input("الاسم الثلاثي", placeholder="اكتبي اسمك الثلاثي", key="new_name")
-                    emp_school=st.selectbox("المدرسة", schools, key="new_school")
-                    emp_task=st.selectbox("المهمة", TASKS_MAIN, key="new_task")
-                    emp_job=st.selectbox("المسمى الوظيفي", JOB_TITLES, key="new_job")
-                    emp_phone=st.text_input("رقم التواصل", placeholder="مثال: 39XXXXXX", key="new_phone")
-                    emp_email=st.text_input("البريد الإلكتروني", placeholder="مثال: name@moe.bh", key="new_email")
+                    # ── نوع التسجيل أولاً ──
                     emp_type=st.radio("نوع التسجيل",["🏫 عضوة في المركز","🔄 دعم"],horizontal=True,key="emp_type")
                     is_sup=emp_type=="🔄 دعم"
-                    if is_sup:
-                        st.warning("🔄 دعم — تسجيل لهذا اليوم فقط، لن تُحفظي في القائمة الدائمة")
+
+                    # ── البيانات حسب النوع ──
+                    emp_name=st.text_input("الاسم الثلاثي", placeholder="اكتبي اسمك الثلاثي", key="new_name")
+                    emp_school=st.selectbox("المدرسة", schools, key="new_school")
+                    emp_task=st.selectbox("المهمة", TASKS_SUPPORT if is_sup else TASKS_MAIN, key="new_task")
+
+                    if not is_sup:
+                        emp_job=st.selectbox("المسمى الوظيفي", JOB_TITLES, key="new_job")
+                        emp_phone=st.text_input("رقم التواصل", placeholder="مثال: 39XXXXXX", key="new_phone")
+                        emp_email=st.text_input("البريد الإلكتروني", placeholder="مثال: name@moe.bh", key="new_email")
                     else:
-                        st.info("🏫 عضوة في المركز — ستُحفظين تلقائياً عند أول تسجيل")
+                        emp_job="دعم"; emp_phone=""; emp_email=""
+                        st.warning("🔄 دعم — سيُسجَّل حضورك في sheet1 فقط دون حفظك في القائمة الدائمة")
+
+                    # ── زر الحفظ ──
                     if emp_name.strip():
-                        if st.button("✔️ تأكيد البيانات والمتابعة", use_container_width=True, type="primary", key="confirm_new"):
+                        if st.button("💾 حفظ البيانات والمتابعة", use_container_width=True, type="primary", key="confirm_new"):
                             st.session_state.emp_verified=True
-                            st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":normalize_name(emp_name),"المدرسة":emp_school,"المهمة":emp_task,"المسمى الوظيفي":emp_job,"رقم التواصل":emp_phone,"البريد الإلكتروني":emp_email,"نشط":"نعم","دعم":is_sup}
+                            st.session_state.emp_data={
+                                "الرقم الشخصي":emp_id,
+                                "الاسم":normalize_name(emp_name),
+                                "المدرسة":emp_school,
+                                "المهمة":emp_task,
+                                "المسمى الوظيفي":emp_job,
+                                "رقم التواصل":emp_phone,
+                                "البريد الإلكتروني":emp_email,
+                                "نشط":"نعم",
+                                "دعم":is_sup
+                            }
+                            if not is_sup:
+                                st.success("✅ تم حفظ بياناتك في القائمة، يمكنك الآن تسجيل الحضور")
+                            else:
+                                st.success("✅ تم تسجيل بياناتك، يمكنك الآن تسجيل الحضور")
                             st.rerun()
             else:
                 st.session_state.emp_verified=False; st.session_state.emp_data=None
