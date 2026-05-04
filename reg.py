@@ -36,6 +36,7 @@ COL_NAME=6; COL_ID=7; COL_ATTEND=8; COL_LATE_REASON=9
 COL_DEPART=10; COL_DEPART_REASON=11; COL_EXIT=12; COL_RETURN=13; COL_ATTEMPT=14
 
 schools = [
+    "مدرسة المنامة الثانوية للبنات",
     "مدرسة النور الثانوية للبنات",
     "مدرسة المعرفة الثانوية للبنات",
     "مدرسة الرفاع الغربي الثانوية للبنات",
