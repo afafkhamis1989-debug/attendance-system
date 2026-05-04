@@ -95,32 +95,32 @@ label{direction:rtl!important;text-align:right!important;display:block!important
 scope = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
 
 @st.cache_resource
-def connect_google_sheets():
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
-    return gspread.authorize(creds).open_by_key(SHEET_ID)
-
-spreadsheet = connect_google_sheets()
-
-@st.cache_resource
 def get_all_sheets():
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
+    client = gspread.authorize(creds)
+    ss = client.open_by_key(SHEET_ID)
+
     def _get_or_create(name, headers):
         try:
-            return spreadsheet.worksheet(name)
+            return ss.worksheet(name)
         except gspread.WorksheetNotFound:
-            ws = spreadsheet.add_worksheet(title=name, rows=1000, cols=max(len(headers),10))
+            ws = ss.add_worksheet(title=name, rows=1000, cols=max(len(headers),10))
             ws.append_row(headers)
             return ws
+
     return {
-        "sheet":          spreadsheet.worksheet("sheet1"),
-        "whitelist":      _get_or_create("القائمة_البيضاء", ["الرقم الشخصي","الاسم","المدرسة","المهمة","رقم التواصل","البريد الإلكتروني","المسمى الوظيفي","نشط"]),
-        "device":         _get_or_create("device_lock",     ["التاريخ","بصمة الجهاز","الرقم الشخصي","الاسم","وقت_القفل"]),
-        "attempts":       _get_or_create("محاولات_تسجيل_باسم_آخر", ["التاريخ","بصمة الجهاز","الرقم_المقفول_عليه","اسم_المقفول_عليه","الرقم_المحاول","اسم_المحاول","وقت_المحاولة","ملاحظات"]),
-        "settings":       _get_or_create("إعدادات_النظام", ["المفتاح","القيمة","تاريخ_الانتهاء","ملاحظات"]),
-        "audit":          _get_or_create("سجل_التدقيق",    ["التاريخ","الوقت","المستخدم","الرقم الشخصي","نوع العملية","التفاصيل","بصمة الجهاز"]),
-        "absence":        _get_or_create("سجل_الغياب",     ["التاريخ","اليوم","الرقم الشخصي","الاسم","المدرسة","المهمة","سبب الغياب","ملاحظات","سجّله"]),
+        "spreadsheet": ss,
+        "sheet":       ss.worksheet("sheet1"),
+        "whitelist":   _get_or_create("القائمة_البيضاء",         ["الرقم الشخصي","الاسم","المدرسة","المهمة","رقم التواصل","البريد الإلكتروني","المسمى الوظيفي","نشط"]),
+        "device":      _get_or_create("device_lock",              ["التاريخ","بصمة الجهاز","الرقم الشخصي","الاسم","وقت_القفل"]),
+        "attempts":    _get_or_create("محاولات_تسجيل_باسم_آخر",  ["التاريخ","بصمة الجهاز","الرقم_المقفول_عليه","اسم_المقفول_عليه","الرقم_المحاول","اسم_المحاول","وقت_المحاولة","ملاحظات"]),
+        "settings":    _get_or_create("إعدادات_النظام",           ["المفتاح","القيمة","تاريخ_الانتهاء","ملاحظات"]),
+        "audit":       _get_or_create("سجل_التدقيق",              ["التاريخ","الوقت","المستخدم","الرقم الشخصي","نوع العملية","التفاصيل","بصمة الجهاز"]),
+        "absence":     _get_or_create("سجل_الغياب",               ["التاريخ","اليوم","الرقم الشخصي","الاسم","المدرسة","المهمة","سبب الغياب","ملاحظات","سجّله"]),
     }
 
 _sheets         = get_all_sheets()
+spreadsheet     = _sheets["spreadsheet"]
 sheet           = _sheets["sheet"]
 whitelist_sheet = _sheets["whitelist"]
 device_sheet    = _sheets["device"]
