@@ -881,7 +881,7 @@ else:
 # ─── Footer ─────────────────────────────────────────────────────
 st.markdown("""
 <div class="footer-bar">
-    <span>تصميم: <span class="hl">أ. عفاف حسين</span></span>
+    <span>تصميم وبرمجة: <span class="hl">أ. عفاف حسين</span></span>
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
