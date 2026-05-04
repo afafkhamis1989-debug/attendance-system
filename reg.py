@@ -301,9 +301,18 @@ def register_operation(operation, emp_id, note=""):
     # حفظ موظفة جديدة في القائمة البيضاء
     if not validate_employee(emp_id) and operation=="تسجيل حضور":
         is_support_new="دعم" in str(emp.get("المهمة",""))
-        if not is_support_new:
+        if not is_support_new and not emp.get("دعم"):
             try:
-                whitelist_sheet.append_row([emp_id,emp.get("الاسم",""),emp.get("المدرسة",""),emp.get("المهمة",""),"","","موظفة","نعم"])
+                whitelist_sheet.append_row([
+                    emp_id,
+                    emp.get("الاسم",""),
+                    emp.get("المدرسة",""),
+                    emp.get("المهمة",""),
+                    emp.get("رقم التواصل",""),
+                    emp.get("البريد الإلكتروني",""),
+                    emp.get("المسمى الوظيفي","موظفة"),
+                    "نعم"
+                ])
                 get_whitelist.clear()
             except: pass
 
@@ -479,16 +488,20 @@ if mode=="👤 موظفة":
                     # موظفة جديدة — تدخل بياناتها
                     emp_name=st.text_input("الاسم الثلاثي", placeholder="اكتبي اسمك الثلاثي", key="new_name")
                     emp_school=st.selectbox("المدرسة", schools, key="new_school")
+                    emp_task=st.selectbox("المهمة", TASKS_MAIN, key="new_task")
+                    emp_job=st.selectbox("المسمى الوظيفي", JOB_TITLES, key="new_job")
+                    emp_phone=st.text_input("رقم التواصل", placeholder="مثال: 39XXXXXX", key="new_phone")
+                    emp_email=st.text_input("البريد الإلكتروني", placeholder="مثال: name@moe.bh", key="new_email")
                     emp_type=st.radio("نوع التسجيل",["🏫 عضوة في المركز","🔄 دعم"],horizontal=True,key="emp_type")
                     is_sup=emp_type=="🔄 دعم"
-                    tasks_list=TASKS_SUPPORT if is_sup else TASKS_MAIN
-                    emp_task=st.selectbox("المهمة", tasks_list, key="new_task")
-                    if is_sup: st.warning("🔄 دعم — تسجيل لهذا اليوم فقط، لن تُحفظي في القائمة الدائمة")
-                    else: st.info("🏫 عضوة في المركز — ستُحفظين تلقائياً عند أول تسجيل")
+                    if is_sup:
+                        st.warning("🔄 دعم — تسجيل لهذا اليوم فقط، لن تُحفظي في القائمة الدائمة")
+                    else:
+                        st.info("🏫 عضوة في المركز — ستُحفظين تلقائياً عند أول تسجيل")
                     if emp_name.strip():
                         if st.button("✔️ تأكيد البيانات والمتابعة", use_container_width=True, type="primary", key="confirm_new"):
                             st.session_state.emp_verified=True
-                            st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":normalize_name(emp_name),"المدرسة":emp_school,"المهمة":emp_task,"نشط":"نعم","دعم":is_sup}
+                            st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":normalize_name(emp_name),"المدرسة":emp_school,"المهمة":emp_task,"المسمى الوظيفي":emp_job,"رقم التواصل":emp_phone,"البريد الإلكتروني":emp_email,"نشط":"نعم","دعم":is_sup}
                             st.rerun()
             else:
                 st.session_state.emp_verified=False; st.session_state.emp_data=None
@@ -797,4 +810,3 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
-
