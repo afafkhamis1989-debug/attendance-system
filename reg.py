@@ -428,7 +428,8 @@ day_arabic={"Saturday":"السبت","Sunday":"الأحد","Monday":"الاثني
 try:
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        st.image("logo.png", use_container_width=True)except: pass
+        st.image("logo.png", use_container_width=True)
+except: pass
 
 st.markdown(f"""
 <div class="app-header">
