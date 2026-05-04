@@ -536,7 +536,7 @@ if mode=="👤 موظفة":
                         if still_support == "🔄 لا زلت دعم":
                             st.session_state.emp_verified=True
                             st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":existing.get("الاسم",""),"المدرسة":existing.get("المدرسة",""),"المهمة":existing.get("المهمة",""),"نشط":"نعم","دعم":True}
-                            st.warning("🔄 دعم — سيُسجَّل حضورك في sheet1 فقط")
+                            st.warning("🔄سيتم تسجيل حضوركِ لهذا اليوم فقط كدعم")
 
                         else:
                             # تريد تنتقل لعضوة — تكمّل بياناتها
