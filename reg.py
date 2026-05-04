@@ -593,7 +593,7 @@ if mode=="👤 موظفة":
                         emp_email=st.text_input("البريد الإلكتروني", placeholder="مثال: name@moe.bh", key="new_email")
                     else:
                         emp_job="دعم"; emp_phone=""; emp_email=""
-                        st.warning("🔄 دعم — سيُسجَّل حضورك في sheet1 فقط دون حفظك في القائمة الدائمة")
+                        st.warning("🔄 سيتم تسجيل حضورك اليوم فقط كدعم")
 
                     # ── زر الحفظ ──
                     if emp_name.strip():
