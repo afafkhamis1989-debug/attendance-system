@@ -522,8 +522,7 @@ if mode=="👤 موظفة":
                     # ── زر الحفظ ──
                     if emp_name.strip():
                         if st.button("💾 حفظ البيانات والمتابعة", use_container_width=True, type="primary", key="confirm_new"):
-                            st.session_state.emp_verified=True
-                            st.session_state.emp_data={
+                            new_emp_data={
                                 "الرقم الشخصي":emp_id,
                                 "الاسم":normalize_name(emp_name),
                                 "المدرسة":emp_school,
@@ -534,8 +533,25 @@ if mode=="👤 موظفة":
                                 "نشط":"نعم",
                                 "دعم":is_sup
                             }
+                            st.session_state.emp_verified=True
+                            st.session_state.emp_data=new_emp_data
+                            # حفظ في القائمة البيضاء فوراً (إلا دعم)
                             if not is_sup:
-                                st.success("✅ تم حفظ بياناتك في القائمة، يمكنك الآن تسجيل الحضور")
+                                try:
+                                    whitelist_sheet.append_row([
+                                        emp_id,
+                                        normalize_name(emp_name),
+                                        emp_school,
+                                        emp_task,
+                                        emp_phone,
+                                        emp_email,
+                                        emp_job,
+                                        "نعم"
+                                    ])
+                                    get_whitelist.clear()
+                                    st.success("✅ تم حفظ بياناتك في القائمة البيضاء، يمكنك الآن تسجيل الحضور")
+                                except Exception as e:
+                                    st.warning(f"⚠️ تعذّر الحفظ في القائمة: {e}")
                             else:
                                 st.success("✅ تم تسجيل بياناتك، يمكنك الآن تسجيل الحضور")
                             st.rerun()
