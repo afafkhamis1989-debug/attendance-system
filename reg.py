@@ -425,7 +425,7 @@ if st.session_state.admin_logged_in and st.session_state.admin_last_active:
 # ─── Header ────────────────────────────────────────────────────
 day_arabic={"Saturday":"السبت","Sunday":"الأحد","Monday":"الاثنين","Tuesday":"الثلاثاء","Wednesday":"الأربعاء","Thursday":"الخميس","Friday":"الجمعة"}.get(now_bh().strftime("%A"),now_bh().strftime("%A"))
 
-try: st.image("logo.png", width=400)
+try: st.image("logo.png", use_container_width=True)
 except: pass
 
 st.markdown(f"""
