@@ -46,8 +46,14 @@ TASKS_MAIN = [
     "مصححة — التربية البدنية","كنترول خارجي — دعم فني",
     "كنترول خارجي — رصد الدرجات","كنترول خارجي — ضبط مركزي",
 ]
-TASKS_SUPPORT = [t + " — دعم" for t in TASKS_MAIN]
-TASKS_ALL     = TASKS_MAIN + TASKS_SUPPORT
+TASKS_SUPPORT = [
+    "دعم — اللغة العربية","دعم — اللغة الإنجليزية","دعم — الرياضيات",
+    "دعم — الفيزياء","دعم — الكيمياء","دعم — الأحياء",
+    "دعم — العلوم التجارية","دعم — المواد الاجتماعية","دعم — التربية الإسلامية",
+    "دعم — التربية الأسرية","دعم — التربية الفنية","دعم — الحاسب الآلي",
+    "دعم — التربية البدنية","دعم — كنترول فني","دعم — رصد الدرجات","دعم — ضبط مركزي",
+]
+TASKS_ALL = TASKS_MAIN + TASKS_SUPPORT
 JOB_TITLES    = ["منسقة","معلمة أولى","معلمة","الهيئة الإدارية","مشرف تربوي","مديرة مدرسة","المديرة المساعدة","أخرى"]
 reasons       = ["دوام مرن","موعد","مهمة رسمية","رعاية","أخرى"]
 abs_reasons   = ["مرض","إجازة اعتيادية","إجازة طارئة","بدون عذر","مهمة رسمية","أخرى"]
@@ -473,15 +479,17 @@ if mode=="👤 موظفة":
                     # موظفة جديدة — تدخل بياناتها
                     emp_name=st.text_input("الاسم الثلاثي", placeholder="اكتبي اسمك الثلاثي", key="new_name")
                     emp_school=st.selectbox("المدرسة", schools, key="new_school")
-                    emp_type=st.radio("نوع التسجيل",["👩‍🏫 موظفة دائمة","🔄 دعم مؤقت"],horizontal=True,key="emp_type")
-                    is_sup="دعم" in emp_type
-                    tasks_list=[t for t in TASKS_ALL if ("دعم" in t)==is_sup]
-                    emp_task=st.selectbox("المهمة" if not is_sup else "القسم الذي تدعمينه", tasks_list, key="new_task")
-                    if is_sup: st.warning("🔄 دعم مؤقت — تسجيل لهذا اليوم فقط")
-                    else: st.info("💾 موظفة جديدة — ستُحفظ تلقائياً عند أول تسجيل")
+                    emp_type=st.radio("نوع التسجيل",["🏫 عضوة في المركز","🔄 دعم"],horizontal=True,key="emp_type")
+                    is_sup=emp_type=="🔄 دعم"
+                    tasks_list=TASKS_SUPPORT if is_sup else TASKS_MAIN
+                    emp_task=st.selectbox("المهمة", tasks_list, key="new_task")
+                    if is_sup: st.warning("🔄 دعم — تسجيل لهذا اليوم فقط، لن تُحفظي في القائمة الدائمة")
+                    else: st.info("🏫 عضوة في المركز — ستُحفظين تلقائياً عند أول تسجيل")
                     if emp_name.strip():
-                        st.session_state.emp_verified=True
-                        st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":normalize_name(emp_name),"المدرسة":emp_school,"المهمة":emp_task,"نشط":"نعم","دعم":is_sup}
+                        if st.button("✔️ تأكيد البيانات والمتابعة", use_container_width=True, type="primary", key="confirm_new"):
+                            st.session_state.emp_verified=True
+                            st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":normalize_name(emp_name),"المدرسة":emp_school,"المهمة":emp_task,"نشط":"نعم","دعم":is_sup}
+                            st.rerun()
             else:
                 st.session_state.emp_verified=False; st.session_state.emp_data=None
 
