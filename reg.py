@@ -101,21 +101,33 @@ def connect_google_sheets():
 
 spreadsheet = connect_google_sheets()
 
-def get_or_create_sheet(name, headers):
-    try:
-        return spreadsheet.worksheet(name)
-    except gspread.WorksheetNotFound:
-        ws = spreadsheet.add_worksheet(title=name, rows=1000, cols=max(len(headers),10))
-        ws.append_row(headers)
-        return ws
+@st.cache_resource
+def get_all_sheets():
+    def _get_or_create(name, headers):
+        try:
+            return spreadsheet.worksheet(name)
+        except gspread.WorksheetNotFound:
+            ws = spreadsheet.add_worksheet(title=name, rows=1000, cols=max(len(headers),10))
+            ws.append_row(headers)
+            return ws
+    return {
+        "sheet":          spreadsheet.worksheet("sheet1"),
+        "whitelist":      _get_or_create("القائمة_البيضاء", ["الرقم الشخصي","الاسم","المدرسة","المهمة","رقم التواصل","البريد الإلكتروني","المسمى الوظيفي","نشط"]),
+        "device":         _get_or_create("device_lock",     ["التاريخ","بصمة الجهاز","الرقم الشخصي","الاسم","وقت_القفل"]),
+        "attempts":       _get_or_create("محاولات_تسجيل_باسم_آخر", ["التاريخ","بصمة الجهاز","الرقم_المقفول_عليه","اسم_المقفول_عليه","الرقم_المحاول","اسم_المحاول","وقت_المحاولة","ملاحظات"]),
+        "settings":       _get_or_create("إعدادات_النظام", ["المفتاح","القيمة","تاريخ_الانتهاء","ملاحظات"]),
+        "audit":          _get_or_create("سجل_التدقيق",    ["التاريخ","الوقت","المستخدم","الرقم الشخصي","نوع العملية","التفاصيل","بصمة الجهاز"]),
+        "absence":        _get_or_create("سجل_الغياب",     ["التاريخ","اليوم","الرقم الشخصي","الاسم","المدرسة","المهمة","سبب الغياب","ملاحظات","سجّله"]),
+    }
 
-sheet           = spreadsheet.worksheet("sheet1")
-whitelist_sheet = get_or_create_sheet("القائمة_البيضاء", ["الرقم الشخصي","الاسم","المدرسة","المهمة","رقم التواصل","البريد الإلكتروني","المسمى الوظيفي","نشط"])
-device_sheet    = get_or_create_sheet("device_lock",     ["التاريخ","بصمة الجهاز","الرقم الشخصي","الاسم","وقت_القفل"])
-attempts_sheet  = get_or_create_sheet("محاولات_تسجيل_باسم_آخر", ["التاريخ","بصمة الجهاز","الرقم_المقفول_عليه","اسم_المقفول_عليه","الرقم_المحاول","اسم_المحاول","وقت_المحاولة","ملاحظات"])
-settings_sheet  = get_or_create_sheet("إعدادات_النظام", ["المفتاح","القيمة","تاريخ_الانتهاء","ملاحظات"])
-audit_sheet     = get_or_create_sheet("سجل_التدقيق",    ["التاريخ","الوقت","المستخدم","الرقم الشخصي","نوع العملية","التفاصيل","بصمة الجهاز"])
-absence_sheet   = get_or_create_sheet("سجل_الغياب",     ["التاريخ","اليوم","الرقم الشخصي","الاسم","المدرسة","المهمة","سبب الغياب","ملاحظات","سجّله"])
+_sheets         = get_all_sheets()
+sheet           = _sheets["sheet"]
+whitelist_sheet = _sheets["whitelist"]
+device_sheet    = _sheets["device"]
+attempts_sheet  = _sheets["attempts"]
+settings_sheet  = _sheets["settings"]
+audit_sheet     = _sheets["audit"]
+absence_sheet   = _sheets["absence"]
 
 # ─── دوال مساعدة ───────────────────────────────────────────────
 def ar_to_en_digits(text):
