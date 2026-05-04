@@ -627,7 +627,19 @@ else:
     else:
         st.session_state.admin_last_active = datetime.now()
         st.markdown("## 🛡️ لوحة الأدمن")
-        admin_tab = st.selectbox("القسم", ["📊 إحصائيات اليوم", "📋 القائمة البيضاء", "🚫 محاولات تسجيل باسم آخر", "📡 تجاوز الموقع", "🔓 فتح قفل جهاز"])
+        admin_tab = st.selectbox("القسم", [
+            "📊 إحصائيات اليوم",
+            "🔴 تسجيل الغياب",
+            "✏️ تعديل سجل",
+            "➕ تسجيل يدوي",
+            "📋 القائمة البيضاء",
+            "🔄 إعادة تسجيل موظفة",
+            "📡 تجاوز الموقع",
+            "🚫 محاولات تسجيل باسم آخر",
+            "🔓 فتح قفل جهاز",
+        ])
+
+        # ── إحصائيات اليوم ──────────────────────────────────────
         if admin_tab == "📊 إحصائيات اليوم":
             data = get_sheet_data()
             today_rows = [r for r in data if r.get("التاريخ") == today_str]
@@ -635,9 +647,111 @@ else:
             c1.metric("إجمالي المسجّلين", len(today_rows))
             c2.metric("حضور", sum(1 for r in today_rows if r.get("وقت الحضور")))
             c3.metric("انصراف", sum(1 for r in today_rows if r.get("وقت الانصراف")))
+            support_c = sum(1 for r in today_rows if str(r.get("دعم","")).strip() == "نعم")
+            attempt_c = sum(1 for r in today_rows if r.get("محاولة تسجيل باسم آخر"))
+            c4, c5 = st.columns(2)
+            c4.metric("دعم اليوم", support_c)
+            c5.metric("محاولات مشبوهة", attempt_c)
             st.markdown("### سجلات اليوم")
             for r in today_rows[-30:]:
                 st.write(f"{r.get('الاسم الثلاثي','')} — حضور: {r.get('وقت الحضور','—')} — انصراف: {r.get('وقت الانصراف','—')}")
+
+        # ── تسجيل الغياب ────────────────────────────────────────
+        elif admin_tab == "🔴 تسجيل الغياب":
+            absence_reasons = ["مرض","إجازة اعتيادية","إجازة طارئة","بدون عذر","مهمة رسمية","أخرى"]
+            abs_date = st.date_input("تاريخ الغياب", value=datetime.now().date(), key="abs_date")
+            abs_date_str = str(abs_date)
+            wl_all = get_whitelist()
+            if not wl_all:
+                st.warning("⚠️ القائمة البيضاء فارغة")
+            else:
+                data = get_sheet_data()
+                attended_ids = set(str(r.get("الرقم الشخصي","")).strip() for r in data if r.get("التاريخ") == abs_date_str and r.get("وقت الحضور"))
+                try:
+                    abs_ws = spreadsheet.worksheet("سجل_الغياب")
+                except Exception:
+                    abs_ws = spreadsheet.add_worksheet("سجل_الغياب", rows=1000, cols=9)
+                    abs_ws.append_row(["التاريخ","اليوم","الرقم الشخصي","الاسم","المدرسة","المهمة","سبب الغياب","ملاحظات","سجّله"])
+                abs_records = abs_ws.get_all_records()
+                absent_ids = set(str(r.get("الرقم الشخصي","")).strip() for r in abs_records if r.get("التاريخ") == abs_date_str)
+                not_reg = {eid: emp for eid, emp in wl_all.items() if eid not in attended_ids and eid not in absent_ids}
+                c1,c2,c3 = st.columns(3)
+                c1.metric("إجمالي", len(wl_all))
+                c2.metric("حاضرات", len(attended_ids))
+                c3.metric("لم يسجّلن", len(not_reg))
+                for eid, emp in not_reg.items():
+                    with st.expander(f"🔴 {emp.get('الاسم','')} — {emp.get('المدرسة','')}"):
+                        sel = st.selectbox("سبب الغياب", absence_reasons, key=f"abs_{eid}")
+                        oth = st.text_input("اكتبي السبب", key=f"abo_{eid}") if sel == "أخرى" else ""
+                        nte = st.text_input("ملاحظات", key=f"abn_{eid}")
+                        fin = oth.strip() if sel == "أخرى" else sel
+                        if st.button("تسجيل غياب", key=f"abb_{eid}", use_container_width=True):
+                            if not fin:
+                                st.error("السبب مطلوب")
+                            else:
+                                day_ar = {"Saturday":"السبت","Sunday":"الأحد","Monday":"الاثنين","Tuesday":"الثلاثاء","Wednesday":"الأربعاء","Thursday":"الخميس","Friday":"الجمعة"}.get(abs_date.strftime("%A"),"")
+                                safe_append(abs_ws, [abs_date_str, day_ar, eid, emp.get("الاسم",""), emp.get("المدرسة",""), emp.get("المهمة",""), fin, nte, "أدمن"])
+                                st.success(f"✅ تم تسجيل غياب {emp.get('الاسم','')}")
+                                st.rerun()
+
+        # ── تعديل سجل ────────────────────────────────────────────
+        elif admin_tab == "✏️ تعديل سجل":
+            search_id   = st.text_input("الرقم الشخصي", key="edit_id")
+            search_date = st.date_input("التاريخ", value=datetime.now().date(), key="edit_date")
+            if st.button("بحث", key="btn_search"):
+                data = get_sheet_data()
+                idx, row = find_today_row(data, str(search_date), search_id)
+                if row:
+                    st.session_state.edit_row_idx = idx
+                    st.session_state.edit_row = row
+                else:
+                    st.error("لا يوجد سجل")
+                    st.session_state.edit_row_idx = None
+                    st.session_state.edit_row = None
+            if st.session_state.get("edit_row"):
+                row = st.session_state.edit_row
+                idx = st.session_state.edit_row_idx
+                st.info(f"السجل: {row.get('الاسم الثلاثي','')} — {row.get('التاريخ','')}")
+                new_att = st.text_input("وقت الحضور",   value=row.get("وقت الحضور",""),   key="new_att")
+                new_dep = st.text_input("وقت الانصراف", value=row.get("وقت الانصراف",""), key="new_dep")
+                edit_reason = st.text_input("سبب التعديل (مطلوب)", key="edit_reason")
+                if st.button("حفظ التعديل", use_container_width=True):
+                    if not edit_reason.strip():
+                        st.error("سبب التعديل مطلوب")
+                    else:
+                        safe_update_cell(sheet, idx, COL_ATTEND, new_att)
+                        safe_update_cell(sheet, idx, COL_DEPART, new_dep)
+                        clear_caches()
+                        st.success("✅ تم حفظ التعديل")
+                        st.session_state.edit_row = None
+
+        # ── تسجيل يدوي ──────────────────────────────────────────
+        elif admin_tab == "➕ تسجيل يدوي":
+            m_id   = st.text_input("الرقم الشخصي", key="manual_id")
+            m_date = st.date_input("التاريخ", value=datetime.now().date(), key="manual_date")
+            m_att  = st.text_input("وقت الحضور", value="07:00:00", key="manual_att")
+            m_dep  = st.text_input("وقت الانصراف (اختياري)", key="manual_dep")
+            m_note = st.text_input("سبب الإضافة اليدوية (مطلوب)", key="manual_note")
+            if st.button("تسجيل يدوي", use_container_width=True):
+                if not m_note.strip() or not m_id.strip():
+                    st.error("الرقم والسبب مطلوبان")
+                else:
+                    emp = validate_employee(m_id)
+                    if not emp:
+                        st.error("الرقم غير موجود في القائمة البيضاء")
+                    else:
+                        sup = "نعم" if "دعم" in str(emp.get("المهمة","")) else "لا"
+                        safe_append(sheet, [
+                            str(m_date), m_date.strftime("%A"),
+                            emp.get("المدرسة",""), emp.get("المهمة",""), sup,
+                            normalize_name(emp.get("الاسم","")), m_id,
+                            m_att, f"[يدوي] {m_note}",
+                            m_dep, "", "", "", ""
+                        ])
+                        clear_caches()
+                        st.success("✅ تم التسجيل اليدوي")
+
+        # ── القائمة البيضاء ──────────────────────────────────────
         elif admin_tab == "📋 القائمة البيضاء":
             st.markdown("### إضافة موظفة للقائمة البيضاء")
             wl_id = st.text_input("الرقم الشخصي")
@@ -655,15 +769,65 @@ else:
                         st.success("✅ تمت الإضافة.")
                     else:
                         st.error("❌ تعذرت الإضافة.")
-        elif admin_tab == "🚫 محاولات تسجيل باسم آخر":
-            try:
-                records = attempts_sheet.get_all_records()
-                today_attempts = [r for r in records if r.get("التاريخ") == today_str]
-                st.metric("محاولات اليوم", len(today_attempts))
-                for r in reversed(today_attempts[-50:]):
-                    st.warning(f"الجهاز المقفول على: {r.get('اسم_المقفول_عليه','')} ({r.get('الرقم_المقفول_عليه','')}) — حاول: {r.get('اسم_المحاول','')} ({r.get('الرقم_المحاول','')}) — الوقت: {r.get('وقت_المحاولة','')}")
-            except Exception as e:
-                st.error(f"تعذر تحميل المحاولات: {e}")
+            st.markdown("### الموظفات المسجّلات")
+            for eid, emp in get_whitelist().items():
+                st.write(f"{emp.get('الاسم','')} — #{eid} — {emp.get('المدرسة','')}")
+
+        # ── إعادة تسجيل موظفة ────────────────────────────────────
+        elif admin_tab == "🔄 إعادة تسجيل موظفة":
+            re_id = st.text_input("الرقم الشخصي", key="re_emp_id")
+            if re_id.strip():
+                re_id_clean = ar_to_en_digits(re_id).strip()
+                emp_rec = get_whitelist().get(re_id_clean)
+                if emp_rec:
+                    st.info(f"{emp_rec.get('الاسم','')} — {emp_rec.get('المدرسة','')} — {emp_rec.get('المهمة','')}")
+                    re_action = st.radio("العملية", ["✏️ تعديل","⛔ تعطيل","🗑️ حذف نهائي"], key="re_action")
+                    if re_action == "✏️ تعديل":
+                        task_r  = emp_rec.get("المهمة","")
+                        new_n   = st.text_input("الاسم الجديد", value=emp_rec.get("الاسم",""), key="re_name")
+                        new_s   = st.selectbox("المدرسة", schools, index=schools.index(emp_rec.get("المدرسة",schools[0])) if emp_rec.get("المدرسة") in schools else 0, key="re_school")
+                        t_opts  = TASKS_MAIN + TASKS_SUPPORT
+                        new_t   = st.selectbox("المهمة", t_opts, index=t_opts.index(task_r) if task_r in t_opts else 0, key="re_task")
+                        re_rsn  = st.text_input("سبب التعديل (مطلوب)", key="re_rsn")
+                        if st.button("💾 حفظ", use_container_width=True, type="primary"):
+                            if not re_rsn.strip():
+                                st.error("السبب مطلوب")
+                            else:
+                                recs = whitelist_sheet.get_all_records()
+                                for i, r in enumerate(recs):
+                                    if str(r.get("الرقم الشخصي","")).strip() == re_id_clean:
+                                        whitelist_sheet.update_cell(i+2, 2, normalize_name(new_n))
+                                        whitelist_sheet.update_cell(i+2, 3, new_s)
+                                        whitelist_sheet.update_cell(i+2, 4, new_t)
+                                        break
+                                get_whitelist.clear()
+                                st.success("✅ تم التعديل")
+                    elif re_action == "⛔ تعطيل":
+                        if st.button("⛔ تعطيل", use_container_width=True):
+                            recs = whitelist_sheet.get_all_records()
+                            for i, r in enumerate(recs):
+                                if str(r.get("الرقم الشخصي","")).strip() == re_id_clean:
+                                    whitelist_sheet.update_cell(i+2, 8, "لا")
+                                    break
+                            get_whitelist.clear()
+                            st.success("✅ تم التعطيل")
+                    elif re_action == "🗑️ حذف نهائي":
+                        confirm = st.text_input(f"اكتبي الرقم '{re_id_clean}' للتأكيد", key="re_confirm")
+                        if st.button("🗑️ حذف نهائي", use_container_width=True):
+                            if confirm.strip() != re_id_clean:
+                                st.error("الرقم غير مطابق")
+                            else:
+                                recs = whitelist_sheet.get_all_records()
+                                for i, r in enumerate(recs):
+                                    if str(r.get("الرقم الشخصي","")).strip() == re_id_clean:
+                                        whitelist_sheet.delete_rows(i+2)
+                                        break
+                                get_whitelist.clear()
+                                st.success("✅ تم الحذف")
+                else:
+                    st.warning(f"⚠️ الرقم {re_id_clean} غير موجود")
+
+        # ── تجاوز الموقع ─────────────────────────────────────────
         elif admin_tab == "📡 تجاوز الموقع":
             active, end_dt = get_location_override()
             if active and end_dt:
@@ -685,6 +849,21 @@ else:
                             st.rerun()
                         else:
                             st.error("تعذر التفعيل.")
+
+        # ── محاولات تسجيل باسم آخر ───────────────────────────────
+        elif admin_tab == "🚫 محاولات تسجيل باسم آخر":
+            try:
+                records = attempts_sheet.get_all_records()
+                today_attempts = [r for r in records if r.get("التاريخ") == today_str]
+                st.metric("محاولات اليوم", len(today_attempts))
+                for r in reversed(today_attempts[-50:]):
+                    st.warning(f"الجهاز المقفول على: {r.get('اسم_المقفول_عليه','')} ({r.get('الرقم_المقفول_عليه','')}) — حاول: {r.get('اسم_المحاول','')} ({r.get('الرقم_المحاول','')}) — الوقت: {r.get('وقت_المحاولة','')}")
+                if not today_attempts:
+                    st.success("✅ لا يوجد محاولات مشبوهة اليوم")
+            except Exception as e:
+                st.error(f"تعذر تحميل المحاولات: {e}")
+
+        # ── فتح قفل جهاز ─────────────────────────────────────────
         elif admin_tab == "🔓 فتح قفل جهاز":
             st.info("استخدمي هذه الخاصية عند وجود سبب رسمي لاستخدام نفس الجهاز لموظفة أخرى.")
             unlock_id = st.text_input("الرقم الشخصي المقفول عليه")
@@ -704,6 +883,7 @@ else:
                         st.warning("لم يتم العثور على قفل لهذا الرقم اليوم.")
                 except Exception as e:
                     st.error(f"تعذر حذف القفل: {e}")
+
         if st.button("🚪 تسجيل خروج الأدمن", use_container_width=True):
             st.session_state.admin_logged_in = False
             st.session_state.admin_last_active = None
@@ -715,4 +895,3 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
-
