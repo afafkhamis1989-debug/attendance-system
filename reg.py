@@ -797,3 +797,4 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
+
