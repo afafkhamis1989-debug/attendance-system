@@ -324,6 +324,7 @@ def register_operation(operation, emp_id, note=""):
                     emp.get("الاسم",""),
                     emp.get("المدرسة",""),
                     emp.get("المهمة",""),
+                    "لا",
                     emp.get("رقم التواصل",""),
                     emp.get("البريد الإلكتروني",""),
                     emp.get("المسمى الوظيفي","موظفة"),
@@ -424,7 +425,7 @@ if st.session_state.admin_logged_in and st.session_state.admin_last_active:
 # ─── Header ────────────────────────────────────────────────────
 day_arabic={"Saturday":"السبت","Sunday":"الأحد","Monday":"الاثنين","Tuesday":"الثلاثاء","Wednesday":"الأربعاء","Thursday":"الخميس","Friday":"الجمعة"}.get(now_bh().strftime("%A"),now_bh().strftime("%A"))
 
-try: st.image("logo.png", use_container_width=True)
+try: st.image("logo.png", width=400)
 except: pass
 
 st.markdown(f"""
@@ -515,14 +516,66 @@ if mode=="👤 موظفة":
             if emp_id:
                 existing=validate_employee(emp_id)
                 if existing:
-                    st.session_state.emp_verified=True
-                    st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":existing.get("الاسم",""),"المدرسة":existing.get("المدرسة",""),"المهمة":existing.get("المهمة",""),"نشط":"نعم","دعم":"دعم" in str(existing.get("المهمة",""))}
-                    st.markdown(f"""
-                    <div class="field-lbl">الاسم</div><div class="field-val">{existing.get("الاسم","")}</div>
-                    <div class="field-lbl">المدرسة</div><div class="field-val">{existing.get("المدرسة","")}</div>
-                    <div class="field-lbl">المهمة في الكنترول</div><div class="field-val blue">{existing.get("المهمة","")}</div>
-                    """, unsafe_allow_html=True)
-                    st.success("✅ تم التحقق من بياناتك.")
+                    is_prev_support = str(existing.get("دعم","")).strip() in ["نعم","yes","Yes","TRUE","true","1"] or "دعم" in str(existing.get("المهمة",""))
+
+                    if is_prev_support:
+                        # موظفة كانت دعم — نسألها هل لا زالت دعم
+                        st.markdown(f"""
+                        <div class="field-lbl">الاسم</div><div class="field-val">{existing.get("الاسم","")}</div>
+                        <div style="background:#faeeda;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:700;color:#633806;margin-bottom:10px;">
+                        🔄 أنتِ مسجّلة كدعم مؤقت
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        still_support = st.radio(
+                            "ما زلتِ دعم أم صرتِ عضوة في المركز؟",
+                            ["🔄 لا زلت دعم", "🏫 صرت عضوة في المركز"],
+                            horizontal=True, key="support_upgrade"
+                        )
+
+                        if still_support == "🔄 لا زلت دعم":
+                            st.session_state.emp_verified=True
+                            st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":existing.get("الاسم",""),"المدرسة":existing.get("المدرسة",""),"المهمة":existing.get("المهمة",""),"نشط":"نعم","دعم":True}
+                            st.warning("🔄 دعم — سيُسجَّل حضورك في sheet1 فقط")
+
+                        else:
+                            # تريد تنتقل لعضوة — تكمّل بياناتها
+                            st.info("🏫 ممتاز! أكملي بياناتك لتُضافي كعضوة دائمة")
+                            emp_task_new=st.selectbox("المهمة الجديدة", TASKS_MAIN, key="upgrade_task")
+                            emp_job_new=st.selectbox("المسمى الوظيفي", JOB_TITLES, key="upgrade_job")
+                            emp_phone_new=st.text_input("رقم التواصل", value=existing.get("رقم التواصل",""), key="upgrade_phone")
+                            emp_email_new=st.text_input("البريد الإلكتروني", value=existing.get("البريد الإلكتروني",""), key="upgrade_email")
+
+                            if st.button("💾 حفظ كعضوة دائمة", use_container_width=True, type="primary", key="btn_upgrade"):
+                                try:
+                                    # ابحث عن صف الموظفة في القائمة البيضاء وحدّثه
+                                    wl_records = whitelist_sheet.get_all_records()
+                                    for i, r in enumerate(wl_records):
+                                        if str(r.get("الرقم الشخصي","")).strip() == emp_id:
+                                            row_num = i + 2
+                                            whitelist_sheet.update_cell(row_num, 4, emp_task_new)   # D - المهمة
+                                            whitelist_sheet.update_cell(row_num, 5, "لا")           # E - دعم
+                                            whitelist_sheet.update_cell(row_num, 6, emp_phone_new)  # F - رقم التواصل
+                                            whitelist_sheet.update_cell(row_num, 7, emp_email_new)  # G - البريد
+                                            whitelist_sheet.update_cell(row_num, 8, emp_job_new)    # H - المسمى
+                                            break
+                                    get_whitelist.clear()
+                                    st.session_state.emp_verified=True
+                                    st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":existing.get("الاسم",""),"المدرسة":existing.get("المدرسة",""),"المهمة":emp_task_new,"نشط":"نعم","دعم":False}
+                                    st.success("✅ تم تحديث بياناتك كعضوة دائمة!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"خطأ: {e}")
+                    else:
+                        # موظفة دائمة عادية
+                        st.session_state.emp_verified=True
+                        st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":existing.get("الاسم",""),"المدرسة":existing.get("المدرسة",""),"المهمة":existing.get("المهمة",""),"نشط":"نعم","دعم":False}
+                        st.markdown(f"""
+                        <div class="field-lbl">الاسم</div><div class="field-val">{existing.get("الاسم","")}</div>
+                        <div class="field-lbl">المدرسة</div><div class="field-val">{existing.get("المدرسة","")}</div>
+                        <div class="field-lbl">المهمة في الكنترول</div><div class="field-val blue">{existing.get("المهمة","")}</div>
+                        """, unsafe_allow_html=True)
+                        st.success("✅ تم التحقق من بياناتك.")
                 else:
                     # موظفة جديدة — تدخل بياناتها
                     # ── نوع التسجيل أولاً ──
@@ -562,14 +615,15 @@ if mode=="👤 موظفة":
                             if not is_sup:
                                 try:
                                     whitelist_sheet.append_row([
-                                        emp_id,
-                                        normalize_name(emp_name),
-                                        emp_school,
-                                        emp_task,
-                                        emp_phone,
-                                        emp_email,
-                                        emp_job,
-                                        "نعم"
+                                        emp_id,           # A - الرقم الشخصي
+                                        normalize_name(emp_name),  # B - الاسم
+                                        emp_school,       # C - المدرسة
+                                        emp_task,         # D - المهمة
+                                        "لا",             # E - دعم
+                                        emp_phone,        # F - رقم التواصل
+                                        emp_email,        # G - البريد الإلكتروني
+                                        emp_job,          # H - المسمى الوظيفي
+                                        "نعم"             # I - نشط
                                     ])
                                     get_whitelist.clear()
                                     st.success("✅ تم حفظ بياناتك في القائمة البيضاء، يمكنك الآن تسجيل الحضور")
@@ -624,7 +678,7 @@ if mode=="👤 موظفة":
 
         if st.session_state.pending_operation=="تسجيل حضور":
             with st.container(border=True):
-                st.markdown('<div class="card-title">سبب التأخير بعد 7:05 — اختياري</div>',unsafe_allow_html=True)
+                st.markdown('<div class="card-title">سبب التأخير بعد 7:30 — اختياري</div>',unsafe_allow_html=True)
                 late_reason=st.selectbox("السبب",["اختاري السبب (اختياري)"]+reasons,key="late_reason")
                 late_other="" 
                 if late_reason=="أخرى": late_other=st.text_input("اكتبي السبب",key="late_other")
@@ -691,7 +745,7 @@ else:
             try: abs_today=[r for r in absence_sheet.get_all_records() if r.get("التاريخ")==today_str]
             except: abs_today=[]
             attended=[r for r in today_rows if r.get("وقت الحضور")]
-            late_list=[r for r in today_rows if r.get("وقت الحضور","")>"07:05:00"]
+            late_list=[r for r in today_rows if r.get("وقت الحضور","")>"07:30:00"]
             early_dep=[r for r in today_rows if r.get("وقت الانصراف","") and r.get("وقت الانصراف","")< "14:00:00"]
             on_leave=[r for r in today_rows if r.get("خروج استئذان") and not r.get("عودة")]
             c1,c2,c3=st.columns(3)
@@ -881,7 +935,7 @@ else:
 # ─── Footer ─────────────────────────────────────────────────────
 st.markdown("""
 <div class="footer-bar">
-    <span>تصميم وبرمجة: <span class="hl">أ. عفاف حسين</span></span>
+    <span>تصميم: <span class="hl">أ. عفاف حسين</span></span>
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
