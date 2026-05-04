@@ -624,7 +624,7 @@ if mode=="👤 موظفة":
 
         if st.session_state.pending_operation=="تسجيل حضور":
             with st.container(border=True):
-                st.markdown('<div class="card-title">سبب التأخير بعد 7:30 — اختياري</div>',unsafe_allow_html=True)
+                st.markdown('<div class="card-title">سبب التأخير بعد 7:05 — اختياري</div>',unsafe_allow_html=True)
                 late_reason=st.selectbox("السبب",["اختاري السبب (اختياري)"]+reasons,key="late_reason")
                 late_other="" 
                 if late_reason=="أخرى": late_other=st.text_input("اكتبي السبب",key="late_other")
@@ -691,7 +691,7 @@ else:
             try: abs_today=[r for r in absence_sheet.get_all_records() if r.get("التاريخ")==today_str]
             except: abs_today=[]
             attended=[r for r in today_rows if r.get("وقت الحضور")]
-            late_list=[r for r in today_rows if r.get("وقت الحضور","")>"07:30:00"]
+            late_list=[r for r in today_rows if r.get("وقت الحضور","")>"07:05:00"]
             early_dep=[r for r in today_rows if r.get("وقت الانصراف","") and r.get("وقت الانصراف","")< "14:00:00"]
             on_leave=[r for r in today_rows if r.get("خروج استئذان") and not r.get("عودة")]
             c1,c2,c3=st.columns(3)
