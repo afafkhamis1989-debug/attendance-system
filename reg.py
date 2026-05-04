@@ -2,6 +2,10 @@ import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
+BAHRAIN_TZ = ZoneInfo('Asia/Bahrain')
+def now_bh(): return datetime.now(BAHRAIN_TZ)
 from streamlit_geolocation import streamlit_geolocation
 import math
 import random
@@ -236,13 +240,13 @@ def get_location_override():
                 if val=="true" and end_time:
                     try:
                         end_dt=datetime.strptime(end_time,"%Y-%m-%d %H:%M")
-                        if datetime.now()<end_dt: return True,end_dt
+                        if now_bh()<end_dt: return True,end_dt
                     except: pass
     except: pass
     return False, None
 
 def set_location_override(minutes, note=""):
-    end_dt=datetime.now()+timedelta(minutes=minutes)
+    end_dt=now_bh()+timedelta(minutes=minutes)
     end_str=end_dt.strftime("%Y-%m-%d %H:%M")
     try:
         records=settings_sheet.get_all_records(); row_found=None
@@ -263,7 +267,7 @@ def disable_location_override():
     except: pass
 
 def log_audit(emp_id, emp_name, operation, details):
-    now=datetime.now(); fp=get_device_fingerprint()
+    now=now_bh(); fp=get_device_fingerprint()
     safe_append(audit_sheet,[now.strftime("%Y-%m-%d"),now.strftime("%H:%M:%S"),emp_name,str(emp_id),operation,details,fp])
 
 def check_device_lock(today, emp_id, emp_name):
@@ -278,9 +282,9 @@ def check_device_lock(today, emp_id, emp_name):
                 if last_time:
                     try:
                         last_dt=datetime.strptime(f"{today} {last_time}","%Y-%m-%d %H:%M:%S")
-                        diff_min=(datetime.now()-last_dt).seconds//60
+                        diff_min=(now_bh()-last_dt).seconds//60
                         if diff_min<DEVICE_COOLDOWN_MINUTES:
-                            safe_append(attempts_sheet,[today,fp,locked_id,locked_name,emp_id,emp_name,datetime.now().strftime("%H:%M:%S"),"محاولة تسجيل من نفس الجهاز"])
+                            safe_append(attempts_sheet,[today,fp,locked_id,locked_name,emp_id,emp_name,now_bh().strftime("%H:%M:%S"),"محاولة تسجيل من نفس الجهاز"])
                             try:
                                 data=get_sheet_data(); row_index,_=find_today_row(data,today,locked_id)
                                 if row_index: safe_update(sheet,row_index,COL_ATTEMPT,"⚠️ محاولة تسجيل باسم آخر")
@@ -297,7 +301,7 @@ def lock_device(today, emp_id, emp_name):
         if str(r.get("التاريخ","")).strip()==today and \
            str(r.get("بصمة الجهاز","")).strip()==fp and \
            str(r.get("الرقم الشخصي","")).strip()==str(emp_id).strip(): return True
-    ok=safe_append(device_sheet,[today,fp,str(emp_id),emp_name,datetime.now().strftime("%H:%M:%S")])
+    ok=safe_append(device_sheet,[today,fp,str(emp_id),emp_name,now_bh().strftime("%H:%M:%S")])
     get_device_locks.clear(); return ok
 
 def register_operation(operation, emp_id, note=""):
@@ -333,7 +337,7 @@ def register_operation(operation, emp_id, note=""):
     task=emp.get("المهمة",TASKS_MAIN[0])
     is_support="نعم" if ("دعم" in str(task) or emp.get("دعم")) else "لا"
 
-    now=datetime.now(); today=now.strftime("%Y-%m-%d")
+    now=now_bh(); today=now.strftime("%Y-%m-%d")
     day_name=now.strftime("%A"); time_now=now.strftime("%H:%M:%S")
 
     if not check_device_lock(today,emp_id,full_name): return False
@@ -393,7 +397,7 @@ default_state={
 for k,v in default_state.items():
     if k not in st.session_state: st.session_state[k]=v
 
-today_str=datetime.now().strftime("%Y-%m-%d")
+today_str=now_bh().strftime("%Y-%m-%d")
 
 _saved_date=ls_get("saved_date"); _saved_id=ls_get("saved_id")
 _saved_name=ls_get("saved_name"); _saved_school=ls_get("saved_school")
@@ -412,13 +416,13 @@ if _data_locked and not st.session_state.emp_verified:
     }
 
 if st.session_state.admin_logged_in and st.session_state.admin_last_active:
-    idle=(datetime.now()-st.session_state.admin_last_active).seconds//60
+    idle=(now_bh()-st.session_state.admin_last_active).seconds//60
     if idle>=30:
         st.session_state.admin_logged_in=False; st.session_state.admin_last_active=None
         st.warning("⏱️ انتهت جلسة الأدمن بسبب الخمول.")
 
 # ─── Header ────────────────────────────────────────────────────
-day_arabic={"Saturday":"السبت","Sunday":"الأحد","Monday":"الاثنين","Tuesday":"الثلاثاء","Wednesday":"الأربعاء","Thursday":"الخميس","Friday":"الجمعة"}.get(datetime.now().strftime("%A"),datetime.now().strftime("%A"))
+day_arabic={"Saturday":"السبت","Sunday":"الأحد","Monday":"الاثنين","Tuesday":"الثلاثاء","Wednesday":"الأربعاء","Thursday":"الخميس","Friday":"الجمعة"}.get(now_bh().strftime("%A"),now_bh().strftime("%A"))
 
 try: st.image("logo.png", use_container_width=True)
 except: pass
@@ -465,7 +469,7 @@ if mode=="👤 موظفة":
 
     ov_active,ov_end=get_location_override()
     if ov_active and ov_end:
-        remaining=int((ov_end-datetime.now()).seconds/60)
+        remaining=int((ov_end-now_bh()).seconds/60)
         st.warning(f"⚠️ وضع تجاوز الموقع مفعّل — ينتهي بعد {remaining} دقيقة.")
         st.session_state.location_allowed=True
 
@@ -563,12 +567,12 @@ if mode=="👤 موظفة":
         with col1:
             if st.button("✅ تسجيل حضور",use_container_width=True):
                 st.session_state.pending_operation=None
-                if datetime.now().time()>time(7,30): st.session_state.pending_operation="تسجيل حضور"
+                if now_bh().time()>time(7,30): st.session_state.pending_operation="تسجيل حضور"
                 else: register_operation("تسجيل حضور",emp_id); st.rerun()
         with col2:
             if st.button("🔵 تسجيل انصراف",use_container_width=True):
                 st.session_state.pending_operation=None
-                if datetime.now().time()<time(14,0): st.session_state.pending_operation="تسجيل انصراف"
+                if now_bh().time()<time(14,0): st.session_state.pending_operation="تسجيل انصراف"
                 else: register_operation("تسجيل انصراف",emp_id); st.rerun()
         col3,col4=st.columns(2)
         with col3:
@@ -622,10 +626,10 @@ else:
             pw=st.text_input("كلمة المرور",type="password")
             if st.button("دخول",use_container_width=True):
                 if pw.strip()==ADMIN_PASSWORD:
-                    st.session_state.admin_logged_in=True; st.session_state.admin_last_active=datetime.now(); st.rerun()
+                    st.session_state.admin_logged_in=True; st.session_state.admin_last_active=now_bh(); st.rerun()
                 else: st.error("❌ كلمة المرور غير صحيحة.")
     else:
-        st.session_state.admin_last_active=datetime.now()
+        st.session_state.admin_last_active=now_bh()
         st.markdown("## 🛡️ لوحة الأدمن")
 
         admin_tab=st.selectbox("القسم",[
@@ -670,7 +674,7 @@ else:
 
         # ── تسجيل الغياب ────────────────────────────────────────
         elif admin_tab=="🔴 تسجيل الغياب":
-            abs_date=st.date_input("تاريخ الغياب",value=datetime.now().date(),key="abs_date")
+            abs_date=st.date_input("تاريخ الغياب",value=now_bh().date(),key="abs_date")
             abs_date_str=str(abs_date)
             wl_all=get_whitelist()
             if not wl_all: st.warning("⚠️ القائمة البيضاء فارغة")
@@ -707,7 +711,7 @@ else:
         # ── تعديل سجل ────────────────────────────────────────────
         elif admin_tab=="✏️ تعديل سجل":
             search_id=st.text_input("الرقم الشخصي",key="edit_id")
-            search_date=st.date_input("التاريخ",value=datetime.now().date(),key="edit_date")
+            search_date=st.date_input("التاريخ",value=now_bh().date(),key="edit_date")
             if st.button("بحث",key="btn_search"):
                 data=get_sheet_data(); idx,row=find_today_row(data,str(search_date),search_id)
                 if row: st.session_state.edit_row_idx=idx; st.session_state.edit_row=row
@@ -728,7 +732,7 @@ else:
         # ── تسجيل يدوي ──────────────────────────────────────────
         elif admin_tab=="➕ تسجيل يدوي":
             m_id=st.text_input("الرقم الشخصي",key="mid")
-            m_date=st.date_input("التاريخ",value=datetime.now().date(),key="mdate")
+            m_date=st.date_input("التاريخ",value=now_bh().date(),key="mdate")
             m_att=st.text_input("وقت الحضور",value="07:00:00",key="matt")
             m_dep=st.text_input("وقت الانصراف (اختياري)",key="mdep")
             m_note=st.text_input("سبب الإضافة اليدوية (مطلوب)",key="mnote")
