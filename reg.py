@@ -40,44 +40,33 @@ def connect_google_sheets():
     client = gspread.authorize(creds)
     return client.open_by_key("1svkfgRq4-osKr86_2WJQFZShuoy8Ek5DOiUaaHKL-6Y")
 
-@st.cache_resource
-def get_all_sheets():
-    sp = connect_google_sheets()
+spreadsheet = connect_google_sheets()
 
-    def _oc(name, headers):
-        try:
-            return sp.worksheet(name)
-        except gspread.WorksheetNotFound:
-            ws = sp.add_worksheet(title=name, rows=1000, cols=max(len(headers), 10))
-            ws.append_row(headers)
-            return ws
-
-    return {
-        "main":        sp.sheet1,
-        "audit":       _oc("سجل_التدقيق",            ["التاريخ","الوقت","المستخدم","الرقم الشخصي","نوع العملية","التفاصيل","بصمة الجهاز"]),
-        "whitelist":   _oc("القائمة_البيضاء",         ["الرقم الشخصي","الاسم","المدرسة","المهمة","رقم التواصل","البريد الإلكتروني","المسمى الوظيفي","نشط"]),
-        "settings":    _oc("إعدادات_النظام",          ["المفتاح","القيمة","تاريخ_الانتهاء","ملاحظات"]),
-        "device_lock": _oc("device_lock",             ["التاريخ","بصمة الجهاز","الرقم الشخصي","الاسم","وقت_القفل"]),
-        "attempts":    _oc("محاولات_تسجيل_باسم_آخر", ["التاريخ","بصمة الجهاز","الرقم_المقفول_عليه","اسم_المقفول_عليه","الرقم_المحاول","اسم_المحاول","وقت_المحاولة","ملاحظات"]),
-        "absence":     _oc("سجل_الغياب",              ["التاريخ","اليوم","الرقم الشخصي","الاسم","المدرسة","المهمة","سبب الغياب","ملاحظات","سجّله"]),
-    }
-
-_sheets           = get_all_sheets()
-sheet             = _sheets["main"]
-audit_sheet       = _sheets["audit"]
-whitelist_sheet   = _sheets["whitelist"]
-settings_sheet    = _sheets["settings"]
-device_lock_sheet = _sheets["device_lock"]
-attempts_sheet    = _sheets["attempts"]
-
-def get_or_create_sheet(name, headers):
-    sp = connect_google_sheets()
+def get_or_create_sheet(name, headers, rows=1000):
     try:
-        return sp.worksheet(name)
+        ws = spreadsheet.worksheet(name)
     except gspread.WorksheetNotFound:
-        ws = sp.add_worksheet(title=name, rows=1000, cols=max(len(headers), 10))
+        ws = spreadsheet.add_worksheet(title=name, rows=rows, cols=max(len(headers), 10))
         ws.append_row(headers)
         return ws
+    try:
+        existing = ws.row_values(1)
+        if not existing:
+            ws.append_row(headers)
+        elif len(existing) < len(headers):
+            for i, h in enumerate(headers, start=1):
+                if i > len(existing) or not existing[i - 1]:
+                    ws.update_cell(1, i, h)
+    except Exception:
+        pass
+    return ws
+
+sheet             = spreadsheet.worksheet("sheet1")
+whitelist_sheet   = get_or_create_sheet("القائمة_البيضاء",         ["الرقم الشخصي","الاسم","المدرسة","المهمة","رقم التواصل","البريد الإلكتروني","المسمى الوظيفي","نشط"])
+settings_sheet    = get_or_create_sheet("إعدادات_النظام",          ["المفتاح","القيمة","تاريخ_الانتهاء","ملاحظات"])
+device_lock_sheet = get_or_create_sheet("device_lock",             ["التاريخ","بصمة الجهاز","الرقم الشخصي","الاسم","وقت_القفل"])
+attempts_sheet    = get_or_create_sheet("محاولات_تسجيل_باسم_آخر", ["التاريخ","بصمة الجهاز","الرقم_المقفول_عليه","اسم_المقفول_عليه","الرقم_المحاول","اسم_المحاول","وقت_المحاولة","ملاحظات"])
+audit_sheet       = get_or_create_sheet("سجل_التدقيق",             ["التاريخ","الوقت","المستخدم","الرقم الشخصي","نوع العملية","التفاصيل","بصمة الجهاز"])
 
 # أعمدة sheet1 ── ══ محدّثة ══
 COL_DATE       = 1
