@@ -294,6 +294,36 @@ def is_flexible_day(row):
     txt = " ".join([str(row.get("سبب التأخير", "")), str(row.get("سبب الانصراف", "")), str(row.get("نوع الدوام اليومي", ""))])
     return "دوام مرن" in txt
 
+def is_official_mission_day(row):
+    txt = " ".join([str(row.get("سبب التأخير", "")), str(row.get("سبب الانصراف", "")), str(row.get("نوع الدوام اليومي", ""))])
+    return "مهمة رسمية" in txt
+
+def is_implicit_leave_late(row):
+    """
+    إذا كان الدوام عادي والموظفة حضرت بعد السماح وكتبت سببًا مثل موعد أو سبب آخر،
+    فهذا يعتبر تأخيرًا موثقًا كاستئذان ضمني من بداية الدوام،
+    ووقت الحضور يعتبر عودة من الاستئذان.
+    لا ينطبق على الرعاية أو الدوام المرن أو المهمة الرسمية.
+    """
+    att = parse_time_value(row.get("وقت الحضور", ""))
+    if not att or att <= time(7, 5, 0):
+        return False
+    reason = str(row.get("سبب التأخير", "")).strip()
+    if not reason:
+        return False
+    if any(x in reason for x in ["رعاية", "دوام مرن", "مهمة رسمية"]):
+        return False
+    return True
+
+def is_late_for_statistics(row):
+    """التأخير الإحصائي: يحسب للدوام العادي فقط، ويستثني الرعاية/المرن/المهمة الرسمية."""
+    att = parse_time_value(row.get("وقت الحضور", ""))
+    if not att or att <= time(7, 5, 0):
+        return False
+    if is_care_day(row) or is_flexible_day(row) or is_official_mission_day(row):
+        return False
+    return True
+
 def calculate_work_values(row):
     date_str = str(row.get("التاريخ", "")).strip()
     att = parse_time_value(row.get("وقت الحضور", ""))
@@ -306,6 +336,8 @@ def calculate_work_values(row):
     dep_dt = combine_date_time(date_str, dep) if dep else None
     official_start = combine_date_time(date_str, time(7, 0, 0))
     grace_end = combine_date_time(date_str, time(7, 5, 0))
+    official_mission = is_official_mission_day(row)
+    implicit_leave = is_implicit_leave_late(row)
     if care:
         daily_type = "رعاية"
         required_hours = 5
@@ -314,6 +346,14 @@ def calculate_work_values(row):
         daily_type = "دوام مرن"
         required_hours = 7
         calc_start = att_dt
+    elif official_mission:
+        daily_type = "مهمة رسمية"
+        required_hours = 7
+        calc_start = official_start
+    elif implicit_leave:
+        daily_type = "استئذان تأخير"
+        required_hours = 7
+        calc_start = official_start
     else:
         daily_type = "دوام عادي"
         required_hours = 7
@@ -615,11 +655,23 @@ def register_operation(operation, emp_id, note=""):
 
     if operation=="تسجيل حضور":
         if row and row.get("وقت الحضور"): st.error("❌ تم تسجيل الحضور مسبقاً لهذا اليوم."); return False
+
+        # إذا حضرت متأخرة بسبب موعد/سبب آخر، يوثق النظام ذلك كاستئذان ضمني:
+        # خروج الاستئذان من 7:00، ووقت الحضور هو العودة.
+        att_is_late = now.time() > time(7, 5, 0)
+        note_txt = str(note or "").strip()
+        implicit_leave = att_is_late and note_txt and not any(x in note_txt for x in ["رعاية", "دوام مرن", "مهمة رسمية"])
+        implicit_exit_time = "07:00:00" if implicit_leave else ""
+        implicit_return_time = time_now if implicit_leave else ""
+
         if row_index:
             safe_update(sheet,row_index,COL_ATTEND,time_now)
             safe_update(sheet,row_index,COL_LATE_REASON,note)
+            if implicit_leave:
+                safe_update(sheet,row_index,COL_EXIT,implicit_exit_time)
+                safe_update(sheet,row_index,COL_RETURN,implicit_return_time)
         else:
-            ok=safe_append(sheet,[today,day_name,school,task,is_support,full_name,emp_id,time_now,note,"","","","",""])
+            ok=safe_append(sheet,[today,day_name,school,task,is_support,full_name,emp_id,time_now,note,"","",implicit_exit_time,implicit_return_time,""])
             if not ok: st.error("❌ تعذر الحفظ، حاولي بعد قليل."); return False
         lock_device(today,emp_id,full_name)
         log_audit(emp_id,full_name,"تسجيل حضور",f"الوقت:{time_now}|السبب:{note or 'بدون'}")
@@ -1098,7 +1150,7 @@ else:
             try: abs_today=[r for r in absence_sheet.get_all_records() if r.get("التاريخ")==today_str]
             except: abs_today=[]
             attended=[r for r in today_rows if r.get("وقت الحضور")]
-            late_list=[r for r in today_rows if r.get("وقت الحضور","")>"07:05:30"]
+            late_list=[r for r in today_rows if is_late_for_statistics(r)]
             early_dep=[r for r in today_rows if r.get("وقت الانصراف","") and r.get("وقت الانصراف","")< "14:00:00"]
             on_leave=[r for r in today_rows if r.get("خروج استئذان") and not r.get("عودة") and not r.get("وقت الانصراف")]
             missing_depart=[r for r in today_rows if r.get("وقت الحضور") and not r.get("وقت الانصراف")]
