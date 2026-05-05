@@ -11,6 +11,7 @@ import math
 import random
 import string
 import time as time_module
+import pandas as pd
 
 try:
     from streamlit_local_storage import LocalStorage
@@ -271,6 +272,175 @@ def emp_required_on_day(emp, scheduled_tasks):
         if task_clean and task_clean==t_clean:
             return True
     return False
+
+# ─── إدارة عامة للشيتات من داخل الأدمن ───────────────────────────
+def get_ws_headers(ws):
+    try:
+        headers = ws.row_values(1)
+        return [str(h).strip() for h in headers]
+    except Exception:
+        return []
+
+def clear_all_data_caches():
+    try: get_sheet_data.clear()
+    except Exception: pass
+    try: get_whitelist.clear()
+    except Exception: pass
+    try: get_device_locks.clear()
+    except Exception: pass
+    try: get_settings_records.clear()
+    except Exception: pass
+    try: get_schedule_records.clear()
+    except Exception: pass
+
+def admin_sheet_manager():
+    st.markdown("#### 🗂️ إدارة الشيتات")
+    st.info("من هنا تقدرين تعرضين وتعدلين وتضيفين وتحذفين أغلب بيانات Google Sheet بدون فتحه.")
+
+    sheet_options = {
+        "سجل الحضور والانصراف — sheet1": {"ws": sheet, "key": "sheet1", "desc": "العمليات اليومية: الحضور، الانصراف، الاستئذان، ومحاولات التسجيل."},
+        "القائمة البيضاء — الموظفات المصرّح لهن": {"ws": whitelist_sheet, "key": "whitelist", "desc": "بيانات الموظفات، المدرسة، المهمة، الدعم، وحالة النشاط."},
+        "سجل الغياب": {"ws": absence_sheet, "key": "absence", "desc": "سجلات الغياب المسجلة من الأدمن."},
+        "جدول دوام الأقسام": {"ws": schedule_sheet, "key": "schedule", "desc": "أيام دوام كل مهمة/قسم لحصر الغياب بدقة."},
+        "إعدادات النظام": {"ws": settings_sheet, "key": "settings", "desc": "إعدادات مثل تجاوز الموقع ووقت الانتهاء."},
+        "قفل الأجهزة — device_lock": {"ws": device_sheet, "key": "device", "desc": "ربط الجهاز بالموظفة لمنع تسجيل أكثر من اسم بنفس الجهاز خلال الفترة المحددة."},
+        "محاولات تسجيل باسم آخر": {"ws": attempts_sheet, "key": "attempts", "desc": "سجل محاولات التسجيل باسم آخر."},
+        "سجل التدقيق": {"ws": audit_sheet, "key": "audit", "desc": "سجل التعديلات والعمليات المهمة في النظام."},
+    }
+
+    selected_label = st.selectbox("اختاري الشيت", list(sheet_options.keys()), key="manage_sheet_select")
+    cfg = sheet_options[selected_label]
+    ws = cfg["ws"]
+    st.caption(cfg["desc"])
+
+    try:
+        headers = get_ws_headers(ws)
+        if not headers:
+            st.error("❌ لا توجد عناوين أعمدة في الصف الأول لهذا الشيت.")
+            return
+
+        records = ws.get_all_records()
+        st.metric("عدد السجلات", len(records))
+
+        search_txt = st.text_input("بحث داخل الشيت", placeholder="اكتبي رقم شخصي، اسم، مدرسة، مهمة، تاريخ...", key=f"search_{cfg['key']}")
+        filtered = []
+        for i, r in enumerate(records):
+            row_text = " ".join(str(v) for v in r.values())
+            if not search_txt.strip() or search_txt.strip() in row_text:
+                rr = dict(r)
+                rr["رقم الصف في الشيت"] = i + 2
+                filtered.append(rr)
+
+        st.markdown("##### عرض البيانات")
+        if filtered:
+            df = pd.DataFrame(filtered)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.warning("لا توجد نتائج مطابقة للبحث.")
+
+        tab_edit, tab_add, tab_delete = st.tabs(["✏️ تعديل صف", "➕ إضافة صف", "🗑️ حذف صف"])
+
+        with tab_edit:
+            st.markdown("##### تعديل صف موجود")
+            if not records:
+                st.warning("لا توجد سجلات للتعديل.")
+            else:
+                row_choices = []
+                row_map = {}
+                for i, r in enumerate(records):
+                    row_num = i + 2
+                    preview_parts = []
+                    for h in headers[:4]:
+                        val = str(r.get(h, "")).strip()
+                        if val:
+                            preview_parts.append(val)
+                    preview = " — ".join(preview_parts) if preview_parts else f"صف {row_num}"
+                    label = f"صف {row_num}: {preview[:90]}"
+                    row_choices.append(label)
+                    row_map[label] = (row_num, r)
+
+                chosen = st.selectbox("اختاري الصف", row_choices, key=f"edit_row_{cfg['key']}")
+                row_num, row_data = row_map[chosen]
+                st.caption(f"سيتم تعديل الصف رقم {row_num} في الشيت.")
+
+                new_values = []
+                for col_index, h in enumerate(headers, start=1):
+                    old_val = row_data.get(h, "")
+                    new_val = st.text_input(h, value=str(old_val), key=f"edit_{cfg['key']}_{row_num}_{col_index}")
+                    new_values.append(new_val)
+
+                reason = st.text_input("سبب التعديل (مهم للتدقيق)", key=f"edit_reason_{cfg['key']}_{row_num}")
+                if st.button("💾 حفظ تعديل الصف", use_container_width=True, type="primary", key=f"save_edit_{cfg['key']}"):
+                    if not reason.strip():
+                        st.error("❌ اكتبي سبب التعديل.")
+                    else:
+                        last_cell = gspread.utils.rowcol_to_a1(row_num, len(headers))
+                        ws.update(f"A{row_num}:{last_cell}", [new_values], value_input_option="USER_ENTERED")
+                        log_audit("أدمن", "أدمن", f"تعديل شيت: {selected_label}", f"صف:{row_num}|السبب:{reason}")
+                        clear_all_data_caches()
+                        st.success("✅ تم حفظ التعديل.")
+                        st.rerun()
+
+        with tab_add:
+            st.markdown("##### إضافة صف جديد")
+            add_values = []
+            for col_index, h in enumerate(headers, start=1):
+                add_values.append(st.text_input(h, key=f"add_{cfg['key']}_{col_index}"))
+            add_reason = st.text_input("سبب الإضافة", key=f"add_reason_{cfg['key']}")
+            if st.button("➕ إضافة الصف", use_container_width=True, type="primary", key=f"add_row_{cfg['key']}"):
+                if not add_reason.strip():
+                    st.error("❌ اكتبي سبب الإضافة.")
+                elif not any(str(v).strip() for v in add_values):
+                    st.error("❌ لا يمكن إضافة صف فارغ.")
+                else:
+                    ws.append_row(add_values, value_input_option="USER_ENTERED")
+                    log_audit("أدمن", "أدمن", f"إضافة في شيت: {selected_label}", f"السبب:{add_reason}")
+                    clear_all_data_caches()
+                    st.success("✅ تمت إضافة الصف.")
+                    st.rerun()
+
+        with tab_delete:
+            st.markdown("##### حذف صف")
+            st.warning("⚠️ الحذف نهائي من الشيت. استخدميه بحذر.")
+            if not records:
+                st.warning("لا توجد سجلات للحذف.")
+            else:
+                del_choices = []
+                del_map = {}
+                for i, r in enumerate(records):
+                    row_num = i + 2
+                    preview_parts = []
+                    for h in headers[:4]:
+                        val = str(r.get(h, "")).strip()
+                        if val:
+                            preview_parts.append(val)
+                    preview = " — ".join(preview_parts) if preview_parts else f"صف {row_num}"
+                    label = f"صف {row_num}: {preview[:90]}"
+                    del_choices.append(label)
+                    del_map[label] = row_num
+                chosen_del = st.selectbox("اختاري الصف للحذف", del_choices, key=f"delete_row_{cfg['key']}")
+                del_reason = st.text_input("سبب الحذف", key=f"delete_reason_{cfg['key']}")
+                confirm_delete = st.checkbox("أؤكد أني أريد حذف هذا الصف", key=f"confirm_delete_{cfg['key']}")
+                if st.button("🗑️ حذف الصف", use_container_width=True, key=f"delete_btn_{cfg['key']}"):
+                    if not del_reason.strip():
+                        st.error("❌ اكتبي سبب الحذف.")
+                    elif not confirm_delete:
+                        st.error("❌ فعّلي خانة التأكيد قبل الحذف.")
+                    else:
+                        row_num = del_map[chosen_del]
+                        ws.delete_rows(row_num)
+                        log_audit("أدمن", "أدمن", f"حذف من شيت: {selected_label}", f"صف:{row_num}|السبب:{del_reason}")
+                        clear_all_data_caches()
+                        st.success("✅ تم حذف الصف.")
+                        st.rerun()
+
+        if st.button("🔄 تحديث بيانات الشيت", use_container_width=True, key=f"refresh_manage_{cfg['key']}"):
+            clear_all_data_caches()
+            st.success("✅ تم تحديث البيانات")
+            st.rerun()
+
+    except Exception as e:
+        st.error(f"❌ حدث خطأ أثناء إدارة الشيت: {e}")
 
 def find_today_row(data, today, emp_id):
     for i,row in enumerate(data):
@@ -822,6 +992,7 @@ else:
             "📊 إحصائيات اليوم",
             "🔴 تسجيل الغياب",
             "📅 دوام الأقسام",
+            "🗂️ إدارة الشيتات",
             "✏️ تعديل سجل",
             "➕ تسجيل يدوي",
             "📋 القائمة البيضاء",
@@ -1103,6 +1274,10 @@ else:
                     get_schedule_records.clear()
                     st.success("✅ تم التحديث")
                     st.rerun()
+
+        # ── إدارة الشيتات ────────────────────────────────────────
+        elif admin_tab=="🗂️ إدارة الشيتات":
+            admin_sheet_manager()
 
         # ── تعديل سجل ────────────────────────────────────────────
         elif admin_tab=="✏️ تعديل سجل":
