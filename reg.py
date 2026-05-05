@@ -99,7 +99,7 @@ label{direction:rtl!important;text-align:right!important;display:block!important
 # ─── Google Sheets ──────────────────────────────────────────────
 scope = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
 
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def get_all_sheets():
     creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
     client = gspread.authorize(creds)
@@ -192,12 +192,12 @@ def safe_update(ws, row, col, value, retries=3):
         except: time_module.sleep(1.5)
     return False
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=120, show_spinner=False)
 def get_sheet_data():
     try: return sheet.get_all_records()
     except: return []
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def get_whitelist():
     try:
         records=whitelist_sheet.get_all_records(); result={}
@@ -209,12 +209,12 @@ def get_whitelist():
         return result
     except: return {}
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=120, show_spinner=False)
 def get_device_locks():
     try: return device_sheet.get_all_records()[-200:]
     except: return []
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_settings_records():
     try: return settings_sheet.get_all_records()
     except: return []
@@ -1048,4 +1048,5 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
+
 
