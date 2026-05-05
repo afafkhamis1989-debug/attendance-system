@@ -24,16 +24,22 @@ except Exception:
 st.set_page_config(page_title="نظام الحضور والانصراف", page_icon="🕘", layout="centered")
 st.markdown("""
 <style>
-html, body, .stApp {
-    overflow-x: hidden !important;
+.block-container {
+    padding-top: 0rem !important;
 }
 
 section.main > div {
-    padding-top: 1rem !important;
+    padding-top: 0rem !important;
 }
 
-.block-container {
-    padding-top: 1rem !important;
+html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+[data-testid="stImage"] {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
 }
 </style>
 """, unsafe_allow_html=True)
