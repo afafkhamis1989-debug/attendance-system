@@ -874,21 +874,33 @@ else:
 
         # ── تجاوز الموقع ────────────────────────────────────────
         elif admin_tab=="📡 تجاوز الموقع":
-            active,end_dt=get_location_override()
-            if active and end_dt:
-                st.warning(f"تجاوز الموقع مفعّل حتى {end_dt.strftime('%H:%M')}")
-                if st.button("إيقاف تجاوز الموقع",use_container_width=True):
-                    disable_location_override(); st.success("تم الإيقاف."); st.rerun()
-            else:
-                duration=st.selectbox("مدة التجاوز",[30,60,90,120,180])
-                reason=st.text_input("سبب التجاوز")
-                if st.button("تفعيل تجاوز الموقع",use_container_width=True):
-                    if not reason.strip(): st.error("السبب مطلوب")
-                    else:
-                        ok,end_dt=set_location_override(duration,reason)
-                        if ok: st.success(f"تم التفعيل حتى {end_dt.strftime('%H:%M')}"); st.rerun()
-                        else: st.error("تعذر التفعيل")
+    active,end_dt=get_location_override()
 
+    if active and end_dt:
+        st.success(f"✅ تجاوز الموقع مفعّل حالياً حتى الساعة {end_dt.strftime('%H:%M')}")
+        st.info("الآن الموظفات يقدرون يسجلون بدون تحديد الموقع.")
+
+        if st.button("🔴 تعطيل تجاوز الموقع الآن", use_container_width=True, type="primary"):
+            disable_location_override()
+            st.success("✅ تم تعطيل تجاوز الموقع.")
+            st.rerun()
+
+    else:
+        st.warning("⚠️ تجاوز الموقع غير مفعّل حالياً.")
+
+        duration=st.selectbox("مدة تفعيل تجاوز الموقع بالدقائق",[30,60,90,120,180])
+        reason=st.text_input("سبب تفعيل تجاوز الموقع")
+
+        if st.button("🟢 تفعيل تجاوز الموقع", use_container_width=True, type="primary"):
+            if not reason.strip():
+                st.error("❌ السبب مطلوب.")
+            else:
+                ok,end_dt=set_location_override(duration,reason)
+                if ok:
+                    st.success(f"✅ تم تفعيل تجاوز الموقع حتى الساعة {end_dt.strftime('%H:%M')}")
+                    st.rerun()
+                else:
+                    st.error("❌ تعذر تفعيل تجاوز الموقع.")
         # ── فتح قفل جهاز ────────────────────────────────────────
         elif admin_tab=="🔓 فتح قفل جهاز":
             st.info("استخدمي هذه الخاصية عند وجود سبب رسمي.")
