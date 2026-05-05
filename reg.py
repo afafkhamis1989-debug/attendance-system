@@ -25,11 +25,11 @@ st.set_page_config(page_title="نظام الحضور والانصراف", page_i
 st.markdown("""
 <style>
 .block-container {
-    padding-top: 0rem !important;
+    padding-top: 0.5rem !important;
 }
 
 section.main > div {
-    padding-top: 0rem !important;
+    padding-top: 0.5rem !important;
 }
 
 html, body {
@@ -39,7 +39,6 @@ html, body {
 
 [data-testid="stImage"] {
     margin-top: 0 !important;
-    padding-top: 0 !important;
 }
 </style>
 """, unsafe_allow_html=True)
