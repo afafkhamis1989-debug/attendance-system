@@ -11,6 +11,7 @@ import math
 import random
 import string
 import time as time_module
+import urllib.parse
 
 try:
     from streamlit_local_storage import LocalStorage
@@ -1430,6 +1431,52 @@ else:
 
         if st.button("🚪 تسجيل خروج الأدمن",use_container_width=True):
             st.session_state.admin_logged_in=False; st.session_state.admin_last_active=None; st.rerun()
+
+
+# ─── دعم واتساب للموظفة ───────────────────────────────────────
+if mode == "👤 موظفة" and st.session_state.get("emp_data"):
+    try:
+        emp = st.session_state.get("emp_data") or {}
+        emp_id_support = str(emp.get("الرقم الشخصي", "") or "").strip()
+        data_support = get_sheet_data()
+        _, support_row = find_today_row(data_support, today_str, emp_id_support) if emp_id_support else (None, None)
+
+        name_support = emp.get("الاسم", "") or (support_row.get("الاسم الثلاثي", "") if support_row else "")
+        school_support = emp.get("المدرسة", "") or (support_row.get("اسم المدرسة", "") if support_row else "")
+        task_support = emp.get("المهمة", "") or (support_row.get("المهمة", "") if support_row else "")
+        attend_support = support_row.get("وقت الحضور", "—") if support_row else "—"
+        depart_support = support_row.get("وقت الانصراف", "—") if support_row else "—"
+        exit_support = support_row.get("خروج استئذان", "—") if support_row else "—"
+        return_support = support_row.get("عودة", "—") if support_row else "—"
+
+        support_msg = f"""مرحباً 👋
+
+لدي مشكلة في نظام الحضور والانصراف:
+
+الاسم: {name_support}
+الرقم الشخصي: {emp_id_support}
+المدرسة: {school_support}
+المهمة: {task_support}
+التاريخ: {today_str}
+الوقت الحالي: {now_bh().strftime('%H:%M:%S')}
+
+بيانات اليوم:
+وقت الحضور: {attend_support or '—'}
+وقت الانصراف: {depart_support or '—'}
+خروج استئذان: {exit_support or '—'}
+عودة من استئذان: {return_support or '—'}
+
+تفاصيل المشكلة:
+"""
+        wa_link = "https://wa.me/97333738668?text=" + urllib.parse.quote(support_msg)
+
+        st.markdown("---")
+        with st.container(border=True):
+            st.markdown('<div class="card-title">🆘 الدعم الفني</div>', unsafe_allow_html=True)
+            st.caption("إذا واجهتك مشكلة، اضغطي الزر وسيُفتح واتساب برسالة جاهزة تحتوي بياناتك. اكتبي تفاصيل المشكلة فقط ثم أرسليها.")
+            st.link_button("📞 تواصل مع الأدمن عبر واتساب", wa_link, use_container_width=True)
+    except Exception:
+        pass
 
 # ─── Footer ─────────────────────────────────────────────────────
 st.markdown("""
