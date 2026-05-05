@@ -116,7 +116,8 @@ def get_all_sheets():
     return {
         "spreadsheet": ss,
         "sheet":       ss.worksheet("sheet1"),
-        "whitelist":   _get_or_create("القائمة_البيضاء",         ["الرقم الشخصي","الاسم","المدرسة","المهمة","رقم التواصل","البريد الإلكتروني","المسمى الوظيفي","نشط"]),
+        "whitelist":   _get_or_create("القائمة_البيضاء",         ["الرقم الشخصي","الاسم","المدرسة","المهمة","دعم","رقم التواصل","البريد الإلكتروني","المسمى الوظيفي","نشط"]),
+        "schedule":    _get_or_create("جدول_دوام_الأقسام",       ["المهمة","السبت","الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","نشط"]),
         "device":      _get_or_create("device_lock",              ["التاريخ","بصمة الجهاز","الرقم الشخصي","الاسم","وقت_القفل"]),
         "attempts":    _get_or_create("محاولات_تسجيل_باسم_آخر",  ["التاريخ","بصمة الجهاز","الرقم_المقفول_عليه","اسم_المقفول_عليه","الرقم_المحاول","اسم_المحاول","وقت_المحاولة","ملاحظات"]),
         "settings":    _get_or_create("إعدادات_النظام",           ["المفتاح","القيمة","تاريخ_الانتهاء","ملاحظات"]),
@@ -133,6 +134,7 @@ attempts_sheet  = _sheets["attempts"]
 settings_sheet  = _sheets["settings"]
 audit_sheet     = _sheets["audit"]
 absence_sheet   = _sheets["absence"]
+schedule_sheet  = _sheets["schedule"]
 
 # ─── دوال مساعدة ───────────────────────────────────────────────
 def ar_to_en_digits(text):
@@ -219,11 +221,56 @@ def get_settings_records():
     try: return settings_sheet.get_all_records()
     except: return []
 
+@st.cache_data(ttl=120, show_spinner=False)
+def get_schedule_records():
+    try: return schedule_sheet.get_all_records()
+    except: return []
+
 def clear_caches():
-    get_sheet_data.clear(); get_device_locks.clear(); get_settings_records.clear()
+    get_sheet_data.clear(); get_device_locks.clear(); get_settings_records.clear(); get_schedule_records.clear()
 
 def validate_employee(emp_id):
     return get_whitelist().get(str(emp_id).strip())
+
+def day_ar_from_date(date_obj):
+    return {"Saturday":"السبت","Sunday":"الأحد","Monday":"الاثنين","Tuesday":"الثلاثاء","Wednesday":"الأربعاء","Thursday":"الخميس","Friday":"الجمعة"}.get(date_obj.strftime("%A"), date_obj.strftime("%A"))
+
+def is_yes(value):
+    return str(value).strip() in ["نعم","yes","Yes","TRUE","true","1","✅","صح"]
+
+def normalize_task_for_schedule(task):
+    task=str(task or "").strip()
+    # إذا كانت المهمة دعم — نفس القسم، نطابقها على اسم الدعم أو اسم المصححة عند الحاجة
+    return task
+
+def scheduled_tasks_for_day(day_ar):
+    """يرجع قائمة المهام المطلوب دوامها في اليوم المحدد.
+    إذا كان جدول_دوام_الأقسام فارغًا أو لا توجد مهام نشطة لهذا اليوم، يرجع None حتى لا يمنع الحصر القديم.
+    """
+    records=get_schedule_records()
+    tasks=[]
+    for r in records:
+        task=str(r.get("المهمة","")).strip()
+        active_raw=str(r.get("نشط","")).strip()
+        active = active_raw=="" or is_yes(active_raw)
+        if task and active and is_yes(r.get(day_ar,"")):
+            tasks.append(task)
+    return tasks if tasks else None
+
+def emp_required_on_day(emp, scheduled_tasks):
+    """يتحقق هل الموظفة ضمن أقسام/مهام الدوام المختارة لهذا اليوم."""
+    if scheduled_tasks is None:
+        return True
+    task=str(emp.get("المهمة","")).strip()
+    if task in scheduled_tasks:
+        return True
+    # دعم — الرياضيات يعتبر ضمن الرياضيات إذا تم اختيار مصححة — الرياضيات والعكس
+    task_clean=task.replace("دعم —","").replace("مصححة —","").strip()
+    for t in scheduled_tasks:
+        t_clean=str(t).replace("دعم —","").replace("مصححة —","").strip()
+        if task_clean and task_clean==t_clean:
+            return True
+    return False
 
 def find_today_row(data, today, emp_id):
     for i,row in enumerate(data):
@@ -774,6 +821,7 @@ else:
         admin_tab=st.selectbox("القسم",[
             "📊 إحصائيات اليوم",
             "🔴 تسجيل الغياب",
+            "📅 دوام الأقسام",
             "✏️ تعديل سجل",
             "➕ تسجيل يدوي",
             "📋 القائمة البيضاء",
@@ -815,37 +863,124 @@ else:
         elif admin_tab=="🔴 تسجيل الغياب":
             abs_date=st.date_input("تاريخ الغياب",value=now_bh().date(),key="abs_date")
             abs_date_str=str(abs_date)
-            wl_all=get_whitelist()
-            if not wl_all: st.warning("⚠️ القائمة البيضاء فارغة")
+            abs_day_ar=day_ar_from_date(abs_date)
+
+            scheduled_tasks=scheduled_tasks_for_day(abs_day_ar)
+            if scheduled_tasks is None:
+                st.warning("⚠️ لم يتم تحديد دوام أقسام لهذا اليوم في ورقة جدول_دوام_الأقسام، لذلك سيتم حصر الغياب على جميع القائمة البيضاء.")
             else:
+                with st.expander(f"📅 الأقسام المطلوب دوامها يوم {abs_day_ar}", expanded=False):
+                    for t in scheduled_tasks:
+                        st.markdown(f"- {t}")
+
+            wl_all=get_whitelist()
+            if not wl_all:
+                st.warning("⚠️ القائمة البيضاء فارغة")
+            else:
+                # فلترة القائمة البيضاء حسب جدول الدوام
+                required_wl={eid:emp for eid,emp in wl_all.items() if emp_required_on_day(emp, scheduled_tasks)}
+
                 data=get_sheet_data()
                 attended_ids=set(str(r.get("الرقم الشخصي","")).strip() for r in data if r.get("التاريخ")==abs_date_str and r.get("وقت الحضور"))
-                try: abs_records=absence_sheet.get_all_records(); absent_ids=set(str(r.get("الرقم الشخصي","")).strip() for r in abs_records if r.get("التاريخ")==abs_date_str)
-                except: abs_records=[]; absent_ids=set()
-                not_registered={eid:emp for eid,emp in wl_all.items() if eid not in attended_ids and eid not in absent_ids}
-                already_absent={eid:emp for eid,emp in wl_all.items() if eid in absent_ids}
+                try:
+                    abs_records=absence_sheet.get_all_records()
+                    absent_ids=set(str(r.get("الرقم الشخصي","")).strip() for r in abs_records if r.get("التاريخ")==abs_date_str)
+                except:
+                    abs_records=[]; absent_ids=set()
+
+                not_registered={eid:emp for eid,emp in required_wl.items() if eid not in attended_ids and eid not in absent_ids}
+                already_absent={eid:emp for eid,emp in required_wl.items() if eid in absent_ids}
+
                 c1,c2,c3=st.columns(3)
-                c1.metric("إجمالي الموظفات",len(wl_all)); c2.metric("حاضرات",len(attended_ids)); c3.metric("لم يسجّلن",len(not_registered))
+                c1.metric("المطلوب دوامهم",len(required_wl))
+                c2.metric("حاضرات",len(attended_ids.intersection(set(required_wl.keys()))))
+                c3.metric("لم يسجّلن",len(not_registered))
+
+                if scheduled_tasks is not None:
+                    st.info("✅ الحصر الحالي يعتمد فقط على الأقسام/المهام المحددة في جدول دوام الأقسام لهذا اليوم.")
+
                 if already_absent:
                     st.markdown("#### تم تسجيل غيابهن")
                     for eid,emp in already_absent.items():
                         rec=next((r for r in abs_records if str(r.get("الرقم الشخصي",""))==eid and r.get("التاريخ")==abs_date_str),{})
-                        st.markdown(f'<div class="absent-row">🔴 {emp.get("الاسم","")} — سبب: {rec.get("سبب الغياب","")}</div>',unsafe_allow_html=True)
+                        st.markdown(f'<div class="absent-row">🔴 {emp.get("الاسم","")} — {emp.get("المهمة","")} — سبب: {rec.get("سبب الغياب","")}</div>',unsafe_allow_html=True)
+
                 if not_registered:
                     st.markdown("#### لم يسجّلن بعد")
                     for eid,emp in not_registered.items():
-                        with st.expander(f"🔴 {emp.get('الاسم','')} — {emp.get('المدرسة','')}"):
+                        with st.expander(f"🔴 {emp.get('الاسم','')} — {emp.get('المدرسة','')} — {emp.get('المهمة','')}"):
                             sel=st.selectbox("سبب الغياب",abs_reasons,key=f"ar_{eid}")
                             other_txt=""
                             if sel=="أخرى": other_txt=st.text_input("اكتبي السبب",key=f"ao_{eid}")
                             note_txt=st.text_input("ملاحظات (اختياري)",key=f"an_{eid}")
                             final_r=other_txt.strip() if sel=="أخرى" else sel
                             if st.button("تسجيل غياب",key=f"ab_{eid}",use_container_width=True):
-                                day_ar={"Saturday":"السبت","Sunday":"الأحد","Monday":"الاثنين","Tuesday":"الثلاثاء","Wednesday":"الأربعاء","Thursday":"الخميس","Friday":"الجمعة"}.get(abs_date.strftime("%A"),abs_date.strftime("%A"))
-                                absence_sheet.append_row([abs_date_str,day_ar,eid,emp.get("الاسم",""),emp.get("المدرسة",""),emp.get("المهمة",""),final_r,note_txt,"أدمن"])
+                                absence_sheet.append_row([abs_date_str,abs_day_ar,eid,emp.get("الاسم",""),emp.get("المدرسة",""),emp.get("المهمة",""),final_r,note_txt,"أدمن"])
                                 log_audit(eid,emp.get("الاسم",""),"تسجيل غياب",f"التاريخ:{abs_date_str}|السبب:{final_r}")
                                 st.success(f"✅ تم تسجيل غياب {emp.get('الاسم','')}"); st.rerun()
-                else: st.success("✅ تم تسجيل وضع جميع الموظفات لهذا اليوم")
+                else:
+                    st.success("✅ تم تسجيل وضع جميع الموظفات المطلوب دوامهن لهذا اليوم")
+
+        # ── دوام الأقسام ────────────────────────────────────────
+        elif admin_tab=="📅 دوام الأقسام":
+            st.markdown("#### 📅 تحديد الأقسام/المهام التي تداوم في كل يوم")
+            st.info("حددي الأيام المطلوبة لكل مهمة. عند حصر الغياب سيحسب البرنامج فقط الموظفات التابعات للمهام المفعّلة في يوم الغياب.")
+
+            with st.expander("➕ إضافة / تحديث مهمة", expanded=True):
+                sch_task=st.selectbox("المهمة", TASKS_ALL, key="sch_task")
+                days_cols=st.columns(4)
+                with days_cols[0]: d_sat=st.checkbox("السبت", key="d_sat")
+                with days_cols[1]: d_sun=st.checkbox("الأحد", key="d_sun")
+                with days_cols[2]: d_mon=st.checkbox("الاثنين", key="d_mon")
+                with days_cols[3]: d_tue=st.checkbox("الثلاثاء", key="d_tue")
+                days_cols2=st.columns(3)
+                with days_cols2[0]: d_wed=st.checkbox("الأربعاء", key="d_wed")
+                with days_cols2[1]: d_thu=st.checkbox("الخميس", key="d_thu")
+                with days_cols2[2]: d_fri=st.checkbox("الجمعة", key="d_fri")
+
+                active_task=st.checkbox("نشط", value=True, key="sch_active")
+                if st.button("💾 حفظ دوام المهمة", use_container_width=True, type="primary"):
+                    row_values=[
+                        sch_task,
+                        "نعم" if d_sat else "لا",
+                        "نعم" if d_sun else "لا",
+                        "نعم" if d_mon else "لا",
+                        "نعم" if d_tue else "لا",
+                        "نعم" if d_wed else "لا",
+                        "نعم" if d_thu else "لا",
+                        "نعم" if d_fri else "لا",
+                        "نعم" if active_task else "لا",
+                    ]
+                    try:
+                        records=schedule_sheet.get_all_records()
+                        found_row=None
+                        for i,r in enumerate(records):
+                            if str(r.get("المهمة","")).strip()==sch_task:
+                                found_row=i+2; break
+                        if found_row:
+                            schedule_sheet.update(f"A{found_row}:I{found_row}",[row_values])
+                        else:
+                            schedule_sheet.append_row(row_values, value_input_option="USER_ENTERED")
+                        get_schedule_records.clear()
+                        st.success("✅ تم حفظ جدول دوام المهمة")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ خطأ أثناء حفظ جدول الدوام: {e}")
+
+            st.markdown("#### الجدول الحالي")
+            try:
+                records=get_schedule_records()
+                if not records:
+                    st.warning("لم يتم إدخال أي دوام أقسام حتى الآن.")
+                else:
+                    for r in records:
+                        task=str(r.get("المهمة","")).strip()
+                        active="نشط" if is_yes(r.get("نشط","")) or str(r.get("نشط","")).strip()=="" else "غير نشط"
+                        days=[d for d in ["السبت","الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة"] if is_yes(r.get(d,""))]
+                        days_txt="، ".join(days) if days else "لا توجد أيام محددة"
+                        st.markdown(f'<div class="audit-row"><b>{task}</b><br><small>{days_txt} — {active}</small></div>',unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"خطأ: {e}")
 
         # ── تعديل سجل ────────────────────────────────────────────
         elif admin_tab=="✏️ تعديل سجل":
@@ -939,7 +1074,7 @@ else:
             if st.button("إضافة",use_container_width=True):
                 if not wl_id.strip() or not wl_name.strip(): st.error("الرقم والاسم مطلوبان")
                 else:
-                    ok=safe_append(whitelist_sheet,[ar_to_en_digits(wl_id).strip(),normalize_name(wl_name),wl_school,wl_task,"","",wl_job,"نعم"])
+                    ok=safe_append(whitelist_sheet,[ar_to_en_digits(wl_id).strip(),normalize_name(wl_name),wl_school,wl_task,"نعم" if "دعم" in wl_task else "لا","","",wl_job,"نعم"])
                     get_whitelist.clear()
                     if ok: st.success("✅ تمت الإضافة")
                     else: st.error("❌ تعذرت الإضافة")
@@ -1048,5 +1183,6 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
+
 
 
