@@ -794,20 +794,19 @@ if mode=="👤 موظفة":
             emp_id_raw=st.text_input("الرقم الشخصي", placeholder="أدخلي رقمك الشخصي", max_chars=20)
             emp_id=ar_to_en_digits(emp_id_raw).strip()
 
-            # زر تواصل سريع يظهر مباشرة بعد إدخال الرقم الشخصي وقبل ظهور البيانات
-            if emp_id:
-                try:
-                    quick_existing = validate_employee(emp_id)
-                    quick_name = quick_existing.get("الاسم", "") if quick_existing else ""
-                    quick_school = quick_existing.get("المدرسة", "") if quick_existing else ""
-                    quick_task = quick_existing.get("المهمة", "") if quick_existing else ""
+            # زر تواصل سريع يظهر دائماً تحت مربع الرقم الشخصي
+            # إذا كتبت الموظفة رقمها، تُضاف بياناتها تلقائياً إن كانت موجودة في القائمة البيضاء.
+            quick_existing = validate_employee(emp_id) if emp_id else None
+            quick_name = quick_existing.get("الاسم", "") if quick_existing else ""
+            quick_school = quick_existing.get("المدرسة", "") if quick_existing else ""
+            quick_task = quick_existing.get("المهمة", "") if quick_existing else ""
 
-                    quick_msg = f"""مرحباً 👋
+            quick_msg = f"""مرحباً 👋
 
 لدي مشكلة في نظام الحضور والانصراف:
 
 الاسم: {quick_name or 'غير ظاهر بعد'}
-الرقم الشخصي: {emp_id}
+الرقم الشخصي: {emp_id or 'لم يتم إدخال الرقم بعد'}
 المدرسة: {quick_school or 'غير ظاهرة بعد'}
 المهمة: {quick_task or 'غير ظاهرة بعد'}
 التاريخ: {today_str}
@@ -815,12 +814,11 @@ if mode=="👤 موظفة":
 
 تفاصيل المشكلة:
 """
-                    quick_wa_link = "https://wa.me/97333738668?text=" + urllib.parse.quote(quick_msg)
-                    st.markdown("### 🆘 واجهتني مشكلة؟")
-                    st.caption("اضغطي الزر لفتح واتساب برسالة جاهزة، ثم اكتبي تفاصيل المشكلة فقط.")
-                    st.link_button("📞 تواصل مع الأدمن عبر واتساب", quick_wa_link, use_container_width=True)
-                except Exception:
-                    pass
+            quick_wa_link = "https://wa.me/97333738668?text=" + urllib.parse.quote(quick_msg)
+
+            st.markdown("### 🆘 واجهتني مشكلة؟")
+            st.caption("اضغطي الزر لفتح واتساب برسالة جاهزة، ثم اكتبي تفاصيل المشكلة فقط.")
+            st.link_button("📞 تواصل مع الأدمن عبر واتساب", quick_wa_link, use_container_width=True)
 
             if emp_id:
                 existing=validate_employee(emp_id)
