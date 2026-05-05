@@ -63,7 +63,7 @@ TASKS_SUPPORT = [
 ]
 TASKS_ALL = TASKS_MAIN + TASKS_SUPPORT
 JOB_TITLES    = ["منسقة","معلمة أولى","معلمة","الهيئة الإدارية","مشرف تربوي","مديرة مدرسة","المديرة المساعدة","أخرى"]
-reasons       = ["دوام مرن","موعد","مهمة رسمية","رعاية","أخرى"]
+reasons       = ["دوام مرن","موعد","مهمة رسمية","رعاية","الانتهاء من التصحيح","أخرى"]
 abs_reasons   = ["مرض","إجازة اعتيادية","إجازة طارئة","بدون عذر","مهمة رسمية","أخرى"]
 
 # ─── CSS ───────────────────────────────────────────────────────
@@ -298,6 +298,11 @@ def is_official_mission_day(row):
     txt = " ".join([str(row.get("سبب التأخير", "")), str(row.get("سبب الانصراف", "")), str(row.get("نوع الدوام اليومي", ""))])
     return "مهمة رسمية" in txt
 
+def is_correction_done_day(row):
+    """حالة الانتهاء من التصحيح: لا تُحسب كتأخير ولا كساعات إضافية، وتظهر كحالة معفاة."""
+    txt = " ".join([str(row.get("سبب التأخير", "")), str(row.get("سبب الانصراف", "")), str(row.get("حالة الدوام", "")), str(row.get("نوع الدوام اليومي", ""))])
+    return "الانتهاء من التصحيح" in txt
+
 def is_implicit_leave_late(row):
     """
     إذا كان الدوام عادي والموظفة حضرت بعد السماح وكتبت سببًا مثل موعد أو سبب آخر،
@@ -311,7 +316,7 @@ def is_implicit_leave_late(row):
     reason = str(row.get("سبب التأخير", "")).strip()
     if not reason:
         return False
-    if any(x in reason for x in ["رعاية", "دوام مرن", "مهمة رسمية"]):
+    if any(x in reason for x in ["رعاية", "دوام مرن", "مهمة رسمية", "الانتهاء من التصحيح"]):
         return False
     return True
 
@@ -320,7 +325,7 @@ def is_late_for_statistics(row):
     att = parse_time_value(row.get("وقت الحضور", ""))
     if not att or att <= time(7, 5, 0):
         return False
-    if is_care_day(row) or is_flexible_day(row) or is_official_mission_day(row):
+    if is_care_day(row) or is_flexible_day(row) or is_official_mission_day(row) or is_correction_done_day(row):
         return False
     return True
 
@@ -337,8 +342,13 @@ def calculate_work_values(row):
     official_start = combine_date_time(date_str, time(7, 0, 0))
     grace_end = combine_date_time(date_str, time(7, 5, 0))
     official_mission = is_official_mission_day(row)
+    correction_done = is_correction_done_day(row)
     implicit_leave = is_implicit_leave_late(row)
-    if care:
+    if correction_done:
+        daily_type = "انتهاء التصحيح"
+        required_hours = 0
+        calc_start = official_start if att_dt <= grace_end else att_dt
+    elif care:
         daily_type = "رعاية"
         required_hours = 5
         calc_start = max(att_dt, official_start)
@@ -366,13 +376,19 @@ def calculate_work_values(row):
         if dep_dt < att_dt:
             dep_dt += timedelta(days=1)
         work_seconds = max(0, int((dep_dt - calc_start).total_seconds()))
-        extra_seconds = max(0, int((dep_dt - expected_end).total_seconds()))
-        if work_seconds < required_hours * 3600:
-            status = "ناقص"
-        elif extra_seconds > 0:
-            status = "رعاية + إضافي" if care else "مكتمل + إضافي"
+        if correction_done:
+            # الانتهاء من التصحيح حالة معفاة: نحتفظ بالوقت الفعلي للعرض فقط، ولا نحسب نقصًا أو إضافيًا.
+            expected_end = dep_dt
+            extra_seconds = 0
+            status = "معفى - انتهاء التصحيح"
         else:
-            status = "مكتمل رعاية" if care else "مكتمل"
+            extra_seconds = max(0, int((dep_dt - expected_end).total_seconds()))
+            if work_seconds < required_hours * 3600:
+                status = "ناقص"
+            elif extra_seconds > 0:
+                status = "رعاية + إضافي" if care else "مكتمل + إضافي"
+            else:
+                status = "مكتمل رعاية" if care else "مكتمل"
     return {"calc_start": fmt_time_dt(calc_start), "expected_end": fmt_time_dt(expected_end), "work_hours": fmt_hours_from_seconds(work_seconds), "extra_hours": fmt_hours_from_seconds(extra_seconds), "status": status, "daily_type": daily_type}
 
 def update_work_calculation(row_index, row_data=None):
@@ -1201,38 +1217,94 @@ else:
         if admin_tab=="📊 إحصائيات اليوم":
             data=get_sheet_data()
             today_rows=[r for r in data if r.get("التاريخ")==today_str]
-            try: abs_today=[r for r in absence_sheet.get_all_records() if r.get("التاريخ")==today_str]
-            except: abs_today=[]
-            attended=[r for r in today_rows if r.get("وقت الحضور")]
-            late_list=[r for r in today_rows if is_late_for_statistics(r)]
-            early_dep=[r for r in today_rows if r.get("وقت الانصراف","") and r.get("وقت الانصراف","")< "14:00:00"]
-            on_leave=[r for r in today_rows if r.get("خروج استئذان") and not r.get("عودة") and not r.get("وقت الانصراف")]
-            missing_depart=[r for r in today_rows if r.get("وقت الحضور") and not r.get("وقت الانصراف")]
+
+            # ربط إحصائيات اليوم بجدول دوام الأقسام
+            today_day_ar = day_arabic
+            scheduled_tasks = scheduled_tasks_for_day(today_day_ar)
+            wl_all = get_whitelist()
+            if scheduled_tasks is None:
+                required_wl = wl_all
+                st.warning("⚠️ لم يتم تحديد دوام أقسام لهذا اليوم، لذلك ستعرض الإحصائيات على جميع القائمة البيضاء.")
+            else:
+                required_wl = {eid: emp for eid, emp in wl_all.items() if emp_required_on_day(emp, scheduled_tasks)}
+                with st.expander(f"📅 الأقسام المعتمدة في إحصائيات اليوم ({today_day_ar})", expanded=False):
+                    for t in scheduled_tasks:
+                        st.markdown(f"- {t}")
+
+            required_ids = set(str(eid).strip() for eid in required_wl.keys())
+
+            # سجلات اليوم للأقسام المطلوبة فقط
+            today_required_rows = [r for r in today_rows if str(r.get("الرقم الشخصي","")).strip() in required_ids]
+
+            # دعم خارجي: حضر اليوم لكنه غير موجود في القائمة البيضاء
+            external_support_rows = []
+            for r in today_rows:
+                eid = str(r.get("الرقم الشخصي","")).strip()
+                support_raw = str(r.get("دعم","")).strip()
+                task_txt = str(r.get("المهمة","")).strip()
+                is_external_support = eid and eid not in wl_all and (is_yes(support_raw) or "دعم" in task_txt)
+                if is_external_support:
+                    external_support_rows.append(r)
+
+            try:
+                abs_records_all = absence_sheet.get_all_records()
+                abs_today=[r for r in abs_records_all if r.get("التاريخ")==today_str and str(r.get("الرقم الشخصي","")).strip() in required_ids]
+            except:
+                abs_today=[]
+
+            attended=[r for r in today_required_rows if r.get("وقت الحضور")]
+            late_list=[r for r in today_required_rows if is_late_for_statistics(r)]
+            early_dep=[r for r in today_required_rows if r.get("وقت الانصراف","") and r.get("وقت الانصراف","")< "14:00:00"]
+            on_leave=[r for r in today_required_rows if r.get("خروج استئذان") and not r.get("عودة") and not r.get("وقت الانصراف")]
+            missing_depart=[r for r in today_required_rows if r.get("وقت الحضور") and not r.get("وقت الانصراف")]
             auto_closed=[r for r in data if str(r.get("إغلاق تلقائي","")).strip()]
+            correction_done_rows=[r for r in today_required_rows if is_correction_done_day(r)]
+
             c1,c2,c3=st.columns(3)
-            c1.metric("إجمالي المسجّلين",len(today_rows))
-            c2.metric("حاضرون",len(attended))
+            c1.metric("المتوقع حضورهم اليوم",len(required_wl))
+            c2.metric("حاضرون من الأقسام",len(attended))
             c3.metric("غائبات",len(abs_today))
             c4,c5,c6=st.columns(3)
             c4.metric("متأخرون",len(late_list))
             c5.metric("لم يسجلن انصراف",len(missing_depart))
             c6.metric("استئذان مفتوح",len(on_leave))
+            c7,c8,c9=st.columns(3)
+            c7.metric("الدعم الخارجي",len(external_support_rows))
+            c8.metric("إجمالي حضور اليوم",len([r for r in today_rows if r.get("وقت الحضور")]))
+            c9.metric("خارج الأقسام المحددة",max(0, len([r for r in today_rows if r.get("وقت الحضور")])-len(attended)-len(external_support_rows)))
+            c10,c11,c12=st.columns(3)
+            c10.metric("معفى - انتهاء التصحيح",len(correction_done_rows))
+            c11.metric("إغلاق تلقائي",len(auto_closed))
+            c12.metric("", "")
+
+            st.info("✅ الإحصائيات الأساسية أعلاه تعتمد على دوام الأقسام المحدد لهذا اليوم، مع فصل الدعم الخارجي غير الموجود في القائمة البيضاء.")
+
+            if correction_done_rows:
+                st.markdown("#### ✅ معفى - الانتهاء من التصحيح")
+                for r in correction_done_rows:
+                    st.markdown(f'<div class="audit-row">✅ {r.get("الاسم الثلاثي","")} — {r.get("المهمة","")} — حضور: {r.get("وقت الحضور","")} — انصراف: {r.get("وقت الانصراف","") or "لم يسجل"}</div>',unsafe_allow_html=True)
+
+            if external_support_rows:
+                st.markdown("#### 🟣 الدعم الخارجي غير الموجود في القائمة البيضاء")
+                for r in external_support_rows:
+                    st.markdown(f'<div class="audit-row">🟣 {r.get("الاسم الثلاثي","")} — #{r.get("الرقم الشخصي","")} — {r.get("اسم المدرسة",r.get("المدرسة",""))} — {r.get("المهمة","")} — حضور: {r.get("وقت الحضور","")} — انصراف: {r.get("وقت الانصراف","") or "لم يسجل"}</div>',unsafe_allow_html=True)
+
             if missing_depart:
-                st.markdown("#### 🚨 لم يسجلن الانصراف حتى الآن")
+                st.markdown("#### 🚨 لم يسجلن الانصراف حتى الآن — من الأقسام المطلوبة")
                 for r in missing_depart:
-                    st.markdown(f'<div class="warn-row">🚨 {r.get("الاسم الثلاثي","")} — {r.get("المدرسة","")} — {r.get("المهمة","")} — حضور: {r.get("وقت الحضور","")}</div>',unsafe_allow_html=True)
+                    st.markdown(f'<div class="warn-row">🚨 {r.get("الاسم الثلاثي","")} — {r.get("اسم المدرسة",r.get("المدرسة",""))} — {r.get("المهمة","")} — حضور: {r.get("وقت الحضور","")}</div>',unsafe_allow_html=True)
             if on_leave:
-                st.markdown("#### 📤 استئذان مفتوح")
+                st.markdown("#### 📤 استئذان مفتوح — من الأقسام المطلوبة")
                 for r in on_leave:
                     st.markdown(f'<div class="warn-row">📤 {r.get("الاسم الثلاثي","")} — خروج: {r.get("خروج استئذان","")} — لم تسجل عودة أو انصراف</div>',unsafe_allow_html=True)
             if abs_today:
-                st.markdown("#### الغائبات")
+                st.markdown("#### الغائبات — حسب دوام الأقسام")
                 for r in abs_today:
-                    st.markdown(f'<div class="absent-row">🔴 {r.get("الاسم","")} — {r.get("المدرسة","")} — سبب: {r.get("سبب الغياب","")}</div>',unsafe_allow_html=True)
+                    st.markdown(f'<div class="absent-row">🔴 {r.get("الاسم","")} — {r.get("المدرسة","")} — {r.get("المهمة","")} — سبب: {r.get("سبب الغياب","")}</div>',unsafe_allow_html=True)
             if late_list:
-                st.markdown("#### المتأخرون")
+                st.markdown("#### المتأخرون — حسب القواعد المعتمدة")
                 for r in late_list:
-                    st.markdown(f'<div class="warn-row">⏰ {r.get("الاسم الثلاثي","")} — وصل {r.get("وقت الحضور","")}</div>',unsafe_allow_html=True)
+                    st.markdown(f'<div class="warn-row">⏰ {r.get("الاسم الثلاثي","")} — وصل {r.get("وقت الحضور","")} — السبب: {r.get("سبب التأخير","") or "بدون"}</div>',unsafe_allow_html=True)
             if auto_closed:
                 with st.expander("🔄 سجلات أُغلقت تلقائيًا", expanded=False):
                     for r in reversed(auto_closed[-50:]):
