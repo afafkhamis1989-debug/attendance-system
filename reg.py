@@ -26,7 +26,7 @@ st.set_page_config(page_title="نظام الحضور والانصراف", page_i
 SHEET_ID       = "1svkfgRq4-osKr86_2WJQFZShuoy8Ek5DOiUaaHKL-6Y"
 SCHOOL_LAT     = 26.216371784473964
 SCHOOL_LON     = 50.54035843289093
-ALLOWED_RADIUS = 500
+ALLOWED_RADIUS = 1000
 ADMIN_PASSWORD = "Afaf1234"
 DEVICE_COOLDOWN_MINUTES = 10
 
