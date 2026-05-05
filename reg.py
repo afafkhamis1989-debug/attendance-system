@@ -423,6 +423,58 @@ def auto_close_previous_open_records():
     except Exception:
         pass
 
+
+def show_previous_auto_close_notice(emp_id):
+    """تنبيه الموظفة في اليوم الجديد إذا تم إغلاق يوم سابق تلقائياً بسبب نسيان الانصراف أو استئذان مفتوح."""
+    try:
+        emp_id = str(emp_id or "").strip()
+        if not emp_id:
+            return
+
+        today = now_bh().date()
+        yesterday = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+        today_key = today.strftime("%Y-%m-%d")
+        dismissed_key = f"auto_close_notice_{emp_id}_{today_key}"
+
+        if str(ls_get(dismissed_key) or "").strip() == "done":
+            return
+
+        data = get_sheet_data()
+        matches = []
+        for r in data:
+            if str(r.get("الرقم الشخصي", "")).strip() != emp_id:
+                continue
+            if str(r.get("التاريخ", "")).strip() != yesterday:
+                continue
+            if str(r.get("إغلاق تلقائي", "")).strip():
+                matches.append(r)
+
+        if not matches:
+            return
+
+        r = matches[-1]
+        st.warning(
+            "⚠️ تنبيه: تم إغلاق سجل يوم أمس تلقائيًا لأن الانصراف لم يُسجَّل قبل نهاية اليوم. "
+            "يرجى التأكد من تسجيل الانصراف يوميًا قبل مغادرة المركز."
+        )
+        st.markdown(f"""
+        <div class="warn-row">
+            <b>تفاصيل الإغلاق التلقائي:</b><br>
+            التاريخ: {r.get('التاريخ','')}<br>
+            وقت الحضور: {r.get('وقت الحضور','—') or '—'}<br>
+            وقت الانصراف المسجّل تلقائيًا: {r.get('وقت الانصراف','—') or '—'}<br>
+            السبب: {r.get('سبب الانصراف','—') or '—'}<br>
+            الحالة: {r.get('إغلاق تلقائي','—') or '—'}
+        </div>
+        """, unsafe_allow_html=True)
+
+        if st.button("✅ تم الاطلاع على التنبيه", use_container_width=True, key=f"dismiss_auto_close_{emp_id}_{today_key}"):
+            ls_set(dismissed_key, "done", f"set_{dismissed_key}")
+            st.success("✅ تم إخفاء التنبيه لهذا اليوم.")
+            st.rerun()
+    except Exception:
+        pass
+
 def mark_care_for_today(emp_id):
     data = get_sheet_data()
     idx, row = find_today_row(data, today_str, str(emp_id).strip())
@@ -842,6 +894,7 @@ if mode=="👤 موظفة":
             <div class="field-lbl">المهمة في الكنترول</div><div class="field-val blue">{emp.get("المهمة","")}</div>
             <div style="font-size:12px;color:#3B6D11;font-weight:700;">🔒 بياناتك محفوظة لهذا اليوم</div>
             """, unsafe_allow_html=True)
+            show_previous_auto_close_notice(emp.get("الرقم الشخصي", ""))
         else:
             emp_id_raw=st.text_input("الرقم الشخصي", placeholder="أدخلي رقمك الشخصي", max_chars=20)
             emp_id=ar_to_en_digits(emp_id_raw).strip()
@@ -873,6 +926,7 @@ if mode=="👤 موظفة":
             st.link_button("📞 تواصل مع الأدمن عبر واتساب", quick_wa_link, use_container_width=True)
 
             if emp_id:
+                show_previous_auto_close_notice(emp_id)
                 existing=validate_employee(emp_id)
                 if existing:
                     is_prev_support = str(existing.get("دعم","")).strip() in ["نعم","yes","Yes","TRUE","true","1"]
