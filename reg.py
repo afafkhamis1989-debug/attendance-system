@@ -870,54 +870,23 @@ else:
 
         # ── تسجيل يدوي ──────────────────────────────────────────
         elif admin_tab=="➕ تسجيل يدوي":
-    m_id=st.text_input("الرقم الشخصي",key="mid")
-    m_date=st.date_input("التاريخ",value=now_bh().date(),key="mdate")
-    m_att=st.text_input("وقت الحضور",value="07:00:00",key="matt")
-    m_dep=st.text_input("وقت الانصراف (اختياري)",key="mdep")
-    m_note=st.text_input("سبب الإضافة اليدوية (مطلوب)",key="mnote")
+            m_id=st.text_input("الرقم الشخصي",key="mid")
+            m_date=st.date_input("التاريخ",value=now_bh().date(),key="mdate")
+            m_att=st.text_input("وقت الحضور",value="07:00:00",key="matt")
+            m_dep=st.text_input("وقت الانصراف (اختياري)",key="mdep")
+            m_note=st.text_input("سبب الإضافة اليدوية (مطلوب)",key="mnote")
+            if st.button("تسجيل يدوي",use_container_width=True):
+                if not m_note.strip(): st.error("السبب مطلوب")
+                elif not m_id.strip(): st.error("الرقم مطلوب")
+                else:
+                    emp=validate_employee(m_id)
+                    if not emp: st.error("الرقم غير موجود في القائمة البيضاء")
+                    else:
+                        date_str=str(m_date); day_name=m_date.strftime("%A")
+                        sheet.append_row([date_str,day_name,emp.get("المدرسة",""),emp.get("المهمة",""),normalize_name(emp.get("الاسم","")),m_id,m_att,f"[يدوي] {m_note}",m_dep,"","","",""])
+                        log_audit(m_id,emp.get("الاسم",""),"تسجيل يدوي",f"التاريخ:{date_str}|حضور:{m_att}|انصراف:{m_dep}|السبب:{m_note}")
+                        clear_caches(); st.success("✅ تم التسجيل اليدوي")
 
-    if st.button("تسجيل يدوي",use_container_width=True):
-        if not m_note.strip():
-            st.error("السبب مطلوب")
-        elif not m_id.strip():
-            st.error("الرقم مطلوب")
-        else:
-            emp=validate_employee(m_id)
-            if not emp:
-                st.error("الرقم غير موجود في القائمة البيضاء")
-            else:
-                date_str=str(m_date)
-                day_name=m_date.strftime("%A")
-
-                task = emp.get("المهمة","")
-                support_value = "نعم" if "دعم" in str(task) else "لا"
-
-                sheet.append_row([
-                    date_str,                     # A التاريخ
-                    day_name,                     # B اليوم
-                    emp.get("المدرسة",""),        # C اسم المدرسة
-                    task,                         # D المهمة
-                    support_value,                # E دعم
-                    normalize_name(emp.get("الاسم","")), # F الاسم الثلاثي
-                    m_id,                         # G الرقم الشخصي
-                    m_att,                        # H وقت الحضور
-                    f"[يدوي] {m_note}",           # I سبب التأخير
-                    m_dep,                        # J وقت الانصراف
-                    "",                           # K سبب الانصراف
-                    "",                           # L خروج استئذان
-                    "",                           # M عودة
-                    ""                            # N محاولة
-                ])
-
-                log_audit(
-                    m_id,
-                    emp.get("الاسم",""),
-                    "تسجيل يدوي",
-                    f"التاريخ:{date_str}|حضور:{m_att}|انصراف:{m_dep}|السبب:{m_note}"
-                )
-
-                clear_caches()
-                st.success("✅ تم التسجيل اليدوي في الأعمدة الصحيحة")
         # ── القائمة البيضاء ──────────────────────────────────────
         elif admin_tab=="📋 القائمة البيضاء":
             st.markdown("#### إضافة موظفة")
