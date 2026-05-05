@@ -38,7 +38,7 @@ html, body {
 }
 
 [data-testid="stImage"] {
-    margin-top: 0 !important;
+    margin-top: 12px !important;
 }
 </style>
 """, unsafe_allow_html=True)
