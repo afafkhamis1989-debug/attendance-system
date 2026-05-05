@@ -29,7 +29,7 @@ st.markdown("""
 }
 
 section.main > div {
-    padding-top: 0.5rem !important;
+    padding-top: 0.6rem !important;
 }
 
 html, body {
