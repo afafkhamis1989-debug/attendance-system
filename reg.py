@@ -11,7 +11,6 @@ import math
 import random
 import string
 import time as time_module
-import pandas as pd
 
 try:
     from streamlit_local_storage import LocalStorage
@@ -35,6 +34,8 @@ DEVICE_COOLDOWN_MINUTES = 10
 COL_DATE=1; COL_DAY=2; COL_SCHOOL=3; COL_TASK=4; COL_SUPPORT=5
 COL_NAME=6; COL_ID=7; COL_ATTEND=8; COL_LATE_REASON=9
 COL_DEPART=10; COL_DEPART_REASON=11; COL_EXIT=12; COL_RETURN=13; COL_ATTEMPT=14
+COL_WORK_START=15; COL_EXPECTED_END=16; COL_WORK_HOURS=17; COL_EXTRA_HOURS=18
+COL_WORK_STATUS=19; COL_DAILY_TYPE=20; COL_AUTO_CLOSE=21; COL_CARE_CONF=22
 
 schools = [
     "مدرسة المنامة الثانوية للبنات",
@@ -137,6 +138,29 @@ audit_sheet     = _sheets["audit"]
 absence_sheet   = _sheets["absence"]
 schedule_sheet  = _sheets["schedule"]
 
+# ─── ضمان الأعمدة الجديدة بدون الرجوع إلى Google Sheet ───────────────
+def ensure_headers(ws, headers):
+    try:
+        current = ws.row_values(1)
+        for i, h in enumerate(headers, start=1):
+            if len(current) < i or not str(current[i-1]).strip():
+                ws.update_cell(1, i, h)
+    except Exception:
+        pass
+
+SHEET1_HEADERS = [
+    "التاريخ","اليوم","اسم المدرسة","المهمة","دعم","الاسم الثلاثي","الرقم الشخصي",
+    "وقت الحضور","سبب التأخير","وقت الانصراف","سبب الانصراف","خروج استئذان","عودة","محاولة",
+    "وقت البداية المحسوب","وقت النهاية المتوقع","ساعات العمل","الساعات الإضافية",
+    "حالة الدوام","نوع الدوام اليومي","إغلاق تلقائي","تأكيد الرعاية"
+]
+WHITELIST_HEADERS = [
+    "الرقم الشخصي","الاسم","المدرسة","المهمة","دعم","رقم التواصل","البريد الإلكتروني",
+    "المسمى الوظيفي","نشط","نوع الدوام الافتراضي","ملاحظات"
+]
+ensure_headers(sheet, SHEET1_HEADERS)
+ensure_headers(whitelist_sheet, WHITELIST_HEADERS)
+
 # ─── دوال مساعدة ───────────────────────────────────────────────
 def ar_to_en_digits(text):
     ar="٠١٢٣٤٥٦٧٨٩"; en="0123456789"
@@ -231,207 +255,153 @@ def clear_caches():
     get_sheet_data.clear(); get_device_locks.clear(); get_settings_records.clear(); get_schedule_records.clear()
 
 
+# ─── دوال احتساب الدوام والساعات والإغلاق التلقائي ───────────────
+def parse_time_value(t):
+    t = str(t or "").strip()
+    if not t:
+        return None
+    for fmt in ["%H:%M:%S", "%H:%M"]:
+        try:
+            return datetime.strptime(t, fmt).time()
+        except Exception:
+            pass
+    return None
 
-def col_letter(n):
-    """تحويل رقم العمود إلى حرف Excel/Google Sheet."""
-    result = ""
-    while n:
-        n, rem = divmod(n - 1, 26)
-        result = chr(65 + rem) + result
-    return result
-
-def get_ws_headers(ws):
+def combine_date_time(date_str, t):
+    if not t:
+        return None
     try:
-        values = ws.row_values(1)
-        return [str(v).strip() for v in values if str(v).strip()]
+        d = datetime.strptime(str(date_str), "%Y-%m-%d").date()
+        return datetime.combine(d, t).replace(tzinfo=BAHRAIN_TZ)
     except Exception:
-        return []
+        return None
 
-def clear_sheet_cache_by_key(key):
+def fmt_time_dt(dt):
+    return dt.strftime("%H:%M:%S") if dt else ""
+
+def fmt_hours_from_seconds(seconds):
+    seconds = max(0, int(seconds))
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    return f"{h}:{m:02d}"
+
+def is_care_day(row):
+    txt = " ".join([str(row.get("سبب التأخير", "")), str(row.get("سبب الانصراف", "")), str(row.get("تأكيد الرعاية", "")), str(row.get("نوع الدوام اليومي", ""))])
+    return "رعاية" in txt
+
+def is_flexible_day(row):
+    txt = " ".join([str(row.get("سبب التأخير", "")), str(row.get("سبب الانصراف", "")), str(row.get("نوع الدوام اليومي", ""))])
+    return "دوام مرن" in txt
+
+def calculate_work_values(row):
+    date_str = str(row.get("التاريخ", "")).strip()
+    att = parse_time_value(row.get("وقت الحضور", ""))
+    dep = parse_time_value(row.get("وقت الانصراف", ""))
+    if not date_str or not att:
+        return None
+    care = is_care_day(row)
+    flexible = is_flexible_day(row)
+    att_dt = combine_date_time(date_str, att)
+    dep_dt = combine_date_time(date_str, dep) if dep else None
+    official_start = combine_date_time(date_str, time(7, 0, 0))
+    grace_end = combine_date_time(date_str, time(7, 5, 0))
+    if care:
+        daily_type = "رعاية"
+        required_hours = 5
+        calc_start = max(att_dt, official_start)
+    elif flexible:
+        daily_type = "دوام مرن"
+        required_hours = 7
+        calc_start = att_dt
+    else:
+        daily_type = "دوام عادي"
+        required_hours = 7
+        calc_start = official_start if att_dt <= grace_end else att_dt
+    expected_end = calc_start + timedelta(hours=required_hours)
+    work_seconds = 0
+    extra_seconds = 0
+    status = "لم يكتمل"
+    if dep_dt:
+        if dep_dt < att_dt:
+            dep_dt += timedelta(days=1)
+        work_seconds = max(0, int((dep_dt - calc_start).total_seconds()))
+        extra_seconds = max(0, int((dep_dt - expected_end).total_seconds()))
+        if work_seconds < required_hours * 3600:
+            status = "ناقص"
+        elif extra_seconds > 0:
+            status = "رعاية + إضافي" if care else "مكتمل + إضافي"
+        else:
+            status = "مكتمل رعاية" if care else "مكتمل"
+    return {"calc_start": fmt_time_dt(calc_start), "expected_end": fmt_time_dt(expected_end), "work_hours": fmt_hours_from_seconds(work_seconds), "extra_hours": fmt_hours_from_seconds(extra_seconds), "status": status, "daily_type": daily_type}
+
+def update_work_calculation(row_index, row_data=None):
     try:
-        if key == "attendance": get_sheet_data.clear()
-        elif key == "whitelist": get_whitelist.clear()
-        elif key == "settings": get_settings_records.clear()
-        elif key == "device": get_device_locks.clear()
-        elif key == "schedule": get_schedule_records.clear()
+        if row_data is None:
+            records = get_sheet_data()
+            row_data = records[row_index - 2]
+        vals = calculate_work_values(row_data)
+        if not vals:
+            return False
+        sheet.update(f"O{row_index}:T{row_index}", [[vals["calc_start"], vals["expected_end"], vals["work_hours"], vals["extra_hours"], vals["status"], vals["daily_type"]]], value_input_option="USER_ENTERED")
+        return True
+    except Exception:
+        return False
+
+def auto_close_previous_open_records():
+    try:
+        today = now_bh().strftime("%Y-%m-%d")
+        records = get_sheet_data()
+        changed = 0
+        for i, row in enumerate(records):
+            row_num = i + 2
+            date_str = str(row.get("التاريخ", "")).strip()
+            if not date_str or date_str >= today:
+                continue
+            if not row.get("وقت الحضور") or row.get("وقت الانصراف"):
+                continue
+            if row.get("خروج استئذان") and not row.get("عودة"):
+                dep_time = str(row.get("خروج استئذان", "")).strip()
+                dep_reason = "إغلاق تلقائي — استئذان مفتوح احتُسب انصرافًا"
+                auto_note = "نعم — استئذان مفتوح"
+            else:
+                vals = calculate_work_values(row)
+                dep_time = vals["expected_end"] if vals else ""
+                dep_reason = "إغلاق تلقائي — نسيان تسجيل الانصراف"
+                auto_note = "نعم — نسيان انصراف"
+            if dep_time:
+                safe_update(sheet, row_num, COL_DEPART, dep_time)
+                safe_update(sheet, row_num, COL_DEPART_REASON, dep_reason)
+                safe_update(sheet, row_num, COL_AUTO_CLOSE, auto_note)
+                new_row = dict(row)
+                new_row["وقت الانصراف"] = dep_time
+                new_row["سبب الانصراف"] = dep_reason
+                update_work_calculation(row_num, new_row)
+                changed += 1
+        if changed:
+            get_sheet_data.clear()
     except Exception:
         pass
 
-def render_admin_sheet_manager():
-    st.markdown("#### 🗂️ إدارة الشيتات من داخل النظام")
-    st.info("الشيتات الحساسة للعرض فقط، والشيتات التشغيلية يمكن تعديلها من نفس نتيجة البحث.")
-
-    sheet_options = {
-        "سجل الحضور والانصراف — sheet1": {"ws": sheet, "key": "attendance", "readonly": False},
-        "القائمة البيضاء — بيانات الموظفات": {"ws": whitelist_sheet, "key": "whitelist", "readonly": False},
-        "سجل الغياب": {"ws": absence_sheet, "key": "absence", "readonly": False},
-        "جدول دوام الأقسام": {"ws": schedule_sheet, "key": "schedule", "readonly": False},
-        "إعدادات النظام — عرض فقط": {"ws": settings_sheet, "key": "settings", "readonly": True},
-        "قفل الأجهزة — device_lock — عرض فقط": {"ws": device_sheet, "key": "device", "readonly": True},
-        "محاولات تسجيل باسم آخر — عرض فقط": {"ws": attempts_sheet, "key": "attempts", "readonly": True},
-        "سجل التدقيق — عرض فقط": {"ws": audit_sheet, "key": "audit", "readonly": True},
-    }
-
-    if "mgr_sheet_label" not in st.session_state or st.session_state.mgr_sheet_label not in sheet_options:
-        st.session_state.mgr_sheet_label = "سجل الحضور والانصراف — sheet1"
-
-    st.markdown("##### اختاري الشيت")
-    labels = list(sheet_options.keys())
-    for row_start in range(0, len(labels), 2):
-        cols = st.columns(2)
-        for j, label in enumerate(labels[row_start:row_start+2]):
-            with cols[j]:
-                btn_type = "primary" if st.session_state.mgr_sheet_label == label else "secondary"
-                if st.button(label, use_container_width=True, type=btn_type, key=f"sheet_btn_{row_start}_{j}"):
-                    st.session_state.mgr_sheet_label = label
-                    st.rerun()
-
-    selected_label = st.session_state.mgr_sheet_label
-    ws = sheet_options[selected_label]["ws"]
-    cache_key = sheet_options[selected_label]["key"]
-    readonly = sheet_options[selected_label]["readonly"]
-
-    if readonly:
-        st.warning("🔒 هذا الشيت للعرض فقط حفاظًا على سجل الحماية والإثبات. لا توجد أزرار تعديل أو حذف هنا.")
-
-    try:
-        headers = get_ws_headers(ws)
-        records = ws.get_all_records()
-    except Exception as e:
-        st.error(f"❌ تعذر قراءة الشيت: {e}")
-        return
-
-    if not headers:
-        st.error("❌ لا توجد عناوين أعمدة في الصف الأول لهذا الشيت.")
-        return
-
-    st.markdown(f"### {selected_label}")
-    search_txt = st.text_input("بحث داخل الشيت", placeholder="اكتبي الرقم الشخصي أو الاسم أو أي كلمة", key=f"mgr_search_{cache_key}")
-    search_norm = normalize_name(ar_to_en_digits(search_txt)).lower().strip()
-
-    found = []
-    for i, row in enumerate(records):
-        row_num = i + 2
-        joined = " ".join(str(v) for v in row.values())
-        joined_norm = normalize_name(ar_to_en_digits(joined)).lower()
-        if not search_norm or search_norm in joined_norm:
-            found.append((row_num, row))
-
-    st.markdown("### عرض البيانات")
-    show_rows = found[:100] if search_norm else found[-50:]
-    if show_rows:
-        df = pd.DataFrame([{ "رقم الصف في الشيت": rn, **row } for rn, row in show_rows])
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        if not search_norm:
-            st.caption("يعرض آخر 50 صف عند ترك البحث فارغًا. اكتبي رقم/اسم للبحث الدقيق.")
-    else:
-        st.warning("لا توجد نتائج مطابقة للبحث.")
-
-    if readonly:
-        return
-
-    tab_edit, tab_add, tab_delete = st.tabs(["✏️ تعديل صف", "➕ إضافة صف", "🗑️ حذف صف"])
-
-    with tab_edit:
-        if not search_norm:
-            st.info("للتعديل: اكتبي رقم شخصي أو اسم في البحث أولًا حتى لا يتم تعديل صف بالخطأ.")
-        elif not found:
-            st.warning("لا يوجد صف مطابق للتعديل.")
-        else:
-            def row_label(item):
-                rn, row = item
-                name = row.get("الاسم", row.get("الاسم الثلاثي", row.get("المستخدم", "")))
-                emp_id = row.get("الرقم الشخصي", row.get("الرقم_المقفول_عليه", ""))
-                date = row.get("التاريخ", "")
-                task = row.get("المهمة", row.get("نوع العملية", ""))
-                parts = [f"صف {rn}"]
-                for x in [date, name, emp_id, task]:
-                    if str(x).strip(): parts.append(str(x).strip())
-                return " — ".join(parts)
-
-            selected = found[0] if len(found)==1 else st.selectbox("اختاري الصف المطلوب تعديله من نتائج البحث", found, format_func=row_label, key=f"mgr_edit_select_{cache_key}")
-            row_num, row_data = selected
-            st.success(f"✅ سيتم تعديل نفس نتيجة البحث: الصف رقم {row_num}")
-
-            new_values = []
-            for h in headers:
-                current = row_data.get(h, "")
-                new_values.append(st.text_input(h, value=str(current), key=f"mgr_edit_{cache_key}_{row_num}_{h}"))
-
-            reason = st.text_input("سبب التعديل (اختياري لكن يفضل كتابته)", key=f"mgr_reason_{cache_key}_{row_num}")
-            if st.button("💾 حفظ تعديل هذا الصف", use_container_width=True, type="primary", key=f"mgr_save_{cache_key}_{row_num}"):
-                try:
-                    end_col = col_letter(len(headers))
-                    ws.update(f"A{row_num}:{end_col}{row_num}", [new_values], value_input_option="USER_ENTERED")
-                    clear_sheet_cache_by_key(cache_key)
-                    log_audit("أدمن", "أدمن", "تعديل شيت", f"الشيت:{selected_label}|الصف:{row_num}|السبب:{reason or 'غير مذكور'}")
-                    st.success("✅ تم تعديل الصف نفسه الظاهر في نتيجة البحث بنجاح.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ تعذر حفظ التعديل: {e}")
-
-    with tab_add:
-        st.caption("إضافة صف جديد بنفس ترتيب أعمدة الشيت المحدد.")
-        add_values = []
-        for h in headers:
-            add_values.append(st.text_input(h, key=f"mgr_add_{cache_key}_{h}"))
-        if st.button("➕ إضافة الصف", use_container_width=True, key=f"mgr_add_btn_{cache_key}"):
-            try:
-                ws.append_row(add_values, value_input_option="USER_ENTERED")
-                clear_sheet_cache_by_key(cache_key)
-                log_audit("أدمن", "أدمن", "إضافة صف شيت", f"الشيت:{selected_label}")
-                st.success("✅ تم إضافة الصف بنجاح.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ تعذر إضافة الصف: {e}")
-
-    with tab_delete:
-        if not search_norm:
-            st.info("للحذف: اكتبي رقم/اسم في البحث أولًا حتى لا يتم حذف صف بالخطأ.")
-        elif not found:
-            st.warning("لا توجد نتائج للحذف.")
-        else:
-            selected_del = found[0] if len(found)==1 else st.selectbox("اختاري الصف للحذف من نتائج البحث", found, format_func=lambda item: f"صف {item[0]} — " + " — ".join(str(v) for v in list(item[1].values())[:4]), key=f"mgr_del_select_{cache_key}")
-            del_row_num, del_row = selected_del
-            confirm = st.checkbox(f"أؤكد حذف الصف رقم {del_row_num}", key=f"mgr_confirm_del_{cache_key}_{del_row_num}")
-            if st.button("🗑️ حذف الصف المحدد", use_container_width=True, key=f"mgr_delete_btn_{cache_key}_{del_row_num}"):
-                if not confirm:
-                    st.error("❌ فعّلي مربع التأكيد أولًا.")
-                else:
-                    try:
-                        ws.delete_rows(del_row_num)
-                        clear_sheet_cache_by_key(cache_key)
-                        log_audit("أدمن", "أدمن", "حذف صف شيت", f"الشيت:{selected_label}|الصف:{del_row_num}")
-                        st.success("✅ تم حذف الصف.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ تعذر حذف الصف: {e}")
-
-def set_step_success(message, step="operations"):
-    st.session_state.last_employee_success = message
-    st.session_state.employee_step = step
-
-def show_employee_steps():
-    step = st.session_state.get("employee_step", "location")
-    location_ok = st.session_state.get("location_allowed", False)
-    data_ok = st.session_state.get("emp_verified", False) and st.session_state.get("emp_data") is not None
-    ops_ok = bool(st.session_state.get("last_employee_success"))
-    def mark(ok, current):
-        if ok: return "✅"
-        if current: return "🔵"
-        return "⚪"
-    st.markdown(f"""
-    <div class="pro-card" style="padding:12px 14px;">
-        <div style="display:flex;gap:8px;justify-content:space-between;text-align:center!important;font-size:12px;font-weight:800;color:#0c3460;">
-            <div>{mark(location_ok, step=='location')} ١ تحديد الموقع</div>
-            <div>{mark(data_ok, step=='data')} ٢ البيانات</div>
-            <div>{mark(ops_ok, step=='operations')} ٣ العملية</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    if st.session_state.get("last_employee_success"):
-        st.success(st.session_state.last_employee_success)
-
+def mark_care_for_today(emp_id):
+    data = get_sheet_data()
+    idx, row = find_today_row(data, today_str, str(emp_id).strip())
+    if not idx or not row:
+        st.error("❌ لا يوجد سجل لهذا اليوم.")
+        return False
+    if not row.get("وقت الانصراف"):
+        st.error("❌ يجب تسجيل الانصراف أولاً.")
+        return False
+    old_reason = str(row.get("سبب الانصراف", "")).strip()
+    new_reason = old_reason if "رعاية" in old_reason else (old_reason + " | رعاية" if old_reason else "رعاية")
+    safe_update(sheet, idx, COL_DEPART_REASON, new_reason)
+    safe_update(sheet, idx, COL_CARE_CONF, "نعم")
+    row["سبب الانصراف"] = new_reason
+    row["تأكيد الرعاية"] = "نعم"
+    update_work_calculation(idx, row)
+    log_audit(emp_id, row.get("الاسم الثلاثي", ""), "تأكيد رعاية", "تأكيد الموظفة أن دوام اليوم رعاية بعد تسجيل الانصراف")
+    clear_caches()
+    st.success("✅ تم اعتماد الرعاية لهذا اليوم وإعادة احتساب الساعات على أساس 5 ساعات.")
+    return True
 
 def validate_employee(emp_id):
     return get_whitelist().get(str(emp_id).strip())
@@ -659,22 +629,33 @@ def register_operation(operation, emp_id, note=""):
         ls_set("saved_date",today,"sv_date"); ls_set("saved_id",emp_id,"sv_id")
         ls_set("saved_name",full_name,"sv_name"); ls_set("saved_school",school,"sv_school")
         ls_set("saved_section",task,"sv_section"); ls_set("saved_support",is_support,"sv_support")
-        clear_caches(); set_step_success("✅ تم تسجيل الحضور بنجاح. يمكنك الآن متابعة يومك أو تسجيل انصراف عند نهاية الدوام.", "operations"); return True
+        clear_caches(); st.success("✅ تم تسجيل الحضور بنجاح."); return True
 
     if operation=="تسجيل انصراف":
         if not row_index or not row or not row.get("وقت الحضور"): st.error("❌ يجب تسجيل الحضور أولاً."); return False
         if row.get("وقت الانصراف"): st.error("❌ تم تسجيل الانصراف مسبقاً."); return False
         safe_update(sheet,row_index,COL_DEPART,time_now); safe_update(sheet,row_index,COL_DEPART_REASON,note)
+        row["وقت الانصراف"] = time_now
+        row["سبب الانصراف"] = note
+        update_work_calculation(row_index, row)
         log_audit(emp_id,full_name,"تسجيل انصراف",f"الوقت:{time_now}|السبب:{note or 'بدون'}")
-        clear_caches(); set_step_success("✅ تم تسجيل الانصراف بنجاح. انتهت عملية اليوم بنجاح.", "operations"); return True
+        clear_caches(); st.success("✅ تم تسجيل الانصراف بنجاح."); return True
 
     if operation=="خروج استئذان":
         if not row_index or not row or not row.get("وقت الحضور"): st.error("❌ يجب تسجيل الحضور أولاً."); return False
         if row.get("خروج استئذان") and not row.get("عودة"): st.error("❌ يوجد خروج استئذان مفتوح."); return False
         if row.get("خروج استئذان"): st.error("❌ تم تسجيل خروج الاستئذان مسبقاً."); return False
         safe_update(sheet,row_index,COL_EXIT,time_now); safe_update(sheet,row_index,COL_DEPART_REASON,note)
+        if "استئذان انصراف" in str(note):
+            safe_update(sheet,row_index,COL_DEPART,time_now)
+            row["خروج استئذان"] = time_now
+            row["وقت الانصراف"] = time_now
+            row["سبب الانصراف"] = note
+            update_work_calculation(row_index, row)
+            log_audit(emp_id,full_name,"استئذان انصراف",f"الوقت:{time_now}|السبب:{note}")
+            clear_caches(); st.success("✅ تم تسجيل استئذان انصراف بنجاح. تم احتساب وقت الاستئذان كوقت انصراف."); return True
         log_audit(emp_id,full_name,"خروج استئذان",f"الوقت:{time_now}|السبب:{note}")
-        clear_caches(); set_step_success("✅ تم تسجيل خروج الاستئذان بنجاح. عند الرجوع اضغطي زر عودة من استئذان.", "operations"); return True
+        clear_caches(); st.success("✅ تم تسجيل خروج الاستئذان بنجاح. عند الرجوع اضغطي زر عودة من استئذان."); return True
 
     if operation=="عودة من استئذان":
         if not row_index or not row or not row.get("وقت الحضور"): st.error("❌ يجب تسجيل الحضور أولاً."); return False
@@ -682,7 +663,7 @@ def register_operation(operation, emp_id, note=""):
         if row.get("عودة"): st.error("❌ تم تسجيل العودة مسبقاً."); return False
         safe_update(sheet,row_index,COL_RETURN,time_now)
         log_audit(emp_id,full_name,"عودة من استئذان",f"الوقت:{time_now}")
-        clear_caches(); set_step_success("✅ تم تسجيل العودة من الاستئذان بنجاح.", "operations"); return True
+        clear_caches(); st.success("✅ تم تسجيل العودة من الاستئذان بنجاح."); return True
 
     st.error("❌ عملية غير معروفة."); return False
 
@@ -691,12 +672,12 @@ default_state={
     "pending_operation":None,"admin_logged_in":False,"admin_last_active":None,
     "location_allowed":False,"emp_verified":False,"emp_data":None,
     "data_locked_today":False,"locked_emp":None,"locked_date":None,
-    "employee_step":"location","last_employee_success":"",
 }
 for k,v in default_state.items():
     if k not in st.session_state: st.session_state[k]=v
 
 today_str=now_bh().strftime("%Y-%m-%d")
+auto_close_previous_open_records()
 
 _saved_date=ls_get("saved_date"); _saved_id=ls_get("saved_id")
 _saved_name=ls_get("saved_name"); _saved_school=ls_get("saved_school")
@@ -740,7 +721,6 @@ mode=st.radio("",["👤 موظفة","🛡️ أدمن"],horizontal=True,label_vi
 # ══ واجهة الموظفة ══
 # ══════════════════════════════════════════════════════════════════
 if mode=="👤 موظفة":
-    show_employee_steps()
 
     # ── الموقع ──────────────────────────────────────────────────
     with st.container(border=True):
@@ -779,11 +759,7 @@ if mode=="👤 موظفة":
                     dist_val=distance_m(float(lat),float(lon),SCHOOL_LAT,SCHOOL_LON)
                     if dist_val<=ALLOWED_RADIUS:
                         st.session_state.location_allowed=True
-                        st.success(f"✅ تم التحقق من الموقع — داخل نطاق المدرسة — المسافة: {int(dist_val)} م")
-                        st.session_state.employee_step="data"
-                        if st.button("التالي: إدخال البيانات الشخصية", use_container_width=True, key="go_data_after_location"):
-                            st.session_state.employee_step="data"
-                            st.rerun()
+                        st.success(f"✅ داخل نطاق المدرسة — المسافة: {int(dist_val)} م")
                     else:
                         st.session_state.location_allowed=False
                         st.error(f"❌ خارج النطاق — المسافة: {int(dist_val)} م")
@@ -799,9 +775,6 @@ if mode=="👤 موظفة":
         remaining=max(0, int((ov_end-now_bh()).total_seconds()//60))
         st.warning(f"⚠️ وضع تجاوز الموقع مفعّل — ينتهي بعد {remaining} دقيقة.")
         st.session_state.location_allowed=True
-
-    if st.session_state.get("location_allowed") and not st.session_state.get("emp_verified"):
-        st.info("✅ الخطوة التالية: أدخلي الرقم الشخصي للتحقق من بياناتك.")
 
     # ── البيانات الشخصية ─────────────────────────────────────────
     with st.container(border=True):
@@ -868,8 +841,7 @@ if mode=="👤 موظفة":
                                     get_whitelist.clear()
                                     st.session_state.emp_verified=True
                                     st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":existing.get("الاسم",""),"المدرسة":existing.get("المدرسة",""),"المهمة":emp_task_new,"نشط":"نعم","دعم":False}
-                                    st.session_state.employee_step="operations"
-                                    st.success("✅ تم تحديث بياناتك كعضوة دائمة. الخطوة التالية: تسجيل الحضور.")
+                                    st.success("✅ تم تحديث بياناتك كعضوة دائمة!")
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"خطأ: {e}")
@@ -882,8 +854,7 @@ if mode=="👤 موظفة":
                         <div class="field-lbl">المدرسة</div><div class="field-val">{existing.get("المدرسة","")}</div>
                         <div class="field-lbl">المهمة في الكنترول</div><div class="field-val blue">{existing.get("المهمة","")}</div>
                         """, unsafe_allow_html=True)
-                        st.session_state.employee_step="operations"
-                        st.success("✅ تم التحقق من بياناتك. انتقلي الآن إلى قسم العمليات في الأسفل.")
+                        st.success("✅ تم التحقق من بياناتك.")
                 else:
                     # موظفة جديدة — تدخل بياناتها
                     # ── نوع التسجيل أولاً ──
@@ -934,13 +905,11 @@ if mode=="👤 موظفة":
                                         "نعم"             # I - نشط
                                     ])
                                     get_whitelist.clear()
-                                    st.session_state.employee_step="operations"
-                                    st.success("✅ تم حفظ بياناتك في القائمة البيضاء. الخطوة التالية: تسجيل الحضور.")
+                                    st.success("✅ تم حفظ بياناتك في القائمة البيضاء، يمكنك الآن تسجيل الحضور")
                                 except Exception as e:
                                     st.warning(f"⚠️ تعذّر الحفظ في القائمة: {e}")
                             else:
-                                st.session_state.employee_step="operations"
-                                st.success("✅ تم تسجيل بياناتك. الخطوة التالية: تسجيل الحضور.")
+                                st.success("✅ تم تسجيل بياناتك، يمكنك الآن تسجيل الحضور")
                             st.rerun()
             else:
                 st.session_state.emp_verified=False; st.session_state.emp_data=None
@@ -952,20 +921,58 @@ if mode=="👤 موظفة":
         data=get_sheet_data(); _,today_row=find_today_row(data,today_str,emp_id)
         att_time=today_row.get("وقت الحضور","—") if today_row else "—"
         dep_time=today_row.get("وقت الانصراف","—") if today_row else "—"
-        status="حاضر ✓" if today_row and today_row.get("وقت الحضور") else "لم يُسجَّل"
-        stat_col="#3B6D11" if today_row and today_row.get("وقت الحضور") else "#A32D2D"
+        exit_time=today_row.get("خروج استئذان","—") if today_row else "—"
+        return_time=today_row.get("عودة","—") if today_row else "—"
+        has_exit = bool(today_row and today_row.get("خروج استئذان"))
+        has_return = bool(today_row and today_row.get("عودة"))
+        has_depart = bool(today_row and today_row.get("وقت الانصراف"))
+        if has_exit and not has_return and not has_depart:
+            status="استئذان مفتوح"
+            stat_col="#BA7517"
+        elif has_exit and has_depart and "استئذان انصراف" in str(today_row.get("سبب الانصراف", "")):
+            status="انصراف باستئذان"
+            stat_col="#185FA5"
+        elif today_row and today_row.get("وقت الحضور"):
+            status="حاضر ✓"
+            stat_col="#3B6D11"
+        else:
+            status="لم يُسجَّل"
+            stat_col="#A32D2D"
 
-        st.info("⬇️ اختاري العملية المطلوبة من الأزرار التالية. بعد كل عملية ستظهر رسالة نجاح واضحة في أعلى الصفحة.")
-        st.markdown(f"""
-        <div class="pro-card"><h3 style="color:#0c3460;text-align:right;">⚡ العمليات</h3>
-        <div class="today-strip">
-            <div class="stat-cell"><span class="stat-val">{att_time}</span><span class="stat-lbl">وقت الحضور</span></div>
-            <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
-            <div class="stat-cell"><span class="stat-val">{dep_time}</span><span class="stat-lbl">وقت الانصراف</span></div>
-            <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
-            <div class="stat-cell"><span class="stat-val" style="color:{stat_col};">{status}</span><span class="stat-lbl">الحالة</span></div>
-        </div></div>
-        """, unsafe_allow_html=True)
+        if today_row and today_row.get("وقت الحضور") and not today_row.get("وقت الانصراف") and now_bh().time() >= time(13,30):
+            st.warning("⚠️ لم يتم تسجيل الانصراف حتى الآن. يرجى تسجيل الانصراف قبل مغادرة المركز.")
+
+        if has_exit:
+            st.markdown(f"""
+            <div class="pro-card"><h3 style="color:#0c3460;text-align:right;">⚡ العمليات</h3>
+            <div class="today-strip">
+                <div class="stat-cell"><span class="stat-val">{att_time}</span><span class="stat-lbl">وقت الحضور</span></div>
+                <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
+                <div class="stat-cell"><span class="stat-val">{exit_time}</span><span class="stat-lbl">خروج استئذان</span></div>
+                <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
+                <div class="stat-cell"><span class="stat-val">{return_time if has_return else 'لم تُسجل'}</span><span class="stat-lbl">العودة</span></div>
+                <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
+                <div class="stat-cell"><span class="stat-val" style="color:{stat_col};">{status}</span><span class="stat-lbl">الحالة</span></div>
+            </div></div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="pro-card"><h3 style="color:#0c3460;text-align:right;">⚡ العمليات</h3>
+            <div class="today-strip">
+                <div class="stat-cell"><span class="stat-val">{att_time}</span><span class="stat-lbl">وقت الحضور</span></div>
+                <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
+                <div class="stat-cell"><span class="stat-val">{dep_time}</span><span class="stat-lbl">وقت الانصراف</span></div>
+                <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
+                <div class="stat-cell"><span class="stat-val" style="color:{stat_col};">{status}</span><span class="stat-lbl">الحالة</span></div>
+            </div></div>
+            """, unsafe_allow_html=True)
+
+        if today_row and today_row.get("وقت الانصراف") and "رعاية" not in str(today_row.get("سبب الانصراف", "")) and "رعاية" not in str(today_row.get("سبب التأخير", "")):
+            with st.expander("هل لديكِ رعاية لهذا اليوم؟", expanded=False):
+                st.info("إذا كان دوامك اليوم رعاية، اضغطي نعم ليتم احتساب المطلوب 5 ساعات. إذا لم تختاري رعاية سيبقى الحساب دوام عادي/مرن حسب البيانات.")
+                if st.button("نعم، لدي رعاية", use_container_width=True, key="confirm_care_today"):
+                    if mark_care_for_today(emp_id):
+                        st.rerun()
 
         col1,col2=st.columns(2)
         with col1:
@@ -1011,13 +1018,19 @@ if mode=="👤 موظفة":
 
         if st.session_state.pending_operation=="خروج استئذان":
             with st.container(border=True):
-                st.markdown('<div class="card-title">سبب خروج الاستئذان</div>',unsafe_allow_html=True)
+                st.markdown('<div class="card-title">نوع وسبب خروج الاستئذان</div>',unsafe_allow_html=True)
+                leave_kind=st.radio("نوع الاستئذان",["استئذان مع عودة","استئذان انصراف"],horizontal=True,key="leave_kind")
+                if leave_kind=="استئذان مع عودة":
+                    st.info("سيتم تسجيل خروج الاستئذان فقط. عند الرجوع يجب الضغط على زر عودة من استئذان، ثم تسجيل الانصراف لاحقًا.")
+                else:
+                    st.warning("سيتم احتساب وقت خروج الاستئذان كوقت انصراف، ولا تحتاجين لتسجيل عودة.")
                 reason=st.selectbox("السبب",reasons,key="exit_reason")
                 other=""
                 if reason=="أخرى": other=st.text_input("اكتبي السبب",key="exit_other")
-                final=other.strip() if reason=="أخرى" else reason
+                reason_final=other.strip() if reason=="أخرى" else reason
+                final=f"{leave_kind} — {reason_final}" if reason_final else leave_kind
                 if st.button("تأكيد خروج الاستئذان",use_container_width=True,type="primary"):
-                    if not final: st.error("السبب مطلوب")
+                    if not reason_final: st.error("السبب مطلوب")
                     else: st.session_state.pending_operation=None; register_operation("خروج استئذان",emp_id,final); st.rerun()
 
 # ══════════════════════════════════════════════════════════════════
@@ -1040,7 +1053,6 @@ else:
             "📊 إحصائيات اليوم",
             "🔴 تسجيل الغياب",
             "📅 دوام الأقسام",
-            "🗂️ إدارة الشيتات",
             "✏️ تعديل سجل",
             "➕ تسجيل يدوي",
             "📋 القائمة البيضاء",
@@ -1060,15 +1072,25 @@ else:
             attended=[r for r in today_rows if r.get("وقت الحضور")]
             late_list=[r for r in today_rows if r.get("وقت الحضور","")>"07:05:30"]
             early_dep=[r for r in today_rows if r.get("وقت الانصراف","") and r.get("وقت الانصراف","")< "14:00:00"]
-            on_leave=[r for r in today_rows if r.get("خروج استئذان") and not r.get("عودة")]
+            on_leave=[r for r in today_rows if r.get("خروج استئذان") and not r.get("عودة") and not r.get("وقت الانصراف")]
+            missing_depart=[r for r in today_rows if r.get("وقت الحضور") and not r.get("وقت الانصراف")]
+            auto_closed=[r for r in data if str(r.get("إغلاق تلقائي","")).strip()]
             c1,c2,c3=st.columns(3)
             c1.metric("إجمالي المسجّلين",len(today_rows))
             c2.metric("حاضرون",len(attended))
             c3.metric("غائبات",len(abs_today))
             c4,c5,c6=st.columns(3)
             c4.metric("متأخرون",len(late_list))
-            c5.metric("انصراف مبكر",len(early_dep))
+            c5.metric("لم يسجلن انصراف",len(missing_depart))
             c6.metric("استئذان مفتوح",len(on_leave))
+            if missing_depart:
+                st.markdown("#### 🚨 لم يسجلن الانصراف حتى الآن")
+                for r in missing_depart:
+                    st.markdown(f'<div class="warn-row">🚨 {r.get("الاسم الثلاثي","")} — {r.get("المدرسة","")} — {r.get("المهمة","")} — حضور: {r.get("وقت الحضور","")}</div>',unsafe_allow_html=True)
+            if on_leave:
+                st.markdown("#### 📤 استئذان مفتوح")
+                for r in on_leave:
+                    st.markdown(f'<div class="warn-row">📤 {r.get("الاسم الثلاثي","")} — خروج: {r.get("خروج استئذان","")} — لم تسجل عودة أو انصراف</div>',unsafe_allow_html=True)
             if abs_today:
                 st.markdown("#### الغائبات")
                 for r in abs_today:
@@ -1077,6 +1099,10 @@ else:
                 st.markdown("#### المتأخرون")
                 for r in late_list:
                     st.markdown(f'<div class="warn-row">⏰ {r.get("الاسم الثلاثي","")} — وصل {r.get("وقت الحضور","")}</div>',unsafe_allow_html=True)
+            if auto_closed:
+                with st.expander("🔄 سجلات أُغلقت تلقائيًا", expanded=False):
+                    for r in reversed(auto_closed[-50:]):
+                        st.markdown(f'<div class="audit-row">{r.get("التاريخ","")} — {r.get("الاسم الثلاثي","")} — انصراف: {r.get("وقت الانصراف","")} — {r.get("إغلاق تلقائي","")}</div>',unsafe_allow_html=True)
 
         # ── تسجيل الغياب ────────────────────────────────────────
         elif admin_tab=="🔴 تسجيل الغياب":
@@ -1201,11 +1227,6 @@ else:
             except Exception as e:
                 st.error(f"خطأ: {e}")
 
-
-        # ── إدارة الشيتات ───────────────────────────────────────
-        elif admin_tab=="🗂️ إدارة الشيتات":
-            render_admin_sheet_manager()
-
         # ── تعديل سجل ────────────────────────────────────────────
         elif admin_tab=="✏️ تعديل سجل":
             search_id=st.text_input("الرقم الشخصي",key="edit_id")
@@ -1224,220 +1245,98 @@ else:
                     if not edit_reason.strip(): st.error("سبب التعديل مطلوب")
                     else:
                         safe_update(sheet,idx,COL_ATTEND,new_att); safe_update(sheet,idx,COL_DEPART,new_dep)
+                        row["وقت الحضور"] = new_att
+                        row["وقت الانصراف"] = new_dep
+                        update_work_calculation(idx, row)
                         log_audit(search_id,row.get("الاسم الثلاثي",""),"تعديل أدمن",f"حضور:{row.get('وقت الحضور','')}→{new_att}|انصراف:{row.get('وقت الانصراف','')}→{new_dep}|السبب:{edit_reason}")
                         clear_caches(); st.success("✅ تم الحفظ"); st.session_state.edit_row=None
 
         # ── تسجيل يدوي ──────────────────────────────────────────
         elif admin_tab=="➕ تسجيل يدوي":
             st.markdown("#### ➕ تسجيل حضور/انصراف يدوي")
-            st.info("اكتبي الرقم الشخصي أولاً. إذا كانت العضوة غير موجودة في القائمة البيضاء، سيظهر نموذج حفظ بياناتها، وبعد الحفظ تظهر بياناتها مباشرة للتسجيل اليدوي.")
+            st.info("يتم التسجيل اليدوي بنفس ترتيب أعمدة sheet1 بدون لخبطة: التاريخ، اليوم، المدرسة، المهمة، دعم، الاسم، الرقم، وقت الحضور...")
 
-            m_id=ar_to_en_digits(st.text_input("الرقم الشخصي",key="mid", placeholder="مثال: 890302057")).strip()
+            m_id=ar_to_en_digits(st.text_input("الرقم الشخصي",key="mid")).strip()
+            m_date=st.date_input("التاريخ",value=now_bh().date(),key="mdate")
+            m_att=st.text_input("وقت الحضور",value="07:00:00",key="matt")
+            m_dep=st.text_input("وقت الانصراف (اختياري)",key="mdep")
+            m_note=st.text_input("سبب الإضافة اليدوية (مطلوب)",key="mnote")
 
-            emp = validate_employee(m_id) if m_id else None
-
-            if not m_id:
-                st.warning("اكتبي الرقم الشخصي للبدء.")
-            elif not emp:
-                st.warning("⚠️ هذا الرقم غير موجود في القائمة البيضاء. أدخلي بيانات العضوة أولاً ليتم تثبيتها.")
-                with st.container(border=True):
-                    st.markdown("##### 🪪 بيانات العضوة الجديدة")
-                    new_name=st.text_input("الاسم الثلاثي",key="manual_new_name")
-                    new_school=st.selectbox("المدرسة",schools,key="manual_new_school")
-                    new_task=st.selectbox("المهمة في الكنترول",TASKS_MAIN,key="manual_new_task")
-                    new_job=st.selectbox("المسمى الوظيفي",JOB_TITLES,key="manual_new_job")
-                    new_phone=st.text_input("رقم التواصل (اختياري)",key="manual_new_phone")
-                    new_email=st.text_input("البريد الإلكتروني (اختياري)",key="manual_new_email")
-
-                    if st.button("💾 حفظ في القائمة البيضاء والمتابعة",use_container_width=True,type="primary",key="save_manual_new_emp"):
-                        if not new_name.strip():
-                            st.error("❌ الاسم الثلاثي مطلوب.")
-                        else:
-                            support_value="نعم" if "دعم" in new_task else "لا"
-                            ok=safe_append(whitelist_sheet,[
-                                m_id,
-                                normalize_name(new_name),
-                                new_school,
-                                new_task,
-                                support_value,
-                                new_phone,
-                                new_email,
-                                new_job,
-                                "نعم"
-                            ])
-                            if ok:
-                                get_whitelist.clear()
-                                log_audit(m_id,normalize_name(new_name),"إضافة للقائمة البيضاء",f"إضافة من التسجيل اليدوي|المهمة:{new_task}")
-                                st.success("✅ تم حفظ العضوة في القائمة البيضاء. الآن يمكن تسجيل حضورها/انصرافها يدوياً.")
-                                st.rerun()
-                            else:
-                                st.error("❌ تعذر حفظ بيانات العضوة في القائمة البيضاء.")
-            else:
-                # عرض بيانات العضوة مباشرة بعد إدخال الرقم الشخصي
-                task=str(emp.get("المهمة","")).strip()
-                support_raw=str(emp.get("دعم","")).strip()
-                support_value="نعم" if support_raw in ["نعم","yes","Yes","TRUE","true","1"] or "دعم" in task else "لا"
-                full_name=normalize_name(emp.get("الاسم",""))
-
-                st.success("✅ العضوة موجودة في القائمة البيضاء. يمكنكِ إدخال العملية مباشرة.")
-                st.markdown(f"""
-                <div class="pro-card">
-                    <div class="field-lbl">الاسم</div><div class="field-val">{full_name}</div>
-                    <div class="field-lbl">المدرسة</div><div class="field-val">{emp.get('المدرسة','')}</div>
-                    <div class="field-lbl">المهمة</div><div class="field-val blue">{task}</div>
-                    <div class="field-lbl">دعم</div><div class="field-val">{support_value}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                m_date=st.date_input("التاريخ",value=now_bh().date(),key="mdate")
-                operation_type=st.radio(
-                    "نوع العملية اليدوية",
-                    ["تسجيل حضور فقط","تسجيل انصراف فقط","تسجيل حضور وانصراف"],
-                    horizontal=True,
-                    key="manual_operation_type"
-                )
-
-                default_now=now_bh().strftime("%H:%M:%S")
-                m_att=""
-                m_dep=""
-                if operation_type in ["تسجيل حضور فقط","تسجيل حضور وانصراف"]:
-                    m_att=st.text_input("وقت الحضور",value="07:00:00",key="matt")
-                if operation_type in ["تسجيل انصراف فقط","تسجيل حضور وانصراف"]:
-                    m_dep=st.text_input("وقت الانصراف",value=default_now if operation_type=="تسجيل انصراف فقط" else "",key="mdep")
-
-                m_late_reason=""
-                m_depart_reason=""
-                if operation_type in ["تسجيل حضور فقط","تسجيل حضور وانصراف"]:
-                    m_late_reason=st.text_input("سبب التأخير/ملاحظة الحضور (اختياري)",key="manual_late_note")
-                if operation_type in ["تسجيل انصراف فقط","تسجيل حضور وانصراف"]:
-                    m_depart_reason=st.text_input("سبب الانصراف/ملاحظة الانصراف (اختياري)",key="manual_depart_note")
-
-                m_note=st.text_input("سبب الإدخال اليدوي (مطلوب)",key="mnote", placeholder="مثال: نسيان التسجيل من الجهاز / مشكلة في الموقع")
-
-                # عرض حالة السجل في نفس التاريخ إن وجد
-                date_str=str(m_date)
-                data=get_sheet_data()
-                existing_idx, existing_row = find_today_row(data,date_str,m_id)
-                if existing_row:
-                    st.info(f"ℹ️ يوجد سجل لهذا الرقم في تاريخ {date_str}. سيتم تحديث نفس الصف بدل إنشاء صف مكرر.")
-                    st.markdown(f"الحضور الحالي: **{existing_row.get('وقت الحضور','—') or '—'}** — الانصراف الحالي: **{existing_row.get('وقت الانصراف','—') or '—'}**")
-
-                if st.button("💾 حفظ التسجيل اليدوي",use_container_width=True,type="primary",key="save_manual_operation"):
-                    if not m_note.strip():
-                        st.error("❌ سبب الإدخال اليدوي مطلوب.")
-                    elif operation_type in ["تسجيل حضور فقط","تسجيل حضور وانصراف"] and not m_att.strip():
-                        st.error("❌ وقت الحضور مطلوب.")
-                    elif operation_type in ["تسجيل انصراف فقط","تسجيل حضور وانصراف"] and not m_dep.strip():
-                        st.error("❌ وقت الانصراف مطلوب.")
+            if st.button("تسجيل يدوي",use_container_width=True,type="primary"):
+                if not m_id:
+                    st.error("❌ الرقم الشخصي مطلوب")
+                elif not m_note.strip():
+                    st.error("❌ سبب الإضافة اليدوية مطلوب")
+                else:
+                    emp=validate_employee(m_id)
+                    if not emp:
+                        st.error("❌ الرقم غير موجود في القائمة البيضاء")
                     else:
+                        date_str=str(m_date)
                         day_name=m_date.strftime("%A")
-                        late_note=f"[يدوي] {m_note.strip()}"
-                        if m_late_reason.strip():
-                            late_note += f" | {m_late_reason.strip()}"
-                        depart_note=f"[يدوي] {m_note.strip()}"
-                        if m_depart_reason.strip():
-                            depart_note += f" | {m_depart_reason.strip()}"
+                        task=str(emp.get("المهمة","")).strip()
 
-                        if existing_idx:
-                            ok=True
-                            if operation_type in ["تسجيل حضور فقط","تسجيل حضور وانصراف"]:
-                                ok = ok and safe_update(sheet,existing_idx,COL_ATTEND,m_att.strip())
-                                ok = ok and safe_update(sheet,existing_idx,COL_LATE_REASON,late_note)
-                            if operation_type in ["تسجيل انصراف فقط","تسجيل حضور وانصراف"]:
-                                ok = ok and safe_update(sheet,existing_idx,COL_DEPART,m_dep.strip())
-                                ok = ok and safe_update(sheet,existing_idx,COL_DEPART_REASON,depart_note)
-                            action_details=f"تحديث صف موجود|التاريخ:{date_str}|العملية:{operation_type}|حضور:{m_att}|انصراف:{m_dep}|السبب:{m_note.strip()}"
-                        else:
-                            row_data=[
-                                date_str,                       # A التاريخ
-                                day_name,                       # B اليوم
-                                emp.get("المدرسة",""),          # C اسم المدرسة
-                                task,                           # D المهمة
-                                support_value,                  # E دعم
-                                full_name,                      # F الاسم الثلاثي
-                                m_id,                           # G الرقم الشخصي
-                                m_att.strip() if operation_type in ["تسجيل حضور فقط","تسجيل حضور وانصراف"] else "",  # H وقت الحضور
-                                late_note if operation_type in ["تسجيل حضور فقط","تسجيل حضور وانصراف"] else "",        # I سبب التأخير
-                                m_dep.strip() if operation_type in ["تسجيل انصراف فقط","تسجيل حضور وانصراف"] else "",  # J وقت الانصراف
-                                depart_note if operation_type in ["تسجيل انصراف فقط","تسجيل حضور وانصراف"] else "",    # K سبب الانصراف
-                                "",                             # L خروج استئذان
-                                "",                             # M عودة
-                                ""                              # N محاولة
-                            ]
-                            ok=safe_append(sheet,row_data)
-                            action_details=f"إضافة صف جديد|التاريخ:{date_str}|العملية:{operation_type}|حضور:{m_att}|انصراف:{m_dep}|السبب:{m_note.strip()}"
+                        # تحديد قيمة عمود دعم من القائمة البيضاء أو من اسم المهمة
+                        support_raw=str(emp.get("دعم","")).strip()
+                        support_value="نعم" if support_raw in ["نعم","yes","Yes","TRUE","true","1"] or "دعم" in task else "لا"
+                        full_name=normalize_name(emp.get("الاسم",""))
 
+                        row_data=[
+                            date_str,                       # A التاريخ
+                            day_name,                       # B اليوم
+                            emp.get("المدرسة",""),          # C اسم المدرسة
+                            task,                           # D المهمة
+                            support_value,                  # E دعم
+                            full_name,                      # F الاسم الثلاثي
+                            m_id,                           # G الرقم الشخصي
+                            m_att,                          # H وقت الحضور
+                            f"[يدوي] {m_note.strip()}",     # I سبب التأخير
+                            m_dep,                          # J وقت الانصراف
+                            "",                             # K سبب الانصراف
+                            "",                             # L خروج استئذان
+                            "",                             # M عودة
+                            ""                              # N محاولة
+                        ]
+
+                        ok=safe_append(sheet,row_data)
                         if ok:
-                            log_audit(m_id,full_name,"تسجيل يدوي",action_details)
+                            try:
+                                data_after=get_sheet_data()
+                                idx_after,row_after=find_today_row(data_after,date_str,m_id)
+                                if idx_after:
+                                    update_work_calculation(idx_after,row_after)
+                            except Exception:
+                                pass
+                            log_audit(
+                                m_id,
+                                full_name,
+                                "تسجيل يدوي",
+                                f"التاريخ:{date_str}|حضور:{m_att}|انصراف:{m_dep}|السبب:{m_note.strip()}"
+                            )
                             clear_caches()
-                            st.success("✅ تم حفظ التسجيل اليدوي بنجاح.")
-                            st.balloons()
+                            st.success("✅ تم التسجيل اليدوي بنجاح وبالأعمدة الصحيحة")
                         else:
-                            st.error("❌ تعذر حفظ التسجيل اليدوي، حاولي مرة أخرى.")
+                            st.error("❌ تعذر حفظ التسجيل اليدوي، حاولي مرة أخرى")
 
         # ── القائمة البيضاء ──────────────────────────────────────
         elif admin_tab=="📋 القائمة البيضاء":
             st.markdown("#### إضافة موظفة")
-            st.info("أدخلي جميع بيانات العضوة حتى تثبت في القائمة البيضاء وتظهر تلقائياً عند التسجيل اليدوي أو عند دخول الموظفة.")
-
-            wl_id=ar_to_en_digits(st.text_input("الرقم الشخصي",key="wlid", placeholder="مثال: 890302057")).strip()
-            wl_name=st.text_input("الاسم",key="wlname", placeholder="الاسم الثلاثي")
+            wl_id=st.text_input("الرقم الشخصي",key="wlid")
+            wl_name=st.text_input("الاسم",key="wlname")
             wl_school=st.selectbox("المدرسة",schools,key="wlschool")
             wl_task=st.selectbox("المهمة",TASKS_ALL,key="wltask")
             wl_job=st.selectbox("المسمى الوظيفي",JOB_TITLES,key="wljob")
-            wl_phone=st.text_input("رقم التواصل",key="wlphone", placeholder="مثال: 39XXXXXX")
-            wl_email=st.text_input("البريد الإلكتروني",key="wlemail", placeholder="مثال: name@moe.bh")
-            wl_active=st.selectbox("الحالة",["نعم","لا"],key="wlactive", help="نعم = تظهر في النظام، لا = موجودة لكن غير مفعلة")
-
-            if st.button("➕ إضافة للقائمة البيضاء",use_container_width=True,type="primary"):
-                if not wl_id.strip() or not wl_name.strip() or not wl_phone.strip() or not wl_email.strip():
-                    st.error("❌ الرقم الشخصي والاسم ورقم التواصل والبريد الإلكتروني مطلوبة.")
-                elif validate_employee(wl_id):
-                    st.warning("⚠️ هذا الرقم موجود مسبقاً في القائمة البيضاء. استخدمي إدارة الشيتات للتعديل على بياناتها.")
+            if st.button("إضافة",use_container_width=True):
+                if not wl_id.strip() or not wl_name.strip(): st.error("الرقم والاسم مطلوبان")
                 else:
-                    support_value="نعم" if "دعم" in wl_task else "لا"
-                    ok=safe_append(whitelist_sheet,[
-                        wl_id,
-                        normalize_name(wl_name),
-                        wl_school,
-                        wl_task,
-                        support_value,
-                        wl_phone.strip(),
-                        wl_email.strip(),
-                        wl_job,
-                        wl_active
-                    ])
+                    ok=safe_append(whitelist_sheet,[ar_to_en_digits(wl_id).strip(),normalize_name(wl_name),wl_school,wl_task,"نعم" if "دعم" in wl_task else "لا","","",wl_job,"نعم"])
                     get_whitelist.clear()
-                    if ok:
-                        log_audit(wl_id,normalize_name(wl_name),"إضافة للقائمة البيضاء",f"إضافة من تبويب القائمة البيضاء|المهمة:{wl_task}|الهاتف:{wl_phone}|البريد:{wl_email}")
-                        st.success("✅ تمت إضافة العضوة بجميع البيانات في القائمة البيضاء.")
-                        st.balloons()
-                    else:
-                        st.error("❌ تعذرت الإضافة")
-
+                    if ok: st.success("✅ تمت الإضافة")
+                    else: st.error("❌ تعذرت الإضافة")
             st.markdown("#### الموظفات المسجّلات")
             wl_all=get_whitelist()
-            search_wl=st.text_input("🔍 بحث في الموظفات المسجّلات",key="wl_search", placeholder="اكتبي الاسم أو الرقم الشخصي")
-            filtered=[]
             for eid,emp in wl_all.items():
-                txt=f"{eid} {emp.get('الاسم','')} {emp.get('المدرسة','')} {emp.get('المهمة','')} {emp.get('رقم التواصل','')} {emp.get('البريد الإلكتروني','')}"
-                if not search_wl.strip() or normalize_name(search_wl) in normalize_name(txt) or search_wl.strip() in txt:
-                    filtered.append((eid,emp))
-
-            st.caption(f"عدد النتائج: {len(filtered)}")
-            for eid,emp in filtered[:100]:
-                st.markdown(f'''
-                <div class="audit-row">
-                    <b>{emp.get("الاسم","")}</b> — #{eid}<br>
-                    المدرسة: {emp.get("المدرسة","")}<br>
-                    المهمة: {emp.get("المهمة","")} — دعم: {emp.get("دعم","")}<br>
-                    رقم التواصل: {emp.get("رقم التواصل","") or "—"}<br>
-                    البريد الإلكتروني: {emp.get("البريد الإلكتروني","") or "—"}<br>
-                    المسمى الوظيفي: {emp.get("المسمى الوظيفي","") or "—"}
-                </div>
-                ''',unsafe_allow_html=True)
-            if len(filtered)>100:
-                st.info("تم عرض أول 100 نتيجة فقط. استخدمي البحث لتضييق النتائج.")
+                st.markdown(f'<div class="audit-row"><b>{emp.get("الاسم","")}</b> — #{eid} — {emp.get("المدرسة","")}</div>',unsafe_allow_html=True)
 
         # ── محاولات التسجيل ─────────────────────────────────────
         elif admin_tab=="🚫 محاولات التسجيل":
