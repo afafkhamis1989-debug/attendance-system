@@ -562,7 +562,7 @@ if mode=="👤 موظفة":
             if emp_id:
                 existing=validate_employee(emp_id)
                 if existing:
-                    is_prev_support = str(existing.get("دعم","")).strip() in ["نعم","yes","Yes","TRUE","true","1"] or "دعم" in str(existing.get("المهمة",""))
+                    is_prev_support = str(existing.get("دعم","")).strip() in ["نعم","yes","Yes","TRUE","true","1"]
 
                     if is_prev_support:
                         # موظفة كانت دعم — نسألها هل لا زالت دعم
