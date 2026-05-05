@@ -22,7 +22,28 @@ except Exception:
     LOCAL_STORAGE_OK = False
 
 st.set_page_config(page_title="نظام الحضور والانصراف", page_icon="🕘", layout="centered")
+st.set_page_config(
+    page_title="نظام الحضور والانصراف",
+    page_icon="🕘",
+    layout="centered"
+)
 
+# 👇 هنا حطي الكود
+st.markdown("""
+<style>
+html, body, .stApp {
+    overflow-x: hidden !important;
+}
+
+section.main > div {
+    padding-top: 1rem !important;
+}
+
+.block-container {
+    padding-top: 1rem !important;
+}
+</style>
+""", unsafe_allow_html=True)
 # ─── إعدادات ───────────────────────────────────────────────────
 SHEET_ID       = "1svkfgRq4-osKr86_2WJQFZShuoy8Ek5DOiUaaHKL-6Y"
 SCHOOL_LAT     = 26.216371784473964
