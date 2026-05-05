@@ -870,22 +870,63 @@ else:
 
         # ── تسجيل يدوي ──────────────────────────────────────────
         elif admin_tab=="➕ تسجيل يدوي":
-            m_id=st.text_input("الرقم الشخصي",key="mid")
+            st.markdown("#### ➕ تسجيل حضور/انصراف يدوي")
+            st.info("يتم التسجيل اليدوي بنفس ترتيب أعمدة sheet1 بدون لخبطة: التاريخ، اليوم، المدرسة، المهمة، دعم، الاسم، الرقم، وقت الحضور...")
+
+            m_id=ar_to_en_digits(st.text_input("الرقم الشخصي",key="mid")).strip()
             m_date=st.date_input("التاريخ",value=now_bh().date(),key="mdate")
             m_att=st.text_input("وقت الحضور",value="07:00:00",key="matt")
             m_dep=st.text_input("وقت الانصراف (اختياري)",key="mdep")
             m_note=st.text_input("سبب الإضافة اليدوية (مطلوب)",key="mnote")
-            if st.button("تسجيل يدوي",use_container_width=True):
-                if not m_note.strip(): st.error("السبب مطلوب")
-                elif not m_id.strip(): st.error("الرقم مطلوب")
+
+            if st.button("تسجيل يدوي",use_container_width=True,type="primary"):
+                if not m_id:
+                    st.error("❌ الرقم الشخصي مطلوب")
+                elif not m_note.strip():
+                    st.error("❌ سبب الإضافة اليدوية مطلوب")
                 else:
                     emp=validate_employee(m_id)
-                    if not emp: st.error("الرقم غير موجود في القائمة البيضاء")
+                    if not emp:
+                        st.error("❌ الرقم غير موجود في القائمة البيضاء")
                     else:
-                        date_str=str(m_date); day_name=m_date.strftime("%A")
-                        sheet.append_row([date_str,day_name,emp.get("المدرسة",""),emp.get("المهمة",""),normalize_name(emp.get("الاسم","")),m_id,m_att,f"[يدوي] {m_note}",m_dep,"","","",""])
-                        log_audit(m_id,emp.get("الاسم",""),"تسجيل يدوي",f"التاريخ:{date_str}|حضور:{m_att}|انصراف:{m_dep}|السبب:{m_note}")
-                        clear_caches(); st.success("✅ تم التسجيل اليدوي")
+                        date_str=str(m_date)
+                        day_name=m_date.strftime("%A")
+                        task=str(emp.get("المهمة","")).strip()
+
+                        # تحديد قيمة عمود دعم من القائمة البيضاء أو من اسم المهمة
+                        support_raw=str(emp.get("دعم","")).strip()
+                        support_value="نعم" if support_raw in ["نعم","yes","Yes","TRUE","true","1"] or "دعم" in task else "لا"
+                        full_name=normalize_name(emp.get("الاسم",""))
+
+                        row_data=[
+                            date_str,                       # A التاريخ
+                            day_name,                       # B اليوم
+                            emp.get("المدرسة",""),          # C اسم المدرسة
+                            task,                           # D المهمة
+                            support_value,                  # E دعم
+                            full_name,                      # F الاسم الثلاثي
+                            m_id,                           # G الرقم الشخصي
+                            m_att,                          # H وقت الحضور
+                            f"[يدوي] {m_note.strip()}",     # I سبب التأخير
+                            m_dep,                          # J وقت الانصراف
+                            "",                             # K سبب الانصراف
+                            "",                             # L خروج استئذان
+                            "",                             # M عودة
+                            ""                              # N محاولة
+                        ]
+
+                        ok=safe_append(sheet,row_data)
+                        if ok:
+                            log_audit(
+                                m_id,
+                                full_name,
+                                "تسجيل يدوي",
+                                f"التاريخ:{date_str}|حضور:{m_att}|انصراف:{m_dep}|السبب:{m_note.strip()}"
+                            )
+                            clear_caches()
+                            st.success("✅ تم التسجيل اليدوي بنجاح وبالأعمدة الصحيحة")
+                        else:
+                            st.error("❌ تعذر حفظ التسجيل اليدوي، حاولي مرة أخرى")
 
         # ── القائمة البيضاء ──────────────────────────────────────
         elif admin_tab=="📋 القائمة البيضاء":
