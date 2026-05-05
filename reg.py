@@ -923,64 +923,186 @@ else:
 
         # ── دوام الأقسام ────────────────────────────────────────
         elif admin_tab=="📅 دوام الأقسام":
-            st.markdown("#### 📅 تحديد الأقسام/المهام التي تداوم في كل يوم")
-            st.info("حددي الأيام المطلوبة لكل مهمة. عند حصر الغياب سيحسب البرنامج فقط الموظفات التابعات للمهام المفعّلة في يوم الغياب.")
+            st.markdown("#### 📅 إدارة دوام الأقسام")
+            st.info("كل التعديل هنا من داخل البرنامج: إضافة، تعديل، تفعيل/تعطيل، حذف، وتطبيق جدول واحد على أكثر من مهمة. لا تحتاجين فتح Google Sheet.")
 
-            with st.expander("➕ إضافة / تحديث مهمة", expanded=True):
-                sch_task=st.selectbox("المهمة", TASKS_ALL, key="sch_task")
-                days_cols=st.columns(4)
-                with days_cols[0]: d_sat=st.checkbox("السبت", key="d_sat")
-                with days_cols[1]: d_sun=st.checkbox("الأحد", key="d_sun")
-                with days_cols[2]: d_mon=st.checkbox("الاثنين", key="d_mon")
-                with days_cols[3]: d_tue=st.checkbox("الثلاثاء", key="d_tue")
-                days_cols2=st.columns(3)
-                with days_cols2[0]: d_wed=st.checkbox("الأربعاء", key="d_wed")
-                with days_cols2[1]: d_thu=st.checkbox("الخميس", key="d_thu")
-                with days_cols2[2]: d_fri=st.checkbox("الجمعة", key="d_fri")
+            DAYS = ["السبت","الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة"]
 
-                active_task=st.checkbox("نشط", value=True, key="sch_active")
-                if st.button("💾 حفظ دوام المهمة", use_container_width=True, type="primary"):
-                    row_values=[
-                        sch_task,
-                        "نعم" if d_sat else "لا",
-                        "نعم" if d_sun else "لا",
-                        "نعم" if d_mon else "لا",
-                        "نعم" if d_tue else "لا",
-                        "نعم" if d_wed else "لا",
-                        "نعم" if d_thu else "لا",
-                        "نعم" if d_fri else "لا",
-                        "نعم" if active_task else "لا",
-                    ]
-                    try:
-                        records=schedule_sheet.get_all_records()
-                        found_row=None
-                        for i,r in enumerate(records):
-                            if str(r.get("المهمة","")).strip()==sch_task:
-                                found_row=i+2; break
-                        if found_row:
-                            schedule_sheet.update(f"A{found_row}:I{found_row}",[row_values])
+            def find_schedule_row(task_name):
+                records = schedule_sheet.get_all_records()
+                for i, r in enumerate(records):
+                    if str(r.get("المهمة","")).strip() == str(task_name).strip():
+                        return i + 2, r
+                return None, None
+
+            def save_schedule_row(task_name, selected_days, active=True):
+                row_values = [task_name] + ["نعم" if d in selected_days else "لا" for d in DAYS] + ["نعم" if active else "لا"]
+                row_num, _ = find_schedule_row(task_name)
+                if row_num:
+                    schedule_sheet.update(f"A{row_num}:I{row_num}", [row_values])
+                else:
+                    schedule_sheet.append_row(row_values, value_input_option="USER_ENTERED")
+                get_schedule_records.clear()
+
+            records = get_schedule_records()
+            existing_tasks = [str(r.get("المهمة","")).strip() for r in records if str(r.get("المهمة","")).strip()]
+            all_task_options = []
+            for t in TASKS_ALL + existing_tasks:
+                if t and t not in all_task_options:
+                    all_task_options.append(t)
+
+            tab_one, tab_bulk, tab_view = st.tabs(["✏️ تعديل مهمة", "⚡ تطبيق جماعي", "📋 عرض الجدول"])
+
+            with tab_one:
+                st.markdown("##### تعديل دوام مهمة واحدة")
+                task_source = st.radio("نوع المهمة", ["اختيار من القائمة", "كتابة مهمة جديدة"], horizontal=True, key="sch_task_source")
+                if task_source == "اختيار من القائمة":
+                    sch_task = st.selectbox("المهمة", all_task_options, key="sch_task_edit")
+                else:
+                    sch_task = st.text_input("اسم المهمة الجديدة", placeholder="مثال: مصححة — مادة جديدة", key="sch_task_custom")
+
+                current_row = {}
+                if sch_task:
+                    _, current_row = find_schedule_row(sch_task)
+                    current_row = current_row or {}
+
+                default_days = [d for d in DAYS if is_yes(current_row.get(d,""))]
+                default_active_raw = str(current_row.get("نشط","")).strip()
+                default_active = True if default_active_raw == "" else is_yes(default_active_raw)
+
+                selected_days = st.multiselect("أيام الدوام", DAYS, default=default_days, key=f"days_edit_{sch_task}")
+                active_task = st.checkbox("المهمة نشطة في حصر الغياب", value=default_active, key=f"active_edit_{sch_task}")
+
+                c_save, c_disable, c_delete = st.columns(3)
+                with c_save:
+                    if st.button("💾 حفظ التعديل", use_container_width=True, type="primary", key="save_one_schedule"):
+                        if not str(sch_task).strip():
+                            st.error("❌ اسم المهمة مطلوب")
                         else:
-                            schedule_sheet.append_row(row_values, value_input_option="USER_ENTERED")
-                        get_schedule_records.clear()
-                        st.success("✅ تم حفظ جدول دوام المهمة")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ خطأ أثناء حفظ جدول الدوام: {e}")
+                            try:
+                                save_schedule_row(str(sch_task).strip(), selected_days, active_task)
+                                st.success("✅ تم حفظ دوام المهمة")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ خطأ أثناء الحفظ: {e}")
 
-            st.markdown("#### الجدول الحالي")
-            try:
-                records=get_schedule_records()
+                with c_disable:
+                    if st.button("⏸️ تعطيل", use_container_width=True, key="disable_one_schedule"):
+                        if not str(sch_task).strip():
+                            st.error("❌ اختاري مهمة أولاً")
+                        else:
+                            try:
+                                save_schedule_row(str(sch_task).strip(), selected_days, False)
+                                st.success("✅ تم تعطيل المهمة من حصر الغياب")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ خطأ أثناء التعطيل: {e}")
+
+                with c_delete:
+                    if st.button("🗑️ حذف", use_container_width=True, key="delete_one_schedule"):
+                        try:
+                            row_num, _ = find_schedule_row(sch_task)
+                            if row_num:
+                                schedule_sheet.delete_rows(row_num)
+                                get_schedule_records.clear()
+                                st.success("✅ تم حذف المهمة من جدول الدوام")
+                                st.rerun()
+                            else:
+                                st.warning("المهمة غير موجودة في جدول الدوام")
+                        except Exception as e:
+                            st.error(f"❌ خطأ أثناء الحذف: {e}")
+
+            with tab_bulk:
+                st.markdown("##### تطبيق نفس أيام الدوام على عدة مهام")
+                bulk_tasks = st.multiselect("اختاري المهام", all_task_options, key="bulk_tasks")
+                bulk_days = st.multiselect("أيام الدوام المشتركة", DAYS, key="bulk_days")
+                bulk_active = st.checkbox("تفعيل المهام المختارة", value=True, key="bulk_active")
+
+                b1, b2 = st.columns(2)
+                with b1:
+                    if st.button("✅ تطبيق على المهام المختارة", use_container_width=True, type="primary", key="apply_bulk_schedule"):
+                        if not bulk_tasks:
+                            st.error("❌ اختاري مهمة واحدة على الأقل")
+                        else:
+                            try:
+                                for task_name in bulk_tasks:
+                                    save_schedule_row(task_name, bulk_days, bulk_active)
+                                st.success(f"✅ تم تطبيق الجدول على {len(bulk_tasks)} مهمة")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ خطأ أثناء التطبيق الجماعي: {e}")
+
+                with b2:
+                    if st.button("🧹 تعطيل كل المهام المختارة", use_container_width=True, key="disable_bulk_schedule"):
+                        if not bulk_tasks:
+                            st.error("❌ اختاري مهمة واحدة على الأقل")
+                        else:
+                            try:
+                                for task_name in bulk_tasks:
+                                    row_num, old_row = find_schedule_row(task_name)
+                                    old_days = [d for d in DAYS if is_yes((old_row or {}).get(d,""))]
+                                    save_schedule_row(task_name, old_days, False)
+                                st.success("✅ تم تعطيل المهام المختارة")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ خطأ أثناء التعطيل الجماعي: {e}")
+
+                st.markdown("##### تجهيز سريع")
+                quick_cols = st.columns(2)
+                with quick_cols[0]:
+                    if st.button("📌 إضافة كل المهام بدون أيام", use_container_width=True, key="add_all_empty"):
+                        try:
+                            for task_name in TASKS_ALL:
+                                row_num, old_row = find_schedule_row(task_name)
+                                if not row_num:
+                                    save_schedule_row(task_name, [], True)
+                            st.success("✅ تم تجهيز كل المهام في جدول الدوام")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ خطأ أثناء التجهيز: {e}")
+                with quick_cols[1]:
+                    if st.button("📅 تعيين الأحد-الخميس لكل المهام", use_container_width=True, key="add_all_weekdays"):
+                        try:
+                            for task_name in TASKS_ALL:
+                                save_schedule_row(task_name, ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس"], True)
+                            st.success("✅ تم تعيين الأحد إلى الخميس لكل المهام")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ خطأ أثناء التعيين: {e}")
+
+            with tab_view:
+                st.markdown("##### الجدول الحالي")
+                records = get_schedule_records()
                 if not records:
                     st.warning("لم يتم إدخال أي دوام أقسام حتى الآن.")
                 else:
+                    active_count = 0
                     for r in records:
-                        task=str(r.get("المهمة","")).strip()
-                        active="نشط" if is_yes(r.get("نشط","")) or str(r.get("نشط","")).strip()=="" else "غير نشط"
-                        days=[d for d in ["السبت","الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة"] if is_yes(r.get(d,""))]
-                        days_txt="، ".join(days) if days else "لا توجد أيام محددة"
-                        st.markdown(f'<div class="audit-row"><b>{task}</b><br><small>{days_txt} — {active}</small></div>',unsafe_allow_html=True)
-            except Exception as e:
-                st.error(f"خطأ: {e}")
+                        active_raw = str(r.get("نشط","")).strip()
+                        if active_raw == "" or is_yes(active_raw):
+                            active_count += 1
+                    c1, c2 = st.columns(2)
+                    c1.metric("عدد المهام في الجدول", len(records))
+                    c2.metric("المهام النشطة", active_count)
+
+                    day_filter = st.selectbox("عرض حسب اليوم", ["كل الأيام"] + DAYS, key="day_filter_schedule")
+                    filtered_records = []
+                    for r in records:
+                        if day_filter == "كل الأيام" or is_yes(r.get(day_filter,"")):
+                            filtered_records.append(r)
+
+                    for r in filtered_records:
+                        task = str(r.get("المهمة","")).strip()
+                        active_raw = str(r.get("نشط","")).strip()
+                        active = "نشط" if active_raw == "" or is_yes(active_raw) else "غير نشط"
+                        days = [d for d in DAYS if is_yes(r.get(d,""))]
+                        days_txt = "، ".join(days) if days else "لا توجد أيام محددة"
+                        st.markdown(f'<div class="audit-row"><b>{task}</b><br><small>{days_txt} — {active}</small></div>', unsafe_allow_html=True)
+
+                if st.button("🔄 تحديث بيانات الجدول", use_container_width=True, key="refresh_schedule_cache"):
+                    get_schedule_records.clear()
+                    st.success("✅ تم التحديث")
+                    st.rerun()
 
         # ── تعديل سجل ────────────────────────────────────────────
         elif admin_tab=="✏️ تعديل سجل":
