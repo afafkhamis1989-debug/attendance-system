@@ -846,7 +846,30 @@ if st.session_state.admin_logged_in and st.session_state.admin_last_active:
 # ─── Header ────────────────────────────────────────────────────
 day_arabic={"Saturday":"السبت","Sunday":"الأحد","Monday":"الاثنين","Tuesday":"الثلاثاء","Wednesday":"الأربعاء","Thursday":"الخميس","Friday":"الجمعة"}.get(now_bh().strftime("%A"),now_bh().strftime("%A"))
 
-try: st.image("logo.png", use_container_width=True)
+try: st.markdown("""
+<style>
+.logo-wrap{
+    max-width: 680px;
+    margin: 0 auto 10px auto;
+    overflow: hidden;
+    text-align: center;
+}
+.logo-wrap img{
+    width: 100%;
+    max-width: 680px;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+}
+</style>
+""", unsafe_allow_html=True)
+
+try:
+    st.markdown('<div class="logo-wrap">', unsafe_allow_html=True)
+    st.image("logo.png", use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+except:
+    pass
 except: pass
 
 st.markdown(f"""
