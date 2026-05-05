@@ -1230,82 +1230,214 @@ else:
         # ── تسجيل يدوي ──────────────────────────────────────────
         elif admin_tab=="➕ تسجيل يدوي":
             st.markdown("#### ➕ تسجيل حضور/انصراف يدوي")
-            st.info("يتم التسجيل اليدوي بنفس ترتيب أعمدة sheet1 بدون لخبطة: التاريخ، اليوم، المدرسة، المهمة، دعم، الاسم، الرقم، وقت الحضور...")
+            st.info("اكتبي الرقم الشخصي أولاً. إذا كانت العضوة غير موجودة في القائمة البيضاء، سيظهر نموذج حفظ بياناتها، وبعد الحفظ تظهر بياناتها مباشرة للتسجيل اليدوي.")
 
-            m_id=ar_to_en_digits(st.text_input("الرقم الشخصي",key="mid")).strip()
-            m_date=st.date_input("التاريخ",value=now_bh().date(),key="mdate")
-            m_att=st.text_input("وقت الحضور",value="07:00:00",key="matt")
-            m_dep=st.text_input("وقت الانصراف (اختياري)",key="mdep")
-            m_note=st.text_input("سبب الإضافة اليدوية (مطلوب)",key="mnote")
+            m_id=ar_to_en_digits(st.text_input("الرقم الشخصي",key="mid", placeholder="مثال: 890302057")).strip()
 
-            if st.button("تسجيل يدوي",use_container_width=True,type="primary"):
-                if not m_id:
-                    st.error("❌ الرقم الشخصي مطلوب")
-                elif not m_note.strip():
-                    st.error("❌ سبب الإضافة اليدوية مطلوب")
-                else:
-                    emp=validate_employee(m_id)
-                    if not emp:
-                        st.error("❌ الرقم غير موجود في القائمة البيضاء")
-                    else:
-                        date_str=str(m_date)
-                        day_name=m_date.strftime("%A")
-                        task=str(emp.get("المهمة","")).strip()
+            emp = validate_employee(m_id) if m_id else None
 
-                        # تحديد قيمة عمود دعم من القائمة البيضاء أو من اسم المهمة
-                        support_raw=str(emp.get("دعم","")).strip()
-                        support_value="نعم" if support_raw in ["نعم","yes","Yes","TRUE","true","1"] or "دعم" in task else "لا"
-                        full_name=normalize_name(emp.get("الاسم",""))
+            if not m_id:
+                st.warning("اكتبي الرقم الشخصي للبدء.")
+            elif not emp:
+                st.warning("⚠️ هذا الرقم غير موجود في القائمة البيضاء. أدخلي بيانات العضوة أولاً ليتم تثبيتها.")
+                with st.container(border=True):
+                    st.markdown("##### 🪪 بيانات العضوة الجديدة")
+                    new_name=st.text_input("الاسم الثلاثي",key="manual_new_name")
+                    new_school=st.selectbox("المدرسة",schools,key="manual_new_school")
+                    new_task=st.selectbox("المهمة في الكنترول",TASKS_MAIN,key="manual_new_task")
+                    new_job=st.selectbox("المسمى الوظيفي",JOB_TITLES,key="manual_new_job")
+                    new_phone=st.text_input("رقم التواصل (اختياري)",key="manual_new_phone")
+                    new_email=st.text_input("البريد الإلكتروني (اختياري)",key="manual_new_email")
 
-                        row_data=[
-                            date_str,                       # A التاريخ
-                            day_name,                       # B اليوم
-                            emp.get("المدرسة",""),          # C اسم المدرسة
-                            task,                           # D المهمة
-                            support_value,                  # E دعم
-                            full_name,                      # F الاسم الثلاثي
-                            m_id,                           # G الرقم الشخصي
-                            m_att,                          # H وقت الحضور
-                            f"[يدوي] {m_note.strip()}",     # I سبب التأخير
-                            m_dep,                          # J وقت الانصراف
-                            "",                             # K سبب الانصراف
-                            "",                             # L خروج استئذان
-                            "",                             # M عودة
-                            ""                              # N محاولة
-                        ]
-
-                        ok=safe_append(sheet,row_data)
-                        if ok:
-                            log_audit(
-                                m_id,
-                                full_name,
-                                "تسجيل يدوي",
-                                f"التاريخ:{date_str}|حضور:{m_att}|انصراف:{m_dep}|السبب:{m_note.strip()}"
-                            )
-                            clear_caches()
-                            st.success("✅ تم التسجيل اليدوي بنجاح وبالأعمدة الصحيحة")
+                    if st.button("💾 حفظ في القائمة البيضاء والمتابعة",use_container_width=True,type="primary",key="save_manual_new_emp"):
+                        if not new_name.strip():
+                            st.error("❌ الاسم الثلاثي مطلوب.")
                         else:
-                            st.error("❌ تعذر حفظ التسجيل اليدوي، حاولي مرة أخرى")
+                            support_value="نعم" if "دعم" in new_task else "لا"
+                            ok=safe_append(whitelist_sheet,[
+                                m_id,
+                                normalize_name(new_name),
+                                new_school,
+                                new_task,
+                                support_value,
+                                new_phone,
+                                new_email,
+                                new_job,
+                                "نعم"
+                            ])
+                            if ok:
+                                get_whitelist.clear()
+                                log_audit(m_id,normalize_name(new_name),"إضافة للقائمة البيضاء",f"إضافة من التسجيل اليدوي|المهمة:{new_task}")
+                                st.success("✅ تم حفظ العضوة في القائمة البيضاء. الآن يمكن تسجيل حضورها/انصرافها يدوياً.")
+                                st.rerun()
+                            else:
+                                st.error("❌ تعذر حفظ بيانات العضوة في القائمة البيضاء.")
+            else:
+                # عرض بيانات العضوة مباشرة بعد إدخال الرقم الشخصي
+                task=str(emp.get("المهمة","")).strip()
+                support_raw=str(emp.get("دعم","")).strip()
+                support_value="نعم" if support_raw in ["نعم","yes","Yes","TRUE","true","1"] or "دعم" in task else "لا"
+                full_name=normalize_name(emp.get("الاسم",""))
+
+                st.success("✅ العضوة موجودة في القائمة البيضاء. يمكنكِ إدخال العملية مباشرة.")
+                st.markdown(f"""
+                <div class="pro-card">
+                    <div class="field-lbl">الاسم</div><div class="field-val">{full_name}</div>
+                    <div class="field-lbl">المدرسة</div><div class="field-val">{emp.get('المدرسة','')}</div>
+                    <div class="field-lbl">المهمة</div><div class="field-val blue">{task}</div>
+                    <div class="field-lbl">دعم</div><div class="field-val">{support_value}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                m_date=st.date_input("التاريخ",value=now_bh().date(),key="mdate")
+                operation_type=st.radio(
+                    "نوع العملية اليدوية",
+                    ["تسجيل حضور فقط","تسجيل انصراف فقط","تسجيل حضور وانصراف"],
+                    horizontal=True,
+                    key="manual_operation_type"
+                )
+
+                default_now=now_bh().strftime("%H:%M:%S")
+                m_att=""
+                m_dep=""
+                if operation_type in ["تسجيل حضور فقط","تسجيل حضور وانصراف"]:
+                    m_att=st.text_input("وقت الحضور",value="07:00:00",key="matt")
+                if operation_type in ["تسجيل انصراف فقط","تسجيل حضور وانصراف"]:
+                    m_dep=st.text_input("وقت الانصراف",value=default_now if operation_type=="تسجيل انصراف فقط" else "",key="mdep")
+
+                m_late_reason=""
+                m_depart_reason=""
+                if operation_type in ["تسجيل حضور فقط","تسجيل حضور وانصراف"]:
+                    m_late_reason=st.text_input("سبب التأخير/ملاحظة الحضور (اختياري)",key="manual_late_note")
+                if operation_type in ["تسجيل انصراف فقط","تسجيل حضور وانصراف"]:
+                    m_depart_reason=st.text_input("سبب الانصراف/ملاحظة الانصراف (اختياري)",key="manual_depart_note")
+
+                m_note=st.text_input("سبب الإدخال اليدوي (مطلوب)",key="mnote", placeholder="مثال: نسيان التسجيل من الجهاز / مشكلة في الموقع")
+
+                # عرض حالة السجل في نفس التاريخ إن وجد
+                date_str=str(m_date)
+                data=get_sheet_data()
+                existing_idx, existing_row = find_today_row(data,date_str,m_id)
+                if existing_row:
+                    st.info(f"ℹ️ يوجد سجل لهذا الرقم في تاريخ {date_str}. سيتم تحديث نفس الصف بدل إنشاء صف مكرر.")
+                    st.markdown(f"الحضور الحالي: **{existing_row.get('وقت الحضور','—') or '—'}** — الانصراف الحالي: **{existing_row.get('وقت الانصراف','—') or '—'}**")
+
+                if st.button("💾 حفظ التسجيل اليدوي",use_container_width=True,type="primary",key="save_manual_operation"):
+                    if not m_note.strip():
+                        st.error("❌ سبب الإدخال اليدوي مطلوب.")
+                    elif operation_type in ["تسجيل حضور فقط","تسجيل حضور وانصراف"] and not m_att.strip():
+                        st.error("❌ وقت الحضور مطلوب.")
+                    elif operation_type in ["تسجيل انصراف فقط","تسجيل حضور وانصراف"] and not m_dep.strip():
+                        st.error("❌ وقت الانصراف مطلوب.")
+                    else:
+                        day_name=m_date.strftime("%A")
+                        late_note=f"[يدوي] {m_note.strip()}"
+                        if m_late_reason.strip():
+                            late_note += f" | {m_late_reason.strip()}"
+                        depart_note=f"[يدوي] {m_note.strip()}"
+                        if m_depart_reason.strip():
+                            depart_note += f" | {m_depart_reason.strip()}"
+
+                        if existing_idx:
+                            ok=True
+                            if operation_type in ["تسجيل حضور فقط","تسجيل حضور وانصراف"]:
+                                ok = ok and safe_update(sheet,existing_idx,COL_ATTEND,m_att.strip())
+                                ok = ok and safe_update(sheet,existing_idx,COL_LATE_REASON,late_note)
+                            if operation_type in ["تسجيل انصراف فقط","تسجيل حضور وانصراف"]:
+                                ok = ok and safe_update(sheet,existing_idx,COL_DEPART,m_dep.strip())
+                                ok = ok and safe_update(sheet,existing_idx,COL_DEPART_REASON,depart_note)
+                            action_details=f"تحديث صف موجود|التاريخ:{date_str}|العملية:{operation_type}|حضور:{m_att}|انصراف:{m_dep}|السبب:{m_note.strip()}"
+                        else:
+                            row_data=[
+                                date_str,                       # A التاريخ
+                                day_name,                       # B اليوم
+                                emp.get("المدرسة",""),          # C اسم المدرسة
+                                task,                           # D المهمة
+                                support_value,                  # E دعم
+                                full_name,                      # F الاسم الثلاثي
+                                m_id,                           # G الرقم الشخصي
+                                m_att.strip() if operation_type in ["تسجيل حضور فقط","تسجيل حضور وانصراف"] else "",  # H وقت الحضور
+                                late_note if operation_type in ["تسجيل حضور فقط","تسجيل حضور وانصراف"] else "",        # I سبب التأخير
+                                m_dep.strip() if operation_type in ["تسجيل انصراف فقط","تسجيل حضور وانصراف"] else "",  # J وقت الانصراف
+                                depart_note if operation_type in ["تسجيل انصراف فقط","تسجيل حضور وانصراف"] else "",    # K سبب الانصراف
+                                "",                             # L خروج استئذان
+                                "",                             # M عودة
+                                ""                              # N محاولة
+                            ]
+                            ok=safe_append(sheet,row_data)
+                            action_details=f"إضافة صف جديد|التاريخ:{date_str}|العملية:{operation_type}|حضور:{m_att}|انصراف:{m_dep}|السبب:{m_note.strip()}"
+
+                        if ok:
+                            log_audit(m_id,full_name,"تسجيل يدوي",action_details)
+                            clear_caches()
+                            st.success("✅ تم حفظ التسجيل اليدوي بنجاح.")
+                            st.balloons()
+                        else:
+                            st.error("❌ تعذر حفظ التسجيل اليدوي، حاولي مرة أخرى.")
 
         # ── القائمة البيضاء ──────────────────────────────────────
         elif admin_tab=="📋 القائمة البيضاء":
             st.markdown("#### إضافة موظفة")
-            wl_id=st.text_input("الرقم الشخصي",key="wlid")
-            wl_name=st.text_input("الاسم",key="wlname")
+            st.info("أدخلي جميع بيانات العضوة حتى تثبت في القائمة البيضاء وتظهر تلقائياً عند التسجيل اليدوي أو عند دخول الموظفة.")
+
+            wl_id=ar_to_en_digits(st.text_input("الرقم الشخصي",key="wlid", placeholder="مثال: 890302057")).strip()
+            wl_name=st.text_input("الاسم",key="wlname", placeholder="الاسم الثلاثي")
             wl_school=st.selectbox("المدرسة",schools,key="wlschool")
             wl_task=st.selectbox("المهمة",TASKS_ALL,key="wltask")
             wl_job=st.selectbox("المسمى الوظيفي",JOB_TITLES,key="wljob")
-            if st.button("إضافة",use_container_width=True):
-                if not wl_id.strip() or not wl_name.strip(): st.error("الرقم والاسم مطلوبان")
+            wl_phone=st.text_input("رقم التواصل",key="wlphone", placeholder="مثال: 39XXXXXX")
+            wl_email=st.text_input("البريد الإلكتروني",key="wlemail", placeholder="مثال: name@moe.bh")
+            wl_active=st.selectbox("الحالة",["نعم","لا"],key="wlactive", help="نعم = تظهر في النظام، لا = موجودة لكن غير مفعلة")
+
+            if st.button("➕ إضافة للقائمة البيضاء",use_container_width=True,type="primary"):
+                if not wl_id.strip() or not wl_name.strip() or not wl_phone.strip() or not wl_email.strip():
+                    st.error("❌ الرقم الشخصي والاسم ورقم التواصل والبريد الإلكتروني مطلوبة.")
+                elif validate_employee(wl_id):
+                    st.warning("⚠️ هذا الرقم موجود مسبقاً في القائمة البيضاء. استخدمي إدارة الشيتات للتعديل على بياناتها.")
                 else:
-                    ok=safe_append(whitelist_sheet,[ar_to_en_digits(wl_id).strip(),normalize_name(wl_name),wl_school,wl_task,"نعم" if "دعم" in wl_task else "لا","","",wl_job,"نعم"])
+                    support_value="نعم" if "دعم" in wl_task else "لا"
+                    ok=safe_append(whitelist_sheet,[
+                        wl_id,
+                        normalize_name(wl_name),
+                        wl_school,
+                        wl_task,
+                        support_value,
+                        wl_phone.strip(),
+                        wl_email.strip(),
+                        wl_job,
+                        wl_active
+                    ])
                     get_whitelist.clear()
-                    if ok: st.success("✅ تمت الإضافة")
-                    else: st.error("❌ تعذرت الإضافة")
+                    if ok:
+                        log_audit(wl_id,normalize_name(wl_name),"إضافة للقائمة البيضاء",f"إضافة من تبويب القائمة البيضاء|المهمة:{wl_task}|الهاتف:{wl_phone}|البريد:{wl_email}")
+                        st.success("✅ تمت إضافة العضوة بجميع البيانات في القائمة البيضاء.")
+                        st.balloons()
+                    else:
+                        st.error("❌ تعذرت الإضافة")
+
             st.markdown("#### الموظفات المسجّلات")
             wl_all=get_whitelist()
+            search_wl=st.text_input("🔍 بحث في الموظفات المسجّلات",key="wl_search", placeholder="اكتبي الاسم أو الرقم الشخصي")
+            filtered=[]
             for eid,emp in wl_all.items():
-                st.markdown(f'<div class="audit-row"><b>{emp.get("الاسم","")}</b> — #{eid} — {emp.get("المدرسة","")}</div>',unsafe_allow_html=True)
+                txt=f"{eid} {emp.get('الاسم','')} {emp.get('المدرسة','')} {emp.get('المهمة','')} {emp.get('رقم التواصل','')} {emp.get('البريد الإلكتروني','')}"
+                if not search_wl.strip() or normalize_name(search_wl) in normalize_name(txt) or search_wl.strip() in txt:
+                    filtered.append((eid,emp))
+
+            st.caption(f"عدد النتائج: {len(filtered)}")
+            for eid,emp in filtered[:100]:
+                st.markdown(f'''
+                <div class="audit-row">
+                    <b>{emp.get("الاسم","")}</b> — #{eid}<br>
+                    المدرسة: {emp.get("المدرسة","")}<br>
+                    المهمة: {emp.get("المهمة","")} — دعم: {emp.get("دعم","")}<br>
+                    رقم التواصل: {emp.get("رقم التواصل","") or "—"}<br>
+                    البريد الإلكتروني: {emp.get("البريد الإلكتروني","") or "—"}<br>
+                    المسمى الوظيفي: {emp.get("المسمى الوظيفي","") or "—"}
+                </div>
+                ''',unsafe_allow_html=True)
+            if len(filtered)>100:
+                st.info("تم عرض أول 100 نتيجة فقط. استخدمي البحث لتضييق النتائج.")
 
         # ── محاولات التسجيل ─────────────────────────────────────
         elif admin_tab=="🚫 محاولات التسجيل":
