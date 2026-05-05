@@ -25,7 +25,7 @@ st.set_page_config(page_title="نظام الحضور والانصراف", page_i
 st.markdown("""
 <style>
 .block-container {
-    padding-top: 0.5rem !important;
+    padding-top: 0.9rem !important;
 }
 
 section.main > div {
