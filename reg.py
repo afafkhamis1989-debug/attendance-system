@@ -22,28 +22,7 @@ except Exception:
     LOCAL_STORAGE_OK = False
 
 st.set_page_config(page_title="نظام الحضور والانصراف", page_icon="🕘", layout="centered")
-st.set_page_config(
-    page_title="نظام الحضور والانصراف",
-    page_icon="🕘",
-    layout="centered"
-)
 
-# 👇 هنا حطي الكود
-st.markdown("""
-<style>
-html, body, .stApp {
-    overflow-x: hidden !important;
-}
-
-section.main > div {
-    padding-top: 1rem !important;
-}
-
-.block-container {
-    padding-top: 1rem !important;
-}
-</style>
-""", unsafe_allow_html=True)
 # ─── إعدادات ───────────────────────────────────────────────────
 SHEET_ID       = "1svkfgRq4-osKr86_2WJQFZShuoy8Ek5DOiUaaHKL-6Y"
 SCHOOL_LAT     = 26.216371784473964
@@ -846,30 +825,7 @@ if st.session_state.admin_logged_in and st.session_state.admin_last_active:
 # ─── Header ────────────────────────────────────────────────────
 day_arabic={"Saturday":"السبت","Sunday":"الأحد","Monday":"الاثنين","Tuesday":"الثلاثاء","Wednesday":"الأربعاء","Thursday":"الخميس","Friday":"الجمعة"}.get(now_bh().strftime("%A"),now_bh().strftime("%A"))
 
-try: st.markdown("""
-<style>
-.logo-wrap{
-    max-width: 680px;
-    margin: 0 auto 10px auto;
-    overflow: hidden;
-    text-align: center;
-}
-.logo-wrap img{
-    width: 100%;
-    max-width: 680px;
-    height: auto;
-    display: block;
-    margin: 0 auto;
-}
-</style>
-""", unsafe_allow_html=True)
-
-try:
-    st.markdown('<div class="logo-wrap">', unsafe_allow_html=True)
-    st.image("logo.png", use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-except:
-    pass
+try: st.image("logo.png", use_container_width=True)
 except: pass
 
 st.markdown(f"""
