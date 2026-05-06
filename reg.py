@@ -1179,6 +1179,12 @@ if mode=="👤 موظفة":
         elif has_exit and has_depart and "استئذان انصراف" in str(today_row.get("سبب الانصراف", "")):
             status="انصراف باستئذان"
             stat_col="#185FA5"
+        elif has_exit and has_return and has_depart:
+            status="منصرف بعد الاستئذان ✓"
+            stat_col="#185FA5"
+        elif has_depart:
+            status="منصرف ✓"
+            stat_col="#185FA5"
         elif today_row and today_row.get("وقت الحضور"):
             status="حاضر ✓"
             stat_col="#3B6D11"
@@ -1198,6 +1204,8 @@ if mode=="👤 موظفة":
                 <div class="stat-cell"><span class="stat-val">{exit_time}</span><span class="stat-lbl">خروج استئذان</span></div>
                 <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
                 <div class="stat-cell"><span class="stat-val">{return_time if has_return else 'لم تُسجل'}</span><span class="stat-lbl">العودة</span></div>
+                <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
+                <div class="stat-cell"><span class="stat-val">{dep_time if has_depart else 'لم يُسجل'}</span><span class="stat-lbl">وقت الانصراف</span></div>
                 <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
                 <div class="stat-cell"><span class="stat-val" style="color:{stat_col};">{status}</span><span class="stat-lbl">الحالة</span></div>
             </div></div>
