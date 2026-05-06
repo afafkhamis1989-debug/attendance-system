@@ -140,6 +140,7 @@ def get_all_sheets():
         "sheet":       ss.worksheet("sheet1"),
         "whitelist":   _get_or_create("القائمة_البيضاء",         ["الرقم الشخصي","الاسم","المدرسة","المهمة","دعم","رقم التواصل","البريد الإلكتروني","المسمى الوظيفي","نشط"]),
         "schedule":    _get_or_create("جدول_دوام_الأقسام",       ["المهمة","السبت","الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","نشط"]),
+        "daily_schedule": _get_or_create("دوام_الأقسام_اليومي", ["التاريخ","المهمة","نشط","ملاحظات"]),
         "device":      _get_or_create("device_lock",              ["التاريخ","بصمة الجهاز","الرقم الشخصي","الاسم","وقت_القفل"]),
         "attempts":    _get_or_create("محاولات_تسجيل_باسم_آخر",  ["التاريخ","بصمة الجهاز","الرقم_المقفول_عليه","اسم_المقفول_عليه","الرقم_المحاول","اسم_المحاول","وقت_المحاولة","ملاحظات"]),
         "settings":    _get_or_create("إعدادات_النظام",           ["المفتاح","القيمة","تاريخ_الانتهاء","ملاحظات"]),
@@ -157,6 +158,7 @@ settings_sheet  = _sheets["settings"]
 audit_sheet     = _sheets["audit"]
 absence_sheet   = _sheets["absence"]
 schedule_sheet  = _sheets["schedule"]
+daily_schedule_sheet = _sheets["daily_schedule"]
 
 # ─── ضمان الأعمدة الجديدة بدون الرجوع إلى Google Sheet ───────────────
 def ensure_headers(ws, headers):
@@ -271,8 +273,13 @@ def get_schedule_records():
     try: return schedule_sheet.get_all_records()
     except: return []
 
+@st.cache_data(ttl=60, show_spinner=False)
+def get_daily_schedule_records():
+    try: return daily_schedule_sheet.get_all_records()
+    except: return []
+
 def clear_caches():
-    get_sheet_data.clear(); get_device_locks.clear(); get_settings_records.clear(); get_schedule_records.clear()
+    get_sheet_data.clear(); get_device_locks.clear(); get_settings_records.clear(); get_schedule_records.clear(); get_daily_schedule_records.clear()
 
 
 # ─── دوال احتساب الدوام والساعات والإغلاق التلقائي ───────────────
@@ -546,9 +553,7 @@ def normalize_task_for_schedule(task):
     return task
 
 def scheduled_tasks_for_day(day_ar):
-    """يرجع قائمة المهام المطلوب دوامها في اليوم المحدد.
-    إذا كان جدول_دوام_الأقسام فارغًا أو لا توجد مهام نشطة لهذا اليوم، يرجع None حتى لا يمنع الحصر القديم.
-    """
+    """الجدول الأسبوعي القديم حسب اليوم."""
     records=get_schedule_records()
     tasks=[]
     for r in records:
@@ -557,7 +562,34 @@ def scheduled_tasks_for_day(day_ar):
         active = active_raw=="" or is_yes(active_raw)
         if task and active and is_yes(r.get(day_ar,"")):
             tasks.append(task)
-    return tasks if tasks else None
+    # إزالة التكرار مع الحفاظ على الترتيب
+    return list(dict.fromkeys(tasks)) if tasks else None
+
+def scheduled_tasks_for_date(date_str):
+    """يرجع مهام الدوام لتاريخ محدد.
+    الأولوية لجدول دوام_الأقسام_اليومي إذا وُجدت مهام نشطة لذلك التاريخ.
+    إذا لا يوجد جدول يومي، يرجع للجدول الأسبوعي حسب اليوم.
+    """
+    date_str = str(date_str).strip()
+    daily_tasks=[]
+    try:
+        for r in get_daily_schedule_records():
+            if str(r.get("التاريخ","")).strip()==date_str:
+                task=str(r.get("المهمة","")).strip()
+                active_raw=str(r.get("نشط","")).strip()
+                active = active_raw=="" or is_yes(active_raw)
+                if task and active:
+                    daily_tasks.append(task)
+    except Exception:
+        pass
+    if daily_tasks:
+        return list(dict.fromkeys(daily_tasks)), "يومي"
+    try:
+        d=datetime.strptime(date_str,"%Y-%m-%d").date()
+        day_ar=day_ar_from_date(d)
+    except Exception:
+        day_ar=day_arabic
+    return scheduled_tasks_for_day(day_ar), "أسبوعي"
 
 def emp_required_on_day(emp, scheduled_tasks):
     """يتحقق هل الموظفة ضمن أقسام/مهام الدوام المختارة لهذا اليوم."""
@@ -580,6 +612,31 @@ def find_today_row(data, today, emp_id):
            str(row.get("الرقم الشخصي","")).strip()==str(emp_id).strip():
             return i+2, row
     return None, None
+
+
+def get_sheet_data_fresh():
+    """قراءة مباشرة من sheet1 بدون كاش لاستخدامها في منع التكرار والتنظيف."""
+    try:
+        return sheet.get_all_records()
+    except Exception:
+        return []
+
+def find_today_row_fresh(today, emp_id):
+    data = get_sheet_data_fresh()
+    return find_today_row(data, today, emp_id)
+
+def find_duplicate_attendance_groups():
+    """يرجع المجموعات المكررة حسب التاريخ + الرقم الشخصي في sheet1."""
+    records = get_sheet_data_fresh()
+    groups = {}
+    for i, r in enumerate(records, start=2):
+        date_val = str(r.get("التاريخ", "")).strip()
+        emp_id_val = str(r.get("الرقم الشخصي", "")).strip()
+        if not date_val or not emp_id_val:
+            continue
+        key = (date_val, emp_id_val)
+        groups.setdefault(key, []).append((i, r))
+    return {k: v for k, v in groups.items() if len(v) > 1}
 
 def parse_bahrain_datetime(dt_text):
     """تحويل التاريخ المحفوظ في الشيت إلى وقت البحرين حتى لا يفشل تجاوز الموقع."""
@@ -741,7 +798,11 @@ def register_operation(operation, emp_id, note=""):
     data=get_sheet_data(); row_index,row=find_today_row(data,today,emp_id)
 
     if operation=="تسجيل حضور":
-        if row and row.get("وقت الحضور"): st.error("❌ تم تسجيل الحضور مسبقاً لهذا اليوم."); return False
+        # حماية مباشرة من التكرار: نقرأ من Google Sheet بدون كاش قبل الإضافة
+        row_index, row = find_today_row_fresh(today, emp_id)
+        if row and row.get("وقت الحضور"):
+            st.error(f"❌ تم تسجيل حضورك مسبقاً لهذا اليوم الساعة {row.get('وقت الحضور','')}. لا يمكن تسجيل حضور مكرر.")
+            return False
 
         # إذا حضرت متأخرة بسبب موعد/سبب آخر، يوثق النظام ذلك كاستئذان ضمني:
         # خروج الاستئذان من 7:00، ووقت الحضور هو العودة.
@@ -1195,6 +1256,7 @@ else:
             "📊 إحصائيات اليوم",
             "🔴 تسجيل الغياب",
             "📅 دوام الأقسام",
+            "🧹 تنظيف التكرارات",
             "✏️ تعديل سجل",
             "➕ تسجيل يدوي",
             "📋 القائمة البيضاء",
@@ -1210,16 +1272,16 @@ else:
             data=get_sheet_data()
             today_rows=[r for r in data if r.get("التاريخ")==today_str]
 
-            # ربط إحصائيات اليوم بجدول دوام الأقسام
+            # ربط إحصائيات اليوم بجدول دوام الأقسام الأسبوعي أو اليومي
             today_day_ar = day_arabic
-            scheduled_tasks = scheduled_tasks_for_day(today_day_ar)
+            scheduled_tasks, schedule_source = scheduled_tasks_for_date(today_str)
             wl_all = get_whitelist()
             if scheduled_tasks is None:
                 required_wl = wl_all
                 st.warning("⚠️ لم يتم تحديد دوام أقسام لهذا اليوم، لذلك ستعرض الإحصائيات على جميع القائمة البيضاء.")
             else:
                 required_wl = {eid: emp for eid, emp in wl_all.items() if emp_required_on_day(emp, scheduled_tasks)}
-                with st.expander(f"📅 الأقسام المعتمدة في إحصائيات اليوم ({today_day_ar})", expanded=False):
+                with st.expander(f"📅 الأقسام المعتمدة في إحصائيات اليوم ({today_day_ar}) — مصدر الجدول: {schedule_source}", expanded=False):
                     for t in scheduled_tasks:
                         st.markdown(f"- {t}")
 
@@ -1308,11 +1370,11 @@ else:
             abs_date_str=str(abs_date)
             abs_day_ar=day_ar_from_date(abs_date)
 
-            scheduled_tasks=scheduled_tasks_for_day(abs_day_ar)
+            scheduled_tasks, schedule_source = scheduled_tasks_for_date(abs_date_str)
             if scheduled_tasks is None:
                 st.warning("⚠️ لم يتم تحديد دوام أقسام لهذا اليوم في ورقة جدول_دوام_الأقسام، لذلك سيتم حصر الغياب على جميع القائمة البيضاء.")
             else:
-                with st.expander(f"📅 الأقسام المطلوب دوامها يوم {abs_day_ar}", expanded=False):
+                with st.expander(f"📅 الأقسام المطلوب دوامها يوم {abs_day_ar} — مصدر الجدول: {schedule_source}", expanded=False):
                     for t in scheduled_tasks:
                         st.markdown(f"- {t}")
 
@@ -1369,6 +1431,50 @@ else:
             st.markdown("#### 📅 تحديد الأقسام/المهام التي تداوم في كل يوم")
             st.info("حددي الأيام المطلوبة لكل مهمة. عند حصر الغياب سيحسب البرنامج فقط الموظفات التابعات للمهام المفعّلة في يوم الغياب.")
 
+            st.markdown("### 🗓️ دوام يوم محدد — مرن")
+            st.caption("استخدمي هذا إذا تغير الجدول في يوم معيّن. هذا الجدول له أولوية على الجدول الأسبوعي لذلك التاريخ.")
+            daily_date = st.date_input("تاريخ الدوام الخاص", value=now_bh().date(), key="daily_sch_date")
+            daily_date_str = str(daily_date)
+            daily_tasks_selected = st.multiselect("اختاري الأقسام/المهام التي ستداوم في هذا التاريخ", TASKS_ALL, key="daily_sch_tasks")
+            daily_note = st.text_input("ملاحظات اختيارية", key="daily_sch_note")
+            if st.button("💾 حفظ دوام هذا التاريخ", use_container_width=True, type="primary", key="save_daily_schedule"):
+                if not daily_tasks_selected:
+                    st.error("❌ اختاري مهمة واحدة على الأقل.")
+                else:
+                    try:
+                        # تعطيل السجلات القديمة لنفس التاريخ، ثم إضافة الاختيارات الجديدة
+                        records = daily_schedule_sheet.get_all_records()
+                        for i, r in enumerate(records):
+                            if str(r.get("التاريخ","")).strip() == daily_date_str:
+                                daily_schedule_sheet.update_cell(i+2, 3, "لا")
+                        for t in daily_tasks_selected:
+                            daily_schedule_sheet.append_row([daily_date_str, t, "نعم", daily_note], value_input_option="USER_ENTERED")
+                        get_daily_schedule_records.clear()
+                        st.success("✅ تم حفظ دوام التاريخ المحدد. سيعتمد عليه حصر الغياب والإحصائيات لهذا اليوم.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ خطأ أثناء حفظ دوام اليوم: {e}")
+
+            current_daily = [r for r in get_daily_schedule_records() if str(r.get("التاريخ","")).strip()==daily_date_str and (str(r.get("نشط","")).strip()=="" or is_yes(r.get("نشط","")))]
+            if current_daily:
+                with st.expander(f"📌 دوام محفوظ لتاريخ {daily_date_str}", expanded=True):
+                    for i, r in enumerate(current_daily, start=1):
+                        st.markdown(f'<div class="audit-row"><b>{r.get("المهمة","")}</b><br><small>{r.get("ملاحظات","")}</small></div>', unsafe_allow_html=True)
+                    if st.button("🗑️ تعطيل دوام هذا التاريخ", use_container_width=True, key="disable_daily_schedule"):
+                        try:
+                            records = daily_schedule_sheet.get_all_records()
+                            for i, r in enumerate(records):
+                                if str(r.get("التاريخ","")).strip() == daily_date_str:
+                                    daily_schedule_sheet.update_cell(i+2, 3, "لا")
+                            get_daily_schedule_records.clear()
+                            st.success("✅ تم تعطيل دوام هذا التاريخ، وسيعود النظام للجدول الأسبوعي.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ تعذر التعطيل: {e}")
+
+            st.markdown("---")
+            st.markdown("### 📅 الجدول الأسبوعي الثابت")
+
             with st.expander("➕ إضافة / تحديث مهمة", expanded=True):
                 sch_task=st.selectbox("المهمة", TASKS_ALL, key="sch_task")
                 days_cols=st.columns(4)
@@ -1424,6 +1530,73 @@ else:
                         st.markdown(f'<div class="audit-row"><b>{task}</b><br><small>{days_txt} — {active}</small></div>',unsafe_allow_html=True)
             except Exception as e:
                 st.error(f"خطأ: {e}")
+
+        # ── تنظيف التكرارات ───────────────────────────────────────
+        elif admin_tab=="🧹 تنظيف التكرارات":
+            st.markdown("#### 🧹 تنظيف تكرار سجلات sheet1")
+            st.info("يفحص النظام التكرار حسب التاريخ + الرقم الشخصي. افتحي السهم، ثم اختاري الصفوف التي تريدين حذفها. يُفضّل إبقاء أول تسجيل صحيح وحذف الباقي.")
+
+            if st.button("🔍 فحص التكرارات الآن", use_container_width=True, type="primary"):
+                st.session_state.duplicate_groups = find_duplicate_attendance_groups()
+
+            duplicate_groups = st.session_state.get("duplicate_groups", None)
+            if duplicate_groups is None:
+                duplicate_groups = find_duplicate_attendance_groups()
+                st.session_state.duplicate_groups = duplicate_groups
+
+            if not duplicate_groups:
+                st.success("✅ لا توجد سجلات مكررة حالياً في sheet1.")
+            else:
+                st.warning(f"⚠️ تم العثور على {len(duplicate_groups)} حالة تكرار.")
+                for group_no, ((dup_date, dup_id), rows_list) in enumerate(duplicate_groups.items(), start=1):
+                    first_row = rows_list[0][1]
+                    emp_name = first_row.get("الاسم الثلاثي", "") or first_row.get("الاسم", "")
+                    task_name = first_row.get("المهمة", "")
+                    with st.expander(f"🔁 {emp_name} — #{dup_id} — {dup_date} — عدد السجلات: {len(rows_list)}", expanded=False):
+                        options = []
+                        option_map = {}
+                        st.caption("اختاري الصفوف الزائدة للحذف. انتبهي: الحذف من Google Sheet نهائي.")
+                        for row_num, r in rows_list:
+                            label = f"صف {row_num} | حضور: {r.get('وقت الحضور','—') or '—'} | انصراف: {r.get('وقت الانصراف','—') or '—'} | مهمة: {r.get('المهمة','—')}"
+                            options.append(label)
+                            option_map[label] = row_num
+                            st.markdown(f"""
+                            <div class="audit-row">
+                                <b>صف {row_num}</b><br>
+                                الاسم: {r.get('الاسم الثلاثي','')}<br>
+                                الرقم الشخصي: {r.get('الرقم الشخصي','')}<br>
+                                المدرسة: {r.get('اسم المدرسة', r.get('المدرسة',''))}<br>
+                                المهمة: {r.get('المهمة','')}<br>
+                                وقت الحضور: {r.get('وقت الحضور','') or '—'}<br>
+                                وقت الانصراف: {r.get('وقت الانصراف','') or '—'}<br>
+                                سبب التأخير: {r.get('سبب التأخير','') or '—'}<br>
+                                سبب الانصراف: {r.get('سبب الانصراف','') or '—'}
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                        selected = st.multiselect(
+                            "حددي الصفوف التي تريدين حذفها",
+                            options,
+                            key=f"dup_select_{group_no}_{dup_date}_{dup_id}"
+                        )
+                        confirm_delete = st.checkbox("أؤكد حذف الصفوف المحددة من sheet1", key=f"dup_confirm_{group_no}_{dup_date}_{dup_id}")
+                        if st.button("🗑️ حذف الصفوف المحددة", key=f"dup_delete_{group_no}_{dup_date}_{dup_id}", use_container_width=True):
+                            if not selected:
+                                st.error("❌ لم تختاري أي صف للحذف.")
+                            elif not confirm_delete:
+                                st.error("❌ يجب تفعيل خانة التأكيد قبل الحذف.")
+                            else:
+                                row_numbers = sorted([option_map[x] for x in selected], reverse=True)
+                                try:
+                                    for rn in row_numbers:
+                                        sheet.delete_rows(rn)
+                                    log_audit(dup_id, emp_name, "حذف تكرار", f"التاريخ:{dup_date}|الصفوف المحذوفة:{row_numbers}|المهمة:{task_name}")
+                                    clear_caches()
+                                    st.session_state.duplicate_groups = find_duplicate_attendance_groups()
+                                    st.success(f"✅ تم حذف {len(row_numbers)} صف/صفوف بنجاح.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ تعذر حذف الصفوف: {e}")
 
         # ── تعديل سجل ────────────────────────────────────────────
         elif admin_tab=="✏️ تعديل سجل":
@@ -1682,6 +1855,7 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
