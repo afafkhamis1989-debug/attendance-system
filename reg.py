@@ -638,6 +638,27 @@ def find_duplicate_attendance_groups():
         groups.setdefault(key, []).append((i, r))
     return {k: v for k, v in groups.items() if len(v) > 1}
 
+
+
+def find_daily_rows_fresh(today, emp_id):
+    """يرجع كل صفوف نفس الرقم الشخصي في نفس التاريخ من sheet1 مباشرة بدون كاش."""
+    records = get_sheet_data_fresh()
+    matches = []
+    for i, r in enumerate(records, start=2):
+        if str(r.get("التاريخ", "")).strip() == str(today).strip() and str(r.get("الرقم الشخصي", "")).strip() == str(emp_id).strip():
+            matches.append((i, r))
+    return matches
+
+def pick_main_daily_row(matches):
+    """اختيار السجل الأساسي عند وجود أكثر من صف: نفضّل أول صف فيه حضور، وإلا أول صف."""
+    if not matches:
+        return None, None
+    with_attendance = [(i, r) for i, r in matches if str(r.get("وقت الحضور", "")).strip()]
+    return (with_attendance[0] if with_attendance else matches[0])
+
+def has_duplicate_daily_record(today, emp_id):
+    return len(find_daily_rows_fresh(today, emp_id)) > 1
+
 def parse_bahrain_datetime(dt_text):
     """تحويل التاريخ المحفوظ في الشيت إلى وقت البحرين حتى لا يفشل تجاوز الموقع."""
     dt_text = str(dt_text or "").strip()
@@ -795,13 +816,22 @@ def register_operation(operation, emp_id, note=""):
 
     if not check_device_lock(today,emp_id,full_name): return False
 
-    data=get_sheet_data(); row_index,row=find_today_row(data,today,emp_id)
+    # قراءة مباشرة بدون كاش حتى لا تتكرر العمليات بسبب تأخر تحديث Google Sheet
+    daily_matches = find_daily_rows_fresh(today, emp_id)
+    row_index, row = pick_main_daily_row(daily_matches)
+
+    if len(daily_matches) > 1:
+        st.warning("⚠️ يوجد أكثر من سجل لنفس الموظفة في نفس التاريخ. يرجى تنظيف التكرارات من لوحة الأدمن. لن يتم إنشاء سجل جديد.")
 
     if operation=="تسجيل حضور":
-        # حماية مباشرة من التكرار: نقرأ من Google Sheet بدون كاش قبل الإضافة
-        row_index, row = find_today_row_fresh(today, emp_id)
-        if row and row.get("وقت الحضور"):
+        # حماية مباشرة من التكرار: أي سجل لنفس الرقم في نفس التاريخ يمنع إنشاء سجل حضور جديد
+        daily_matches = find_daily_rows_fresh(today, emp_id)
+        row_index, row = pick_main_daily_row(daily_matches)
+        if row and str(row.get("وقت الحضور", "")).strip():
             st.error(f"❌ تم تسجيل حضورك مسبقاً لهذا اليوم الساعة {row.get('وقت الحضور','')}. لا يمكن تسجيل حضور مكرر.")
+            return False
+        if len(daily_matches) > 1:
+            st.error("❌ يوجد تكرار سابق لهذا الرقم في نفس التاريخ. افتحي لوحة الأدمن > تنظيف التكرارات، ثم حاولي مرة أخرى.")
             return False
 
         # إذا حضرت متأخرة بسبب موعد/سبب آخر، يوثق النظام ذلك كاستئذان ضمني:
@@ -819,8 +849,22 @@ def register_operation(operation, emp_id, note=""):
                 safe_update(sheet,row_index,COL_EXIT,implicit_exit_time)
                 safe_update(sheet,row_index,COL_RETURN,implicit_return_time)
         else:
-            ok=safe_append(sheet,[today,day_name,school,task,is_support,full_name,emp_id,time_now,note,"","",implicit_exit_time,implicit_return_time,""])
-            if not ok: st.error("❌ تعذر الحفظ، حاولي بعد قليل."); return False
+            # فحص أخير مباشرة قبل الإضافة لمنع التكرار عند الضغط السريع أو فتح أكثر من نافذة
+            final_matches = find_daily_rows_fresh(today, emp_id)
+            final_row_index, final_row = pick_main_daily_row(final_matches)
+            if final_row and str(final_row.get("وقت الحضور", "")).strip():
+                st.error(f"❌ تم تسجيل حضورك مسبقاً لهذا اليوم الساعة {final_row.get('وقت الحضور','')}. لا يمكن تسجيل حضور مكرر.")
+                return False
+            if final_row_index:
+                safe_update(sheet,final_row_index,COL_ATTEND,time_now)
+                safe_update(sheet,final_row_index,COL_LATE_REASON,note)
+                if implicit_leave:
+                    safe_update(sheet,final_row_index,COL_EXIT,implicit_exit_time)
+                    safe_update(sheet,final_row_index,COL_RETURN,implicit_return_time)
+                row_index = final_row_index
+            else:
+                ok=safe_append(sheet,[today,day_name,school,task,is_support,full_name,emp_id,time_now,note,"","",implicit_exit_time,implicit_return_time,""])
+                if not ok: st.error("❌ تعذر الحفظ، حاولي بعد قليل."); return False
         lock_device(today,emp_id,full_name)
         log_audit(emp_id,full_name,"تسجيل حضور",f"الوقت:{time_now}|السبب:{note or 'بدون'}")
         # ثبّت البيانات
@@ -1534,7 +1578,7 @@ else:
         # ── تنظيف التكرارات ───────────────────────────────────────
         elif admin_tab=="🧹 تنظيف التكرارات":
             st.markdown("#### 🧹 تنظيف تكرار سجلات sheet1")
-            st.info("يفحص النظام التكرار حسب التاريخ + الرقم الشخصي. افتحي السهم، ثم اختاري الصفوف التي تريدين حذفها. يُفضّل إبقاء أول تسجيل صحيح وحذف الباقي.")
+            st.info("يفحص النظام التكرار في نفس اليوم فقط حسب: التاريخ + الرقم الشخصي. اختاري التاريخ أولاً، ثم افتحي السهم للمعلمة واحذفي الصفوف الزائدة.")
 
             if st.button("🔍 فحص التكرارات الآن", use_container_width=True, type="primary"):
                 st.session_state.duplicate_groups = find_duplicate_attendance_groups()
@@ -1547,56 +1591,85 @@ else:
             if not duplicate_groups:
                 st.success("✅ لا توجد سجلات مكررة حالياً في sheet1.")
             else:
-                st.warning(f"⚠️ تم العثور على {len(duplicate_groups)} حالة تكرار.")
-                for group_no, ((dup_date, dup_id), rows_list) in enumerate(duplicate_groups.items(), start=1):
-                    first_row = rows_list[0][1]
-                    emp_name = first_row.get("الاسم الثلاثي", "") or first_row.get("الاسم", "")
-                    task_name = first_row.get("المهمة", "")
-                    with st.expander(f"🔁 {emp_name} — #{dup_id} — {dup_date} — عدد السجلات: {len(rows_list)}", expanded=False):
-                        options = []
-                        option_map = {}
-                        st.caption("اختاري الصفوف الزائدة للحذف. انتبهي: الحذف من Google Sheet نهائي.")
-                        for row_num, r in rows_list:
-                            label = f"صف {row_num} | حضور: {r.get('وقت الحضور','—') or '—'} | انصراف: {r.get('وقت الانصراف','—') or '—'} | مهمة: {r.get('المهمة','—')}"
-                            options.append(label)
-                            option_map[label] = row_num
-                            st.markdown(f"""
-                            <div class="audit-row">
-                                <b>صف {row_num}</b><br>
-                                الاسم: {r.get('الاسم الثلاثي','')}<br>
-                                الرقم الشخصي: {r.get('الرقم الشخصي','')}<br>
-                                المدرسة: {r.get('اسم المدرسة', r.get('المدرسة',''))}<br>
-                                المهمة: {r.get('المهمة','')}<br>
-                                وقت الحضور: {r.get('وقت الحضور','') or '—'}<br>
-                                وقت الانصراف: {r.get('وقت الانصراف','') or '—'}<br>
-                                سبب التأخير: {r.get('سبب التأخير','') or '—'}<br>
-                                سبب الانصراف: {r.get('سبب الانصراف','') or '—'}
-                            </div>
-                            """, unsafe_allow_html=True)
+                # ترتيب التكرارات حسب التاريخ حتى يكون واضح أن التكرار داخل نفس اليوم
+                dates_available = sorted(set(k[0] for k in duplicate_groups.keys()), reverse=True)
+                selected_date_filter = st.selectbox(
+                    "اختاري التاريخ لعرض تكرارات نفس اليوم",
+                    ["كل التواريخ"] + dates_available,
+                    key="dup_date_filter"
+                )
 
-                        selected = st.multiselect(
-                            "حددي الصفوف التي تريدين حذفها",
-                            options,
-                            key=f"dup_select_{group_no}_{dup_date}_{dup_id}"
-                        )
-                        confirm_delete = st.checkbox("أؤكد حذف الصفوف المحددة من sheet1", key=f"dup_confirm_{group_no}_{dup_date}_{dup_id}")
-                        if st.button("🗑️ حذف الصفوف المحددة", key=f"dup_delete_{group_no}_{dup_date}_{dup_id}", use_container_width=True):
-                            if not selected:
-                                st.error("❌ لم تختاري أي صف للحذف.")
-                            elif not confirm_delete:
-                                st.error("❌ يجب تفعيل خانة التأكيد قبل الحذف.")
-                            else:
-                                row_numbers = sorted([option_map[x] for x in selected], reverse=True)
-                                try:
-                                    for rn in row_numbers:
-                                        sheet.delete_rows(rn)
-                                    log_audit(dup_id, emp_name, "حذف تكرار", f"التاريخ:{dup_date}|الصفوف المحذوفة:{row_numbers}|المهمة:{task_name}")
-                                    clear_caches()
-                                    st.session_state.duplicate_groups = find_duplicate_attendance_groups()
-                                    st.success(f"✅ تم حذف {len(row_numbers)} صف/صفوف بنجاح.")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ تعذر حذف الصفوف: {e}")
+                filtered_groups = {
+                    k: v for k, v in duplicate_groups.items()
+                    if selected_date_filter == "كل التواريخ" or k[0] == selected_date_filter
+                }
+
+                st.warning(f"⚠️ تم العثور على {len(filtered_groups)} حالة تكرار حسب التاريخ + الرقم الشخصي.")
+
+                # نجمع العرض تحت كل تاريخ
+                groups_by_date = {}
+                for (dup_date, dup_id), rows_list in filtered_groups.items():
+                    groups_by_date.setdefault(dup_date, []).append((dup_id, rows_list))
+
+                for dup_date in sorted(groups_by_date.keys(), reverse=True):
+                    with st.expander(f"📅 تاريخ {dup_date} — عدد حالات التكرار: {len(groups_by_date[dup_date])}", expanded=(selected_date_filter != "كل التواريخ")):
+                        for group_no, (dup_id, rows_list) in enumerate(groups_by_date[dup_date], start=1):
+                            first_row = rows_list[0][1]
+                            emp_name = first_row.get("الاسم الثلاثي", "") or first_row.get("الاسم", "")
+                            task_name = first_row.get("المهمة", "")
+
+                            with st.expander(f"🔁 {emp_name} — #{dup_id} — عدد السجلات في نفس اليوم: {len(rows_list)}", expanded=False):
+                                options = []
+                                option_map = {}
+                                st.caption("اختاري فقط الصفوف الزائدة للحذف. انتبهي: الحذف من Google Sheet نهائي.")
+
+                                for row_num, r in rows_list:
+                                    label = f"صف {row_num} | التاريخ: {dup_date} | حضور: {r.get('وقت الحضور','—') or '—'} | انصراف: {r.get('وقت الانصراف','—') or '—'} | مهمة: {r.get('المهمة','—')}"
+                                    options.append(label)
+                                    option_map[label] = row_num
+                                    st.markdown(f"""
+                                    <div class="audit-row">
+                                        <b>صف {row_num}</b><br>
+                                        التاريخ: {dup_date}<br>
+                                        الاسم: {r.get('الاسم الثلاثي','')}<br>
+                                        الرقم الشخصي: {r.get('الرقم الشخصي','')}<br>
+                                        المدرسة: {r.get('اسم المدرسة', r.get('المدرسة',''))}<br>
+                                        المهمة: {r.get('المهمة','')}<br>
+                                        وقت الحضور: {r.get('وقت الحضور','') or '—'}<br>
+                                        وقت الانصراف: {r.get('وقت الانصراف','') or '—'}<br>
+                                        سبب التأخير: {r.get('سبب التأخير','') or '—'}<br>
+                                        سبب الانصراف: {r.get('سبب الانصراف','') or '—'}
+                                    </div>
+                                    """, unsafe_allow_html=True)
+
+                                selected = st.multiselect(
+                                    "حددي الصفوف التي تريدين حذفها",
+                                    options,
+                                    key=f"dup_select_{dup_date}_{dup_id}_{group_no}"
+                                )
+                                confirm_delete = st.checkbox(
+                                    "أؤكد حذف الصفوف المحددة من sheet1",
+                                    key=f"dup_confirm_{dup_date}_{dup_id}_{group_no}"
+                                )
+                                if st.button("🗑️ حذف الصفوف المحددة", key=f"dup_delete_{dup_date}_{dup_id}_{group_no}", use_container_width=True):
+                                    if not selected:
+                                        st.error("❌ لم تختاري أي صف للحذف.")
+                                    elif not confirm_delete:
+                                        st.error("❌ يجب تفعيل خانة التأكيد قبل الحذف.")
+                                    elif len(selected) >= len(rows_list):
+                                        st.error("❌ لا يمكن حذف كل سجلات المعلمة لهذا اليوم. اتركي سجل واحد صحيح على الأقل.")
+                                    else:
+                                        row_numbers = sorted([option_map[x] for x in selected], reverse=True)
+                                        try:
+                                            for rn in row_numbers:
+                                                sheet.delete_rows(rn)
+                                            log_audit(dup_id, emp_name, "حذف تكرار", f"التاريخ:{dup_date}|الصفوف المحذوفة:{row_numbers}|المهمة:{task_name}")
+                                            clear_caches()
+                                            st.session_state.duplicate_groups = find_duplicate_attendance_groups()
+                                            st.success(f"✅ تم حذف {len(row_numbers)} صف/صفوف بنجاح من تكرارات تاريخ {dup_date}.")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"❌ تعذر حذف الصفوف: {e}")
 
         # ── تعديل سجل ────────────────────────────────────────────
         elif admin_tab=="✏️ تعديل سجل":
@@ -1669,25 +1742,42 @@ else:
                             ""                              # N محاولة
                         ]
 
-                        ok=safe_append(sheet,row_data)
-                        if ok:
-                            try:
-                                data_after=get_sheet_data()
-                                idx_after,row_after=find_today_row(data_after,date_str,m_id)
-                                if idx_after:
-                                    update_work_calculation(idx_after,row_after)
-                            except Exception:
-                                pass
-                            log_audit(
-                                m_id,
-                                full_name,
-                                "تسجيل يدوي",
-                                f"التاريخ:{date_str}|حضور:{m_att}|انصراف:{m_dep}|السبب:{m_note.strip()}"
-                            )
+                        existing_matches = find_daily_rows_fresh(date_str, m_id)
+                        existing_idx, existing_row = pick_main_daily_row(existing_matches)
+                        if existing_idx and existing_row and str(existing_row.get("وقت الحضور", "")).strip():
+                            st.error(f"❌ يوجد سجل حضور مسبق لهذا الرقم في تاريخ {date_str} الساعة {existing_row.get('وقت الحضور','')}. لا يمكن إضافة سجل يدوي مكرر.")
+                        elif len(existing_matches) > 1:
+                            st.error("❌ يوجد تكرار سابق لهذا الرقم في نفس التاريخ. نظّفي التكرارات أولاً من قسم تنظيف التكرارات.")
+                        elif existing_idx:
+                            safe_update(sheet,existing_idx,COL_ATTEND,m_att)
+                            safe_update(sheet,existing_idx,COL_LATE_REASON,f"[يدوي] {m_note.strip()}")
+                            safe_update(sheet,existing_idx,COL_DEPART,m_dep)
+                            existing_row["وقت الحضور"] = m_att
+                            existing_row["وقت الانصراف"] = m_dep
+                            update_work_calculation(existing_idx,existing_row)
+                            log_audit(m_id,full_name,"تسجيل يدوي",f"تحديث سجل موجود|التاريخ:{date_str}|حضور:{m_att}|انصراف:{m_dep}|السبب:{m_note.strip()}")
                             clear_caches()
-                            st.success("✅ تم التسجيل اليدوي بنجاح وبالأعمدة الصحيحة")
+                            st.success("✅ تم تحديث السجل الموجود بدون إنشاء تكرار")
                         else:
-                            st.error("❌ تعذر حفظ التسجيل اليدوي، حاولي مرة أخرى")
+                            ok=safe_append(sheet,row_data)
+                            if ok:
+                                try:
+                                    data_after=get_sheet_data_fresh()
+                                    idx_after,row_after=find_today_row(data_after,date_str,m_id)
+                                    if idx_after:
+                                        update_work_calculation(idx_after,row_after)
+                                except Exception:
+                                    pass
+                                log_audit(
+                                    m_id,
+                                    full_name,
+                                    "تسجيل يدوي",
+                                    f"التاريخ:{date_str}|حضور:{m_att}|انصراف:{m_dep}|السبب:{m_note.strip()}"
+                                )
+                                clear_caches()
+                                st.success("✅ تم التسجيل اليدوي بنجاح وبالأعمدة الصحيحة")
+                            else:
+                                st.error("❌ تعذر حفظ التسجيل اليدوي، حاولي مرة أخرى")
 
         # ── القائمة البيضاء ──────────────────────────────────────
         elif admin_tab=="📋 القائمة البيضاء":
