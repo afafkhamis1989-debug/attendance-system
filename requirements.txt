@@ -3,4 +3,5 @@ gspread
 oauth2client
 streamlit-geolocation
 streamlit-local-storage
-openpyxl 
+pandas
+openpyxl
