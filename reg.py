@@ -2280,8 +2280,193 @@ else:
                         st.markdown(f'<div class="audit-row">{r.get("التاريخ","")} — {r.get("الاسم الثلاثي","")} — انصراف: {r.get("وقت الانصراف","")} — {r.get("إغلاق تلقائي","")}</div>',unsafe_allow_html=True)
 
 
-        # ── إعدادات التسجيل اليدوي ───────────────────────────────
-        elif admin_tab=="⚙️ إعدادات التسجيل اليدوي":
+        # ── التقارير ──────────────────────────────────────────────
+        elif admin_tab=="📑 التقارير":
+            st.markdown("#### 📑 التقارير")
+
+            # فلاتر
+            col_f1, col_f2, col_f3 = st.columns(3)
+            with col_f1:
+                report_type = st.selectbox("نوع التقرير", ["يومي", "أسبوعي", "شهري", "نطاق مخصص"], key="rpt_type")
+            with col_f2:
+                if report_type == "يومي":
+                    rpt_date = st.date_input("التاريخ", value=now_bh().date(), key="rpt_date_single")
+                    date_from = date_to = rpt_date.strftime("%Y-%m-%d")
+                elif report_type == "أسبوعي":
+                    week_start = now_bh().date() - timedelta(days=now_bh().date().weekday())
+                    rpt_date = st.date_input("بداية الأسبوع", value=week_start, key="rpt_week")
+                    date_from = rpt_date.strftime("%Y-%m-%d")
+                    date_to   = (rpt_date + timedelta(days=6)).strftime("%Y-%m-%d")
+                elif report_type == "شهري":
+                    rpt_month = st.selectbox("الشهر", [f"{now_bh().year}-{m:02d}" for m in range(1,13)],
+                                             index=now_bh().month-1, key="rpt_month")
+                    date_from = f"{rpt_month}-01"
+                    date_to   = f"{rpt_month}-31"
+                else:
+                    rpt_date = st.date_input("من", value=now_bh().date(), key="rpt_from")
+                    date_from = rpt_date.strftime("%Y-%m-%d")
+                    date_to   = date_from
+            with col_f3:
+                if report_type == "نطاق مخصص":
+                    rpt_date_to = st.date_input("إلى", value=now_bh().date(), key="rpt_to")
+                    date_to = rpt_date_to.strftime("%Y-%m-%d")
+
+            rpt_school = st.selectbox("المدرسة", ["الكل"] + schools, key="rpt_school")
+
+            if st.button("📊 إنشاء التقرير", use_container_width=True, type="primary", key="btn_gen_report"):
+                try:
+                    data = get_sheet_data()
+                    rows = [r for r in data
+                            if date_from <= str(r.get("التاريخ","")).strip() <= date_to
+                            and (rpt_school == "الكل" or str(r.get("اسم المدرسة","")).strip() == rpt_school)]
+
+                    if not rows:
+                        st.warning("⚠️ لا توجد بيانات للنطاق المحدد.")
+                    else:
+                        st.success(f"✅ تم تحميل {len(rows)} سجل.")
+
+                        # ── ملخص إجمالي ──
+                        total     = len(rows)
+                        attended  = len([r for r in rows if r.get("وقت الحضور","")])
+                        departed  = len([r for r in rows if r.get("وقت الانصراف","")])
+                        late      = len([r for r in rows if is_late_for_statistics(r)])
+                        auto_cls  = len([r for r in rows if str(r.get("إغلاق تلقائي","")).strip()])
+                        no_gps    = len([r for r in rows if "GPS" in str(r.get("محاولة","")) or "GPS" in str(r.get("سبب التأخير",""))])
+                        extra_hrs_rows = [r for r in rows if r.get("الساعات الإضافية","") and str(r.get("الساعات الإضافية","")).strip() not in ["","0:00","00:00"]]
+
+                        c1,c2,c3,c4 = st.columns(4)
+                        c1.metric("إجمالي السجلات", total)
+                        c2.metric("سجّلن حضور", attended)
+                        c3.metric("سجّلن انصراف", departed)
+                        c4.metric("حالات تأخير", late)
+                        c5,c6,c7,c8 = st.columns(4)
+                        c5.metric("إغلاق تلقائي", auto_cls)
+                        c6.metric("بدون GPS", no_gps)
+                        c7.metric("لديهن ساعات إضافية", len(extra_hrs_rows))
+                        c8.metric("نطاق التاريخ", f"{date_from} → {date_to}")
+
+                        st.markdown("---")
+
+                        # ── جدول تفصيلي ──
+                        st.markdown("##### تفاصيل السجلات")
+                        cols_show = ["التاريخ","اليوم","اسم المدرسة","المهمة","الاسم الثلاثي","الرقم الشخصي",
+                                     "وقت الحضور","وقت الانصراف","ساعات العمل","الساعات الإضافية","حالة الدوام","نوع الدوام اليومي"]
+                        df_rows = []
+                        for r in rows:
+                            df_rows.append({c: r.get(c,"") for c in cols_show})
+                        df = pd.DataFrame(df_rows)
+                        st.dataframe(df, use_container_width=True, hide_index=True)
+
+                        # ── تصدير Excel ──
+                        st.markdown("##### تصدير")
+                        try:
+                            buf = BytesIO()
+                            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                                df.to_excel(writer, index=False, sheet_name="التقرير")
+                            buf.seek(0)
+                            fname = f"تقرير_الحضور_{date_from}_{date_to}.xlsx"
+                            st.download_button("📥 تحميل Excel", data=buf, file_name=fname,
+                                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                               use_container_width=True)
+                        except Exception as e:
+                            st.warning(f"⚠️ تعذّر إنشاء ملف Excel: {e}")
+
+                        # ── ملخص لكل موظفة ──
+                        st.markdown("---")
+                        st.markdown("##### ملخص لكل موظفة")
+                        emp_summary = {}
+                        for r in rows:
+                            eid  = str(r.get("الرقم الشخصي","")).strip()
+                            name = str(r.get("الاسم الثلاثي","")).strip()
+                            if not eid: continue
+                            if eid not in emp_summary:
+                                emp_summary[eid] = {"الاسم": name, "أيام": 0, "تأخير": 0, "إغلاق تلقائي": 0, "ساعات إضافية": 0}
+                            emp_summary[eid]["أيام"] += 1
+                            if is_late_for_statistics(r): emp_summary[eid]["تأخير"] += 1
+                            if str(r.get("إغلاق تلقائي","")).strip(): emp_summary[eid]["إغلاق تلقائي"] += 1
+                        df_emp = pd.DataFrame([{"الرقم": k, **v} for k,v in emp_summary.items()])
+                        if not df_emp.empty:
+                            st.dataframe(df_emp, use_container_width=True, hide_index=True)
+
+                except Exception as e:
+                    st.error(f"❌ خطأ في إنشاء التقرير: {e}")
+
+        # ── إصلاح شامل ────────────────────────────────────────────
+        elif admin_tab=="🛠️ إصلاح شامل":
+            st.markdown("#### 🛠️ إصلاح شامل")
+            st.warning("⚠️ هذه الأدوات تعدّل البيانات مباشرة. استخدميها بحذر.")
+
+            # ── إعادة حساب الساعات ──
+            with st.container(border=True):
+                st.markdown("##### 🔄 إعادة حساب ساعات العمل")
+                st.caption("يعيد احتساب ساعات العمل والساعات الإضافية وحالة الدوام لجميع السجلات أو لتاريخ محدد.")
+                recalc_mode = st.radio("النطاق", ["تاريخ محدد", "كل السجلات"], horizontal=True, key="recalc_mode")
+                if recalc_mode == "تاريخ محدد":
+                    recalc_date = st.date_input("التاريخ", value=now_bh().date(), key="recalc_date")
+                    recalc_date_str = recalc_date.strftime("%Y-%m-%d")
+                else:
+                    recalc_date_str = None
+
+                if st.button("🔄 بدء إعادة الحساب", use_container_width=True, type="primary", key="btn_recalc"):
+                    try:
+                        data = get_sheet_data()
+                        updated = 0
+                        errors  = 0
+                        progress = st.progress(0)
+                        total_r = len(data)
+                        for i, row in enumerate(data):
+                            progress.progress((i+1)/max(total_r,1))
+                            if recalc_date_str and str(row.get("التاريخ","")).strip() != recalc_date_str:
+                                continue
+                            if not row.get("وقت الحضور",""):
+                                continue
+                            try:
+                                if update_work_calculation(i+2, row):
+                                    updated += 1
+                            except Exception:
+                                errors += 1
+                        clear_caches()
+                        st.success(f"✅ تم إعادة حساب {updated} سجل. أخطاء: {errors}")
+                        log_audit("—","أدمن","إعادة حساب شاملة",f"نطاق:{recalc_date_str or 'الكل'}|محدّث:{updated}|أخطاء:{errors}")
+                    except Exception as e:
+                        st.error(f"❌ خطأ: {e}")
+
+            st.markdown("---")
+
+            # ── تنظيف التكرارات لكل التواريخ ──
+            with st.container(border=True):
+                st.markdown("##### 🧹 تنظيف تكرارات كل التواريخ")
+                st.caption("يفحص جميع التواريخ ويحذف السجلات المكررة تلقائياً — يحتفظ بالأكمل.")
+                if st.button("🔍 فحص وتنظيف كل التكرارات", use_container_width=True, type="primary", key="btn_clean_all_dups"):
+                    try:
+                        groups = find_duplicate_attendance_groups()
+                        if not groups:
+                            st.success("✅ لا توجد تكرارات في أي تاريخ.")
+                        else:
+                            total_deleted = 0
+                            for (date_val, emp_id_val), _ in groups.items():
+                                deleted = auto_cleanup_duplicate_attendance_for_emp(date_val, emp_id_val, "إصلاح شامل")
+                                total_deleted += deleted
+                            clear_caches()
+                            st.success(f"✅ تم حذف {total_deleted} سجل مكرر.")
+                            log_audit("—","أدمن","تنظيف شامل للتكرارات",f"سجلات محذوفة:{total_deleted}")
+                    except Exception as e:
+                        st.error(f"❌ خطأ: {e}")
+
+            st.markdown("---")
+
+            # ── إغلاق السجلات المفتوحة ──
+            with st.container(border=True):
+                st.markdown("##### 🔒 إغلاق السجلات المفتوحة من أيام سابقة")
+                st.caption("يغلق تلقائياً أي سجل من أيام سابقة لم يُسجَّل له انصراف.")
+                if st.button("🔒 تنفيذ الإغلاق التلقائي الآن", use_container_width=True, key="btn_force_autoclose"):
+                    try:
+                        auto_close_previous_open_records()
+                        clear_caches()
+                        st.success("✅ تم تنفيذ الإغلاق التلقائي لجميع السجلات المفتوحة.")
+                        log_audit("—","أدمن","إغلاق تلقائي يدوي","تنفيذ من لوحة الإصلاح الشامل")
+                    except Exception as e:
+                        st.error(f"❌ خطأ: {e}")
             st.markdown("#### ⚙️ إعدادات التسجيل اليدوي للموظفات")
             current_enabled = manual_requests_enabled()
             if current_enabled:
