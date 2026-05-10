@@ -117,18 +117,12 @@ label{direction:rtl!important;text-align:right!important;display:block!important
 .audit-row{background:#f8fafc;border-radius:10px;padding:10px 14px;border-right:3px solid #378ADD;margin-bottom:6px;font-size:12px;color:#0c3460;}
 .warn-row{background:#faeeda;border-radius:10px;padding:10px 14px;border-right:3px solid #BA7517;margin-bottom:6px;font-size:12px;color:#633806;font-weight:700;}
 .absent-row{background:#fcebeb;border-radius:10px;padding:10px 14px;border-right:3px solid #E24B4A;margin-bottom:6px;font-size:12px;color:#791F1F;font-weight:700;}
-/* تنسيق كرت الموقع بدون تكبير مشوّه لأيقونة المكوّن */
-.gps-click-hint{background:#fff8e8;border:1px solid #f0c36d;border-radius:16px;padding:14px 16px;margin:10px 0 10px 0;color:#6b4300;font-weight:900;text-align:center!important;font-size:17px;}
-/* نخلي أيقونة مكوّن الموقع تظهر بشكل نظيف ومتمركزة بدون تشويه */
-div[data-testid="stIFrame"], div[data-testid="stElementContainer"]:has(iframe){min-height:74px!important;overflow:visible!important;display:flex!important;justify-content:center!important;align-items:center!important;}
-div[data-testid="stIFrame"] iframe, iframe[title*="streamlit_geolocation"], iframe[srcdoc*="geolocation"]{
-    width:74px!important;
-    height:74px!important;
-    transform:none!important;
-    margin:0 auto!important;
-    border:0!important;
-    border-radius:14px!important;
-}
+/* كرت إرشادات الموقع */
+.gps-steps-box{background:#fff8e8;border:1px solid #f0c36d;border-radius:18px;padding:16px 18px;margin:12px 0;color:#5b3a05;text-align:right!important;}
+.gps-steps-title{font-size:19px;font-weight:900;color:#6b4300;margin-bottom:10px;text-align:center!important;}
+.gps-step{display:flex;gap:10px;align-items:flex-start;margin:8px 0;font-size:15px;font-weight:800;color:#173763;}
+.gps-step-num{background:#185FA5;color:white;border-radius:50%;min-width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;font-weight:900;}
+.gps-click-hint{background:#edf8ef;border:1px solid #9bd0a8;border-radius:16px;padding:14px 16px;margin:10px 0 10px 0;color:#1f6b2a;font-weight:900;text-align:center!important;font-size:17px;}
 .no-gps-approved{background:#fff6e7;border:1px solid #eba83a;border-radius:14px;padding:12px 14px;color:#7a4700;font-weight:800;margin-top:10px;}
 </style>
 """, unsafe_allow_html=True)
@@ -1427,18 +1421,27 @@ if mode=="👤 موظفة":
     # ── الموقع ──────────────────────────────────────────────────
     with st.container(border=True):
         st.markdown('<div class="card-title">📍 التحقق من الموقع</div>', unsafe_allow_html=True)
-        st.caption("اضغطي أولًا على زر التحقق من الموقع. خيار التعذر لا يظهر إلا بعد محاولة فعلية إذا فشل GPS أو ظهر خارج النطاق باللون الأحمر.")
+        st.caption("اتبعي الخطوات بالترتيب. خيار التعذر لا يظهر إلا بعد محاولة فعلية إذا فشل GPS أو ظهر خارج النطاق.")
 
         if st.session_state.get("location_allowed", False):
             st.success("✅ تم التحقق من الموقع بنجاح.")
         elif st.session_state.get("allow_no_gps_today", False):
             st.warning("⚠️ تم اختيار التسجيل بدون تحقق GPS. سيظهر ذلك في سجل العملية للأدمن.")
 
-        with st.expander("📋 إذا ظهر طلب الموقع ماذا أضغط؟"):
-            st.markdown('''إذا ظهر طلب السماح بالموقع اضغطي **سماح / Allow**.  
-إذا لم يظهر الطلب أو كان المتصفح لا يدعم الموقع، انتظري نتيجة المحاولة، ثم سيظهر خيار **تعذر التحقق من الموقع** عند الفشل فقط.''')
+        st.markdown('''
+        <div class="gps-steps-box">
+            <div class="gps-steps-title">📋 خطوات التحقق من الموقع</div>
+            <div class="gps-step"><span class="gps-step-num">1</span><span>اضغطي زر <b>ابدئي التحقق من الموقع</b> بالأسفل.</span></div>
+            <div class="gps-step"><span class="gps-step-num">2</span><span>بعدها ستظهر أيقونة الموقع الصغيرة بالأسفل، اضغطيها.</span></div>
+            <div class="gps-step"><span class="gps-step-num">3</span><span>إذا ظهر طلب السماح اختاري <b>سماح / Allow</b>.</span></div>
+        </div>
+        ''', unsafe_allow_html=True)
 
-        if st.button("📍 تحقق من موقعي الآن", use_container_width=True, key="btn_check_location"):
+        with st.expander("📋 ماذا أفعل إذا لم يظهر طلب الموقع؟"):
+            st.markdown('''إذا لم تظهر نافذة السماح أو ظهر خارج النطاق، انتظري نتيجة المحاولة.  
+بعد الفشل فقط سيظهر خيار **تعذر التحقق من الموقع** لإرسال طلب للأدمن.''')
+
+        if st.button("1️⃣ ابدئي التحقق من الموقع", use_container_width=True, key="btn_check_location"):
             st.session_state.location_check_requested = True
             st.session_state.no_gps_option_available = False
             st.session_state.allow_no_gps_today = False
@@ -1446,7 +1449,7 @@ if mode=="👤 موظفة":
 
         if st.session_state.get("location_check_requested", False) and not st.session_state.get("location_allowed", False):
             st.info("⏳ جارٍ محاولة التحقق من الموقع… إذا لم تظهر نافذة السماح أو فشل التحقق سيظهر خيار التعذر بالأسفل.")
-            st.markdown('<div class="gps-click-hint">📍 اضغطي أيقونة الموقع التي ستظهر بالأسفل، ثم اختاري سماح / Allow إذا ظهر الطلب</div>', unsafe_allow_html=True)
+            st.markdown('<div class="gps-click-hint">2️⃣ الآن اضغطي أيقونة الموقع الصغيرة التي ظهرت بالأسفل، ثم اختاري سماح / Allow إذا ظهر الطلب</div>', unsafe_allow_html=True)
             try:
                 location = streamlit_geolocation()
             except Exception:
@@ -1489,8 +1492,8 @@ if mode=="👤 موظفة":
             and not st.session_state.get("location_allowed", False)
             and not st.session_state.get("allow_no_gps_today", False)):
             st.markdown("---")
-            st.warning("⚠️ ظهر خيار التعذر لأن محاولة التحقق من الموقع فشلت أو ظهر خارج النطاق.")
-            if st.button("⚠️ تعذر التحقق من الموقع", use_container_width=True, key="btn_no_gps_after_fail"):
+            st.warning("⚠️ لأن التحقق من الموقع فشل أو ظهر خارج النطاق، يمكنك الآن إرسال طلب للأدمن.")
+            if st.button("⚠️ تعذر التحقق من الموقع — إرسال طلب للأدمن", use_container_width=True, key="btn_no_gps_after_fail"):
                 st.session_state.allow_no_gps_today = True
                 st.session_state.location_allowed = False
                 st.warning("⚠️ تم تفعيل خيار التعذر لهذا اليوم. أي عملية بدون GPS ستُعلّم للأدمن للمراجعة ولا تُكرر لنفس نوع العملية.")
