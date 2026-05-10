@@ -117,17 +117,16 @@ label{direction:rtl!important;text-align:right!important;display:block!important
 .audit-row{background:#f8fafc;border-radius:10px;padding:10px 14px;border-right:3px solid #378ADD;margin-bottom:6px;font-size:12px;color:#0c3460;}
 .warn-row{background:#faeeda;border-radius:10px;padding:10px 14px;border-right:3px solid #BA7517;margin-bottom:6px;font-size:12px;color:#633806;font-weight:700;}
 .absent-row{background:#fcebeb;border-radius:10px;padding:10px 14px;border-right:3px solid #E24B4A;margin-bottom:6px;font-size:12px;color:#791F1F;font-weight:700;}
-/* تكبير زر/أيقونة تحديد الموقع الخاصة بمكوّن streamlit_geolocation */
-.gps-click-hint{background:#fff8e8;border:1px solid #f0c36d;border-radius:16px;padding:14px 16px;margin:10px 0 8px 0;color:#6b4300;font-weight:900;text-align:center!important;font-size:18px;}
-/* نحاول تكبير iframe الخاص بالموقع في أغلب إصدارات Streamlit */
-div[data-testid="stIFrame"], div[data-testid="stElementContainer"]:has(iframe){min-height:150px!important;overflow:visible!important;}
+/* تنسيق كرت الموقع بدون تكبير مشوّه لأيقونة المكوّن */
+.gps-click-hint{background:#fff8e8;border:1px solid #f0c36d;border-radius:16px;padding:14px 16px;margin:10px 0 10px 0;color:#6b4300;font-weight:900;text-align:center!important;font-size:17px;}
+/* نخلي أيقونة مكوّن الموقع تظهر بشكل نظيف ومتمركزة بدون تشويه */
+div[data-testid="stIFrame"], div[data-testid="stElementContainer"]:has(iframe){min-height:74px!important;overflow:visible!important;display:flex!important;justify-content:center!important;align-items:center!important;}
 div[data-testid="stIFrame"] iframe, iframe[title*="streamlit_geolocation"], iframe[srcdoc*="geolocation"]{
-    width:260px!important;
-    height:150px!important;
-    transform:scale(2.6)!important;
-    transform-origin:top right!important;
-    margin-top:12px!important;
-    margin-right:12px!important;
+    width:74px!important;
+    height:74px!important;
+    transform:none!important;
+    margin:0 auto!important;
+    border:0!important;
     border-radius:14px!important;
 }
 .no-gps-approved{background:#fff6e7;border:1px solid #eba83a;border-radius:14px;padding:12px 14px;color:#7a4700;font-weight:800;margin-top:10px;}
@@ -1447,7 +1446,7 @@ if mode=="👤 موظفة":
 
         if st.session_state.get("location_check_requested", False) and not st.session_state.get("location_allowed", False):
             st.info("⏳ جارٍ محاولة التحقق من الموقع… إذا لم تظهر نافذة السماح أو فشل التحقق سيظهر خيار التعذر بالأسفل.")
-            st.markdown('<div class="gps-click-hint">👇 اضغطي أيقونة تحديد الموقع الكبيرة بالأسفل إذا ظهرت</div>', unsafe_allow_html=True)
+            st.markdown('<div class="gps-click-hint">📍 اضغطي أيقونة الموقع التي ستظهر بالأسفل، ثم اختاري سماح / Allow إذا ظهر الطلب</div>', unsafe_allow_html=True)
             try:
                 location = streamlit_geolocation()
             except Exception:
