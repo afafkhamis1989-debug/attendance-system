@@ -117,6 +117,11 @@ label{direction:rtl!important;text-align:right!important;display:block!important
 .audit-row{background:#f8fafc;border-radius:10px;padding:10px 14px;border-right:3px solid #378ADD;margin-bottom:6px;font-size:12px;color:#0c3460;}
 .warn-row{background:#faeeda;border-radius:10px;padding:10px 14px;border-right:3px solid #BA7517;margin-bottom:6px;font-size:12px;color:#633806;font-weight:700;}
 .absent-row{background:#fcebeb;border-radius:10px;padding:10px 14px;border-right:3px solid #E24B4A;margin-bottom:6px;font-size:12px;color:#791F1F;font-weight:700;}
+/* تكبير زر/أيقونة تحديد الموقع الخاصة بمكوّن streamlit_geolocation */
+div[data-testid="stIFrame"]{min-height:96px!important;overflow:visible!important;}
+div[data-testid="stIFrame"] iframe{width:120px!important;height:90px!important;transform:scale(1.85)!important;transform-origin:top right!important;margin-top:8px!important;margin-right:8px!important;border-radius:12px!important;}
+div[data-testid="stElementContainer"]:has(iframe){min-height:105px!important;overflow:visible!important;}
+.gps-click-hint{background:#fff8e8;border:1px solid #f0c36d;border-radius:16px;padding:12px 14px;margin:10px 0 8px 0;color:#6b4300;font-weight:900;text-align:center!important;font-size:17px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1433,6 +1438,7 @@ if mode=="👤 موظفة":
 
         if st.session_state.get("location_check_requested", False) and not st.session_state.get("location_allowed", False):
             st.info("⏳ جارٍ محاولة التحقق من الموقع… إذا لم تظهر نافذة السماح أو فشل التحقق سيظهر خيار التعذر بالأسفل.")
+            st.markdown('<div class="gps-click-hint">👇 اضغطي أيقونة تحديد الموقع الكبيرة بالأسفل إذا ظهرت</div>', unsafe_allow_html=True)
             try:
                 location = streamlit_geolocation()
             except Exception:
