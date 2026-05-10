@@ -1272,7 +1272,10 @@ if is_lite_emergency_mode():
 default_state={
     "pending_operation":None,"admin_logged_in":False,"admin_last_active":None,
     "location_allowed":False,"emp_verified":False,"emp_data":None,
-    "data_locked_today":False,"locked_emp":None,"locked_date":None,"operation_saving":False,"location_check_requested":False,"allow_no_gps_today":False,
+    "data_locked_today":False,"locked_emp":None,"locked_date":None,"operation_saving":False,
+    "location_check_requested":False,
+    "allow_no_gps_today":False,
+    "no_gps_option_available":False,
 }
 for k,v in default_state.items():
     if k not in st.session_state: st.session_state[k]=v
@@ -1325,50 +1328,77 @@ if mode=="👤 موظفة":
     # ── الموقع ──────────────────────────────────────────────────
     with st.container(border=True):
         st.markdown('<div class="card-title">📍 التحقق من الموقع</div>', unsafe_allow_html=True)
-        st.caption("اضغطي زر التحقق فقط عند الحاجة. إذا لم يظهر طلب السماح أو لم يعمل GPS، استخدمي خيار تعذر التحقق من الموقع مرة واحدة.")
-        c_loc1, c_loc2 = st.columns(2)
-        with c_loc1:
-            if st.button("📍 تحقق من موقعي الآن", use_container_width=True, key="btn_check_location"):
-                st.session_state.location_check_requested = True
-                st.session_state.allow_no_gps_today = False
-        with c_loc2:
-            if st.button("⚠️ تعذر التحقق من الموقع", use_container_width=True, key="btn_no_gps"):
+        st.caption("اضغطي أولًا على زر التحقق من الموقع. خيار تعذر التحقق لا يظهر إلا بعد محاولة فعلية وفشلها.")
+
+        if st.session_state.get("location_allowed", False):
+            st.success("✅ تم التحقق من الموقع بنجاح.")
+        elif st.session_state.get("allow_no_gps_today", False):
+            st.warning("⚠️ تم اختيار التسجيل بدون تحقق GPS. سيظهر ذلك في سجل العملية للأدمن.")
+
+        with st.expander("📋 إذا ظهر طلب الموقع ماذا أضغط؟"):
+            st.markdown('''إذا ظهر طلب السماح بالموقع اضغطي **سماح / Allow**.  
+إذا لم يظهر الطلب أو كان المتصفح لا يدعم الموقع، انتظري نتيجة المحاولة، ثم سيظهر خيار **تعذر التحقق من الموقع** عند الفشل فقط.''')
+
+        if st.button("📍 تحقق من موقعي الآن", use_container_width=True, key="btn_check_location"):
+            st.session_state.location_check_requested = True
+            st.session_state.no_gps_option_available = False
+            st.session_state.allow_no_gps_today = False
+            st.session_state.location_allowed = False
+
+        if st.session_state.get("location_check_requested", False) and not st.session_state.get("location_allowed", False):
+            st.info("⏳ جارٍ محاولة التحقق من الموقع… إذا لم تظهر نافذة السماح أو فشل التحقق سيظهر خيار التعذر بالأسفل.")
+            try:
+                location = streamlit_geolocation()
+            except Exception:
+                location = None
+                st.session_state.no_gps_option_available = True
+                st.warning("⚠️ تعذر تشغيل أداة الموقع في هذا المتصفح.")
+
+            if location:
+                lat = location.get("latitude")
+                lon = location.get("longitude")
+                error = location.get("error", "")
+                if error:
+                    st.session_state.location_allowed = False
+                    st.session_state.no_gps_option_available = True
+                    st.warning("⚠️ الموقع غير مفعّل أو تم رفض السماح.")
+                elif lat is not None and lon is not None:
+                    try:
+                        dist_val = distance_m(float(lat), float(lon), SCHOOL_LAT, SCHOOL_LON)
+                        if dist_val <= ALLOWED_RADIUS:
+                            st.session_state.location_allowed = True
+                            st.session_state.allow_no_gps_today = False
+                            st.session_state.no_gps_option_available = False
+                            st.success(f"✅ داخل نطاق المدرسة — المسافة: {int(dist_val)} م")
+                        else:
+                            st.session_state.location_allowed = False
+                            st.session_state.no_gps_option_available = True
+                            st.error(f"❌ خارج النطاق — المسافة: {int(dist_val)} م")
+                    except Exception:
+                        st.session_state.location_allowed = False
+                        st.session_state.no_gps_option_available = True
+                        st.error("❌ خطأ في قراءة الموقع.")
+                else:
+                    st.session_state.location_allowed = False
+                    st.session_state.no_gps_option_available = True
+                    st.warning("⚠️ لم يتم استلام إحداثيات من الجهاز. إذا لم تظهر نافذة السماح يمكنك استخدام خيار التعذر.")
+            else:
+                st.session_state.no_gps_option_available = True
+
+        if (st.session_state.get("no_gps_option_available", False)
+            and not st.session_state.get("location_allowed", False)
+            and not st.session_state.get("allow_no_gps_today", False)):
+            st.markdown("---")
+            st.warning("⚠️ ظهر خيار التعذر لأن محاولة التحقق من الموقع فشلت.")
+            if st.button("⚠️ تعذر التحقق من الموقع", use_container_width=True, key="btn_no_gps_after_fail"):
                 st.session_state.allow_no_gps_today = True
                 st.session_state.location_allowed = False
                 st.warning("⚠️ سيتم السماح بعملية واحدة بدون تحقق GPS، وستظهر للأدمن للمراجعة.")
-        with st.expander("📋 إذا ظهر طلب الموقع ماذا أضغط؟"):
-            st.markdown('''إذا ظهر طلب السماح بالموقع اضغطي **سماح / Allow**.  
-إذا لم يظهر الطلب أو كان المتصفح لا يدعم الموقع، اضغطي **تعذر التحقق من الموقع** ثم سجلي العملية، وستظهر للأدمن بعلامة واضحة.''')
-        if st.session_state.get("location_check_requested", False):
-            try:
-                location=streamlit_geolocation()
-            except Exception:
-                location=None
-                st.warning("⚠️ تعذر تشغيل أداة الموقع في هذا المتصفح.")
-            if location:
-                lat=location.get("latitude"); lon=location.get("longitude"); error=location.get("error","")
-                if error:
-                    st.session_state.location_allowed=False
-                    st.warning("⚠️ الموقع غير مفعّل أو تم رفض السماح. يمكن استخدام خيار تعذر التحقق من الموقع عند الحاجة.")
-                elif lat is not None and lon is not None:
-                    try:
-                        dist_val=distance_m(float(lat),float(lon),SCHOOL_LAT,SCHOOL_LON)
-                        if dist_val<=ALLOWED_RADIUS:
-                            st.session_state.location_allowed=True
-                            st.session_state.allow_no_gps_today=False
-                            st.success(f"✅ داخل نطاق المدرسة — المسافة: {int(dist_val)} م")
-                        else:
-                            st.session_state.location_allowed=False
-                            st.error(f"❌ خارج النطاق — المسافة: {int(dist_val)} م")
-                    except Exception:
-                        st.session_state.location_allowed=False; st.error("❌ خطأ في قراءة الموقع.")
-                else:
-                    st.session_state.location_allowed=False; st.info("إذا لم تظهر نافذة السماح، استخدمي خيار تعذر التحقق من الموقع.")
-            else:
-                st.info("اضغطي الزر أعلاه لتشغيل التحقق من الموقع.")
-        elif st.session_state.get("allow_no_gps_today", False):
-            st.warning("⚠️ تم اختيار التسجيل بدون تحقق GPS. سيظهر ذلك في سجل العملية للأدمن.")
-        else:
+                st.rerun()
+
+        if (not st.session_state.get("location_check_requested", False)
+            and not st.session_state.get("allow_no_gps_today", False)
+            and not st.session_state.get("location_allowed", False)):
             st.info("لم يتم تشغيل GPS تلقائيًا حتى لا تتعطل الصفحة. اضغطي: تحقق من موقعي الآن.")
 
     ov_active,ov_end=get_location_override()
