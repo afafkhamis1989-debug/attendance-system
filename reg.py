@@ -1180,6 +1180,94 @@ def approve_manual_request(req_row_num, req, approve_type="حضور", use_actual
     clear_caches()
     return True
 
+
+# ─── وضع الطوارئ الخفيف لنفس الرابط ─────────────────────────────
+def _get_query_param_value(name, default=""):
+    try:
+        val = st.query_params.get(name, default)
+        if isinstance(val, list):
+            return val[0] if val else default
+        return val
+    except Exception:
+        try:
+            val = st.experimental_get_query_params().get(name, [default])
+            return val[0] if isinstance(val, list) and val else val
+        except Exception:
+            return default
+
+
+def is_lite_emergency_mode():
+    mode_val = str(_get_query_param_value("lite", "")).strip().lower()
+    emergency_val = str(_get_query_param_value("emergency", "")).strip().lower()
+    return mode_val in ["1", "true", "yes", "نعم"] or emergency_val in ["1", "true", "yes", "نعم"]
+
+
+def render_lite_emergency_mode():
+    """واجهة خفيفة جدًا للأجهزة القديمة: بدون GPS وبدون LocalStorage وبدون عناصر ثقيلة."""
+    st.markdown("""
+    <style>
+    html,body,[class*="css"]{direction:rtl!important;text-align:right!important;font-family:Tahoma,Arial,sans-serif!important;}
+    .block-container{max-width:560px;padding-top:1rem;padding-bottom:2rem;}
+    .lite-title{background:#0c3460;color:white;border-radius:18px;padding:18px;text-align:center!important;font-size:22px;font-weight:800;margin-bottom:14px;}
+    .lite-card{border:1px solid #ddd;border-radius:16px;padding:14px;background:#fff;margin-bottom:12px;}
+    .lite-note{background:#fff7e6;border-right:4px solid #BA7517;border-radius:12px;padding:10px;color:#5f3908;font-weight:700;margin-bottom:12px;}
+    label{font-weight:700!important;color:#0c3460!important;}
+    .stButton button{border-radius:14px!important;font-weight:800!important;}
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown('<div class="lite-title">🆘 طلب تسجيل يدوي — وضع الطوارئ الخفيف</div>', unsafe_allow_html=True)
+    st.markdown('<div class="lite-note">هذه الصفحة مخصصة للأجهزة القديمة أو عند ظهور صفحة بيضاء في النظام الكامل. الطلب لا يُسجل مباشرة إلا بعد اعتماد الأدمن.</div>', unsafe_allow_html=True)
+
+    with st.container(border=True):
+        emp_id = ar_to_en_digits(st.text_input("الرقم الشخصي", max_chars=20, key="lite_emp_id")).strip()
+        emp = validate_employee(emp_id) if emp_id else None
+
+        if emp:
+            # لا نعرض الاسم تلقائيًا للموظفة في وضع الطوارئ؛ نستخدمه داخليًا للأدمن فقط.
+            emp_name = str(emp.get("الاسم", "")).strip()
+            emp_school = str(emp.get("المدرسة", "")).strip()
+            emp_task = str(emp.get("المهمة", "")).strip()
+            st.success("✅ تم التعرف على الرقم من القائمة البيضاء. أكملي نوع الطلب والوقت فقط.")
+        else:
+            if emp_id:
+                st.warning("⚠️ الرقم غير موجود في القائمة البيضاء، اكتبي البيانات ليتمكن الأدمن من مراجعة الطلب.")
+            emp_name = st.text_input("الاسم الثلاثي", key="lite_emp_name")
+            school_choice = st.selectbox("المدرسة", schools + ["أخرى"], key="lite_school_choice")
+            if school_choice == "أخرى":
+                emp_school = st.text_input("اكتبي اسم المدرسة", key="lite_school_other").strip()
+            else:
+                emp_school = school_choice
+            emp_task = st.selectbox("المهمة", TASKS_ALL, key="lite_task")
+
+        req_type = st.selectbox("نوع الطلب", ["حضور", "انصراف"], key="lite_req_type")
+        actual_att = st.text_input("وقت الحضور الفعلي", value="07:00:00", key="lite_actual_att")
+        actual_dep = st.text_input("وقت الانصراف الفعلي (اختياري)", key="lite_actual_dep")
+        problem_type = st.selectbox("نوع المشكلة", ["صفحة بيضاء", "تعذر تحديد الموقع", "الموقع لا يعمل", "زر لا يستجيب", "مشكلة في المتصفح", "أخرى"], key="lite_problem_type")
+        notes = st.text_area("ملاحظات اختيارية", key="lite_notes")
+
+        if st.button("📨 إرسال الطلب للأدمن", use_container_width=True, type="primary", key="lite_submit_request"):
+            if not emp_id:
+                st.error("❌ الرقم الشخصي مطلوب.")
+            elif not str(emp_name).strip() or not str(emp_school).strip() or not str(emp_task).strip():
+                st.error("❌ الاسم والمدرسة والمهمة مطلوبة إذا لم يكن الرقم موجودًا في القائمة البيضاء.")
+            elif not actual_att.strip() and req_type == "حضور":
+                st.error("❌ وقت الحضور الفعلي مطلوب.")
+            else:
+                ok = submit_manual_request(emp_id, emp_name, emp_school, emp_task, req_type, actual_att, actual_dep, problem_type + " — وضع الطوارئ الخفيف", notes)
+                if ok:
+                    st.success("✅ تم إرسال الطلب للأدمن. لا تضغطي مرة ثانية.")
+                    st.info("سيظهر طلبك في لوحة الأدمن ليتم اعتماده يدويًا.")
+                else:
+                    st.error("❌ تعذر إرسال الطلب. تواصلي مع الأدمن عبر واتساب.")
+
+    st.markdown("---")
+    st.markdown('[الرجوع للنظام الكامل](?lite=0)')
+
+
+if is_lite_emergency_mode():
+    render_lite_emergency_mode()
+    st.stop()
+
 # ─── Session State ──────────────────────────────────────────────
 default_state={
     "pending_operation":None,"admin_logged_in":False,"admin_last_active":None,
@@ -1601,6 +1689,7 @@ if mode=="👤 موظفة":
     with st.container(border=True):
         st.markdown('<div class="card-title">🆘 عندي مشكلة في التسجيل</div>', unsafe_allow_html=True)
         st.caption("استخدمي هذا الخيار إذا لم يظهر طلب الموقع، أو ظهرت صفحة بيضاء، أو الزر لا يستجيب. الطلب لا يسجل مباشرة إلا بعد اعتماد الأدمن.")
+        st.markdown('<a href="?lite=1" target="_self" style="display:block;background:#eef4fb;border:1px solid #b8d6f2;border-radius:12px;padding:10px 14px;text-align:center;font-weight:800;color:#0c3460;text-decoration:none;margin-bottom:10px;">فتح وضع الطوارئ الخفيف للأجهزة القديمة</a>', unsafe_allow_html=True)
         with st.expander("إرسال طلب للأدمن", expanded=False):
             known_emp = st.session_state.get("emp_data") or {}
             default_problem_id = str(known_emp.get("الرقم الشخصي", "") or "")
@@ -1611,12 +1700,8 @@ if mode=="👤 موظفة":
                 problem_name = str(auto_emp.get("الاسم", "")).strip()
                 problem_school = str(auto_emp.get("المدرسة", "")).strip()
                 problem_task = str(auto_emp.get("المهمة", "")).strip()
-                st.success("✅ الرقم موجود في القائمة البيضاء، تم تعبئة البيانات تلقائيًا.")
-                st.markdown(f"""
-                <div class="field-lbl">الاسم</div><div class="field-val">{problem_name}</div>
-                <div class="field-lbl">المدرسة</div><div class="field-val">{problem_school}</div>
-                <div class="field-lbl">المهمة</div><div class="field-val blue">{problem_task}</div>
-                """, unsafe_allow_html=True)
+                # لا نعرض الاسم تلقائيًا للموظفة؛ نستخدم بيانات القائمة البيضاء داخليًا للأدمن فقط.
+                st.success("✅ الرقم موجود في القائمة البيضاء. أكملي نوع الطلب ووقت الحضور الفعلي فقط.")
             else:
                 if problem_id:
                     st.warning("⚠️ الرقم غير موجود في القائمة البيضاء، أدخلي البيانات يدويًا ليراجعها الأدمن.")
@@ -2611,6 +2696,7 @@ if mode == "👤 موظفة" and st.session_state.get("emp_data"):
         with st.container(border=True):
             st.markdown('<div class="card-title">🆘 الدعم الفني</div>', unsafe_allow_html=True)
             st.caption("إذا واجهتك مشكلة، اضغطي الزر وسيُفتح واتساب برسالة جاهزة تحتوي بياناتك. اكتبي تفاصيل المشكلة فقط ثم أرسليها.")
+            st.markdown('<a href="?lite=1" target="_self" style="display:block;background:#eef4fb;border:1px solid #b8d6f2;border-radius:12px;padding:10px 14px;text-align:center;font-weight:800;color:#0c3460;text-decoration:none;margin-bottom:8px;">🆘 فتح وضع الطوارئ الخفيف</a>', unsafe_allow_html=True)
             st.link_button("📞 تواصل مع الأدمن عبر واتساب", wa_link, use_container_width=True)
     except Exception:
         pass
