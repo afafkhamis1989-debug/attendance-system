@@ -2481,6 +2481,8 @@ else:
                                 ws.oddHeader.center.text = f"مركز جدحفص الثانوية للتصحيح المركزي\nنظام الحضور والانصراف — {date_from} إلى {date_to}"
                                 ws.oddHeader.center.font = "Arial,Bold"
                                 ws.oddFooter.right.text  = "صفحة &P من &N"
+                                ws.oddFooter.left.text   = "رئيسة المركز: أ. خلود يعقوب بدو"
+                                ws.oddFooter.left.font   = "Arial,Bold"
 
                             buf2 = BytesIO()
                             wb.save(buf2)
