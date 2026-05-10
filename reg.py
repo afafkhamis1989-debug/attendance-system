@@ -1719,7 +1719,6 @@ if mode=="👤 موظفة":
     with st.container(border=True):
         st.markdown('<div class="card-title">🆘 عندي مشكلة في التسجيل</div>', unsafe_allow_html=True)
         st.caption("استخدمي هذا الخيار إذا لم يظهر طلب الموقع، أو ظهرت صفحة بيضاء، أو الزر لا يستجيب. الطلب لا يسجل مباشرة إلا بعد اعتماد الأدمن.")
-        st.markdown('<a href="?lite=1" target="_self" style="display:block;background:#eef4fb;border:1px solid #b8d6f2;border-radius:12px;padding:10px 14px;text-align:center;font-weight:800;color:#0c3460;text-decoration:none;margin-bottom:10px;">فتح وضع الطوارئ الخفيف للأجهزة القديمة</a>', unsafe_allow_html=True)
         with st.expander("إرسال طلب للأدمن", expanded=False):
             known_emp = st.session_state.get("emp_data") or {}
             default_problem_id = str(known_emp.get("الرقم الشخصي", "") or "")
@@ -2726,7 +2725,6 @@ if mode == "👤 موظفة" and st.session_state.get("emp_data"):
         with st.container(border=True):
             st.markdown('<div class="card-title">🆘 الدعم الفني</div>', unsafe_allow_html=True)
             st.caption("إذا واجهتك مشكلة، اضغطي الزر وسيُفتح واتساب برسالة جاهزة تحتوي بياناتك. اكتبي تفاصيل المشكلة فقط ثم أرسليها.")
-            st.markdown('<a href="?lite=1" target="_self" style="display:block;background:#eef4fb;border:1px solid #b8d6f2;border-radius:12px;padding:10px 14px;text-align:center;font-weight:800;color:#0c3460;text-decoration:none;margin-bottom:8px;">🆘 فتح وضع الطوارئ الخفيف</a>', unsafe_allow_html=True)
             st.link_button("📞 تواصل مع الأدمن عبر واتساب", wa_link, use_container_width=True)
     except Exception:
         pass
