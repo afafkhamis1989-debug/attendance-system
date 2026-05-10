@@ -1344,6 +1344,14 @@ def approve_manual_request(req_row_num, req, approve_type="حضور", use_actual
     except Exception:
         pass
     clear_caches()
+    # ── إعادة حساب الساعات بعد الاعتماد بقراءة مباشرة من الشيت ──
+    try:
+        fresh_matches = find_daily_rows_fresh(date_str, eid)
+        fresh_idx, fresh_row = pick_main_daily_row(fresh_matches)
+        if fresh_idx and fresh_row:
+            update_work_calculation(fresh_idx, fresh_row)
+    except Exception:
+        pass
     return True
 
 
