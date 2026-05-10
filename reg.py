@@ -2404,9 +2404,9 @@ else:
                             header_font  = Font(name="Arial", bold=True, color="FFFFFF", size=11)
                             body_font    = Font(name="Arial", size=10)
                             center_align = Alignment(horizontal="center", vertical="center",
-                                                     wrap_text=True, reading_order=2)
+                                                     wrap_text=True, readingOrder=2)
                             right_align  = Alignment(horizontal="right",  vertical="center",
-                                                     wrap_text=True, reading_order=2)
+                                                     wrap_text=True, readingOrder=2)
                             thin = Side(style="thin", color="CCCCCC")
                             border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
