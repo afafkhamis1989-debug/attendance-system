@@ -118,10 +118,19 @@ label{direction:rtl!important;text-align:right!important;display:block!important
 .warn-row{background:#faeeda;border-radius:10px;padding:10px 14px;border-right:3px solid #BA7517;margin-bottom:6px;font-size:12px;color:#633806;font-weight:700;}
 .absent-row{background:#fcebeb;border-radius:10px;padding:10px 14px;border-right:3px solid #E24B4A;margin-bottom:6px;font-size:12px;color:#791F1F;font-weight:700;}
 /* تكبير زر/أيقونة تحديد الموقع الخاصة بمكوّن streamlit_geolocation */
-div[data-testid="stIFrame"]{min-height:96px!important;overflow:visible!important;}
-div[data-testid="stIFrame"] iframe{width:120px!important;height:90px!important;transform:scale(1.85)!important;transform-origin:top right!important;margin-top:8px!important;margin-right:8px!important;border-radius:12px!important;}
-div[data-testid="stElementContainer"]:has(iframe){min-height:105px!important;overflow:visible!important;}
-.gps-click-hint{background:#fff8e8;border:1px solid #f0c36d;border-radius:16px;padding:12px 14px;margin:10px 0 8px 0;color:#6b4300;font-weight:900;text-align:center!important;font-size:17px;}
+.gps-click-hint{background:#fff8e8;border:1px solid #f0c36d;border-radius:16px;padding:14px 16px;margin:10px 0 8px 0;color:#6b4300;font-weight:900;text-align:center!important;font-size:18px;}
+/* نحاول تكبير iframe الخاص بالموقع في أغلب إصدارات Streamlit */
+div[data-testid="stIFrame"], div[data-testid="stElementContainer"]:has(iframe){min-height:150px!important;overflow:visible!important;}
+div[data-testid="stIFrame"] iframe, iframe[title*="streamlit_geolocation"], iframe[srcdoc*="geolocation"]{
+    width:260px!important;
+    height:150px!important;
+    transform:scale(2.6)!important;
+    transform-origin:top right!important;
+    margin-top:12px!important;
+    margin-right:12px!important;
+    border-radius:14px!important;
+}
+.no-gps-approved{background:#fff6e7;border:1px solid #eba83a;border-radius:14px;padding:12px 14px;color:#7a4700;font-weight:800;margin-top:10px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1419,7 +1428,7 @@ if mode=="👤 موظفة":
     # ── الموقع ──────────────────────────────────────────────────
     with st.container(border=True):
         st.markdown('<div class="card-title">📍 التحقق من الموقع</div>', unsafe_allow_html=True)
-        st.caption("اضغطي أولًا على زر التحقق من الموقع. خيار تعذر التحقق لا يظهر إلا بعد محاولة فعلية وفشلها.")
+        st.caption("اضغطي أولًا على زر التحقق من الموقع. خيار التعذر لا يظهر إلا بعد محاولة فعلية إذا فشل GPS أو ظهر خارج النطاق باللون الأحمر.")
 
         if st.session_state.get("location_allowed", False):
             st.success("✅ تم التحقق من الموقع بنجاح.")
@@ -1481,11 +1490,11 @@ if mode=="👤 موظفة":
             and not st.session_state.get("location_allowed", False)
             and not st.session_state.get("allow_no_gps_today", False)):
             st.markdown("---")
-            st.warning("⚠️ ظهر خيار التعذر لأن محاولة التحقق من الموقع فشلت.")
+            st.warning("⚠️ ظهر خيار التعذر لأن محاولة التحقق من الموقع فشلت أو ظهر خارج النطاق.")
             if st.button("⚠️ تعذر التحقق من الموقع", use_container_width=True, key="btn_no_gps_after_fail"):
                 st.session_state.allow_no_gps_today = True
                 st.session_state.location_allowed = False
-                st.warning("⚠️ سيتم السماح بعملية واحدة بدون تحقق GPS، وستظهر للأدمن للمراجعة.")
+                st.warning("⚠️ تم تفعيل خيار التعذر لهذا اليوم. أي عملية بدون GPS ستُعلّم للأدمن للمراجعة ولا تُكرر لنفس نوع العملية.")
                 st.rerun()
 
         if (not st.session_state.get("location_check_requested", False)
