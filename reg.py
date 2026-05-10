@@ -57,7 +57,7 @@ COL_DATE=1; COL_DAY=2; COL_SCHOOL=3; COL_TASK=4; COL_SUPPORT=5
 COL_NAME=6; COL_ID=7; COL_ATTEND=8; COL_LATE_REASON=9
 COL_DEPART=10; COL_DEPART_REASON=11; COL_EXIT=12; COL_RETURN=13; COL_ATTEMPT=14
 COL_WORK_START=15; COL_EXPECTED_END=16; COL_WORK_HOURS=17; COL_EXTRA_HOURS=18
-COL_WORK_STATUS=19; COL_DAILY_TYPE=20; COL_AUTO_CLOSE=21; COL_CARE_CONF=22
+COL_WORK_STATUS=19; COL_DAILY_TYPE=20; COL_AUTO_CLOSE=21; COL_CARE_CONF=22; COL_REG_TYPE=23
 
 schools = [
     "مدرسة المنامة الثانوية للبنات",
@@ -180,7 +180,7 @@ SHEET1_HEADERS = [
     "التاريخ","اليوم","اسم المدرسة","المهمة","دعم","الاسم الثلاثي","الرقم الشخصي",
     "وقت الحضور","سبب التأخير","وقت الانصراف","سبب الانصراف","خروج استئذان","عودة","محاولة",
     "وقت البداية المحسوب","وقت النهاية المتوقع","ساعات العمل","الساعات الإضافية",
-    "حالة الدوام","نوع الدوام اليومي","إغلاق تلقائي","تأكيد الرعاية"
+    "حالة الدوام","نوع الدوام اليومي","إغلاق تلقائي","تأكيد الرعاية","نوع التسجيل"
 ]
 WHITELIST_HEADERS = [
     "الرقم الشخصي","الاسم","المدرسة","المهمة","دعم","رقم التواصل","البريد الإلكتروني",
@@ -1104,7 +1104,7 @@ def register_operation(operation, emp_id, note=""):
                     safe_update(sheet,final_row_index,COL_RETURN,implicit_return_time)
                 row_index = final_row_index
             else:
-                ok=safe_append(sheet,[today,day_name,school,task,is_support,full_name,emp_id,time_now,note,"","",implicit_exit_time,implicit_return_time,""])
+                ok=safe_append(sheet,[today,day_name,school,task,is_support,full_name,emp_id,time_now,note,"","",implicit_exit_time,implicit_return_time,"","","","","","","","","","دعم مباشر" if is_support == "نعم" else "تسجيل ذاتي"])
                 if not ok: st.error("❌ تعذر الحفظ، حاولي بعد قليل."); return False
         lock_device(today,emp_id,full_name)
         log_audit(emp_id,full_name,"تسجيل حضور",f"الوقت:{time_now}|السبب:{note or 'بدون'}")
@@ -1239,7 +1239,7 @@ def approve_manual_request(req_row_num, req, approve_type="حضور", use_actual
             existing_row["سبب التأخير"] = reason_note
             update_work_calculation(existing_idx, existing_row)
         else:
-            safe_append(sheet, [date_str, day_name, school, task, support_value, full_name, eid, att_time, reason_note, "", "", "", "", "⚠️ طلب يدوي بدون تحقق GPS"])
+            safe_append(sheet, [date_str, day_name, school, task, support_value, full_name, eid, att_time, reason_note, "", "", "", "", "⚠️ طلب يدوي بدون تحقق GPS", "", "", "", "", "", "", "", "", "طلب يدوي معتمد" if support_value != "نعم" else "طلب دعم معتمد"])
             idx_after, row_after = find_today_row_fresh(date_str, eid)
             if idx_after:
                 update_work_calculation(idx_after, row_after)
@@ -1877,6 +1877,7 @@ else:
         admin_tab=st.selectbox("القسم",[
             "📊 إحصائيات اليوم",
             "🆘 طلبات التسجيل اليدوي",
+            "⚙️ إعدادات التسجيل اليدوي",
             "🔴 تسجيل الغياب",
             "📅 دوام الأقسام",
             "🧹 تنظيف التكرارات",
@@ -2188,7 +2189,7 @@ else:
                                             existing_row["وقت الانصراف"] = manual_dep
                                             update_work_calculation(existing_idx, existing_row)
                                         else:
-                                            safe_append(sheet, [abs_date_str, abs_day_ar, emp.get("المدرسة", ""), task, support_value, full_name, eid, manual_att, f"[يدوي] {manual_note.strip()}", manual_dep, "", "", "", ""])
+                                            safe_append(sheet, [abs_date_str, abs_day_ar, emp.get("المدرسة", ""), task, support_value, full_name, eid, manual_att, f"[يدوي] {manual_note.strip()}", manual_dep, "", "", "", "", "", "", "", "", "", "", "", "", "تحويل غياب إلى تسجيل يدوي"])
                                             idx_after, row_after = find_today_row_fresh(abs_date_str, eid)
                                             if idx_after:
                                                 update_work_calculation(idx_after, row_after)
@@ -2457,6 +2458,23 @@ else:
             m_dep=st.text_input("وقت الانصراف (اختياري)",key="mdep")
             m_note=st.text_input("سبب الإضافة اليدوية (مطلوب)",key="mnote")
 
+            emp_preview = validate_employee(m_id) if m_id else None
+            manual_support_mode = False
+            if m_id and not emp_preview:
+                st.warning("⚠️ الرقم غير موجود في القائمة البيضاء. إذا كانت الموظفة دعم خارجي، فعّلي الخيار التالي وأدخلي بياناتها يدويًا.")
+                manual_support_mode = st.checkbox("تسجيل كدعم خارجي غير موجود في القائمة البيضاء", key="manual_support_mode")
+            if m_id and emp_preview:
+                st.success(f"✅ تم العثور على البيانات: {emp_preview.get('الاسم','')} — {emp_preview.get('المدرسة','')} — {emp_preview.get('المهمة','')}")
+
+            if manual_support_mode:
+                m_support_name = st.text_input("اسم الدعم", key="manual_support_name")
+                school_choice = st.selectbox("مدرسة الدعم", schools + ["أخرى"], key="manual_support_school_choice")
+                if school_choice == "أخرى":
+                    m_support_school = st.text_input("اكتبي اسم المدرسة", key="manual_support_school_other").strip()
+                else:
+                    m_support_school = school_choice
+                m_support_task = st.selectbox("مهمة الدعم", TASKS_SUPPORT, key="manual_support_task")
+
             if st.button("تسجيل يدوي",use_container_width=True,type="primary"):
                 if not m_id:
                     st.error("❌ الرقم الشخصي مطلوب")
@@ -2464,16 +2482,21 @@ else:
                     st.error("❌ سبب الإضافة اليدوية مطلوب")
                 else:
                     emp=validate_employee(m_id)
-                    if not emp:
-                        st.error("❌ الرقم غير موجود في القائمة البيضاء")
+                    if not emp and not manual_support_mode:
+                        st.error("❌ الرقم غير موجود في القائمة البيضاء. إذا كانت الموظفة دعم خارجي فعّلي خيار تسجيل كدعم خارجي.")
                     else:
+                        if not emp and manual_support_mode:
+                            if not m_support_name.strip() or not m_support_school.strip():
+                                st.error("❌ اسم الدعم والمدرسة مطلوبان")
+                                st.stop()
+                            emp = {"الاسم": normalize_name(m_support_name), "المدرسة": m_support_school, "المهمة": m_support_task, "دعم": "نعم"}
                         date_str=str(m_date)
                         day_name=m_date.strftime("%A")
                         task=str(emp.get("المهمة","")).strip()
 
-                        # تحديد قيمة عمود دعم من القائمة البيضاء أو من اسم المهمة
+                        # تحديد قيمة عمود دعم من القائمة البيضاء أو من اسم المهمة أو خيار الدعم اليدوي
                         support_raw=str(emp.get("دعم","")).strip()
-                        support_value="نعم" if support_raw in ["نعم","yes","Yes","TRUE","true","1"] or "دعم" in task else "لا"
+                        support_value="نعم" if manual_support_mode or support_raw in ["نعم","yes","Yes","TRUE","true","1"] or "دعم" in task else "لا"
                         full_name=normalize_name(emp.get("الاسم",""))
 
                         row_data=[
@@ -2490,7 +2513,9 @@ else:
                             "",                             # K سبب الانصراف
                             "",                             # L خروج استئذان
                             "",                             # M عودة
-                            ""                              # N محاولة
+                            "",                             # N محاولة
+                            "", "", "", "", "", "", "", "", # O:V احتسابات لاحقة
+                            "تسجيل يدوي" if support_value != "نعم" else "تسجيل دعم يدوي"  # W نوع التسجيل
                         ]
 
                         existing_matches = find_daily_rows_fresh(date_str, m_id)
