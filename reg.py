@@ -50,6 +50,7 @@ ALLOWED_RADIUS = 1000
 ADMIN_PASSWORD = "Afaf1234"
 DEVICE_COOLDOWN_MINUTES = 10  # لم يعد مستخدماً كمهلة أساسية؛ القفل الآن طوال اليوم إلا إذا عطله الأدمن
 DEVICE_LOCK_STRICT_FULL_DAY = True
+APP_URL = "ضعوا رابط النظام هنا"
 
 # أعمدة sheet1
 COL_DATE=1; COL_DAY=2; COL_SCHOOL=3; COL_TASK=4; COL_SUPPORT=5
@@ -148,6 +149,7 @@ def get_all_sheets():
         "settings":    _get_or_create("إعدادات_النظام",           ["المفتاح","القيمة","تاريخ_الانتهاء","ملاحظات"]),
         "audit":       _get_or_create("سجل_التدقيق",              ["التاريخ","الوقت","المستخدم","الرقم الشخصي","نوع العملية","التفاصيل","بصمة الجهاز"]),
         "absence":     _get_or_create("سجل_الغياب",               ["التاريخ","اليوم","الرقم الشخصي","الاسم","المدرسة","المهمة","سبب الغياب","ملاحظات","سجّله"]),
+        "manual_requests": _get_or_create("طلبات_التسجيل_اليدوي", ["تاريخ الطلب","وقت الطلب","الرقم الشخصي","الاسم","المدرسة","المهمة","نوع الطلب","وقت الحضور الفعلي","وقت الانصراف الفعلي","نوع المشكلة","ملاحظات","الحالة","بصمة الجهاز","وقت الاعتماد","اعتمده"]),
     }
 
 _sheets         = get_all_sheets()
@@ -160,6 +162,7 @@ attempts_sheet  = _sheets["attempts"]
 settings_sheet  = _sheets["settings"]
 audit_sheet     = _sheets["audit"]
 absence_sheet   = _sheets["absence"]
+manual_requests_sheet = _sheets["manual_requests"]
 schedule_sheet  = _sheets["schedule"]
 daily_schedule_sheet = _sheets["daily_schedule"]
 
@@ -276,6 +279,11 @@ def get_settings_records():
     try: return settings_sheet.get_all_records()
     except: return []
 
+@st.cache_data(ttl=60, show_spinner=False)
+def get_manual_requests():
+    try: return manual_requests_sheet.get_all_records()
+    except: return []
+
 @st.cache_data(ttl=120, show_spinner=False)
 def get_schedule_records():
     try: return schedule_sheet.get_all_records()
@@ -287,7 +295,7 @@ def get_daily_schedule_records():
     except: return []
 
 def clear_caches():
-    get_sheet_data.clear(); get_device_locks.clear(); get_device_exceptions.clear(); get_settings_records.clear(); get_schedule_records.clear(); get_daily_schedule_records.clear()
+    get_sheet_data.clear(); get_device_locks.clear(); get_device_exceptions.clear(); get_settings_records.clear(); get_schedule_records.clear(); get_daily_schedule_records.clear(); get_manual_requests.clear()
 
 
 # ─── دوال احتساب الدوام والساعات والإغلاق التلقائي ───────────────
@@ -357,7 +365,7 @@ def is_implicit_leave_late(row):
 def is_late_for_statistics(row):
     """التأخير الإحصائي: يحسب للدوام العادي فقط، ويستثني الرعاية/المرن/المهمة الرسمية."""
     att = parse_time_value(row.get("وقت الحضور", ""))
-    if not att or att <= time(7, 5, 0):
+    if not att or att <= time(7, 5, 30):
         return False
     if is_care_day(row) or is_flexible_day(row) or is_official_mission_day(row) or is_correction_done_day(row):
         return False
@@ -374,7 +382,7 @@ def calculate_work_values(row):
     att_dt = combine_date_time(date_str, att)
     dep_dt = combine_date_time(date_str, dep) if dep else None
     official_start = combine_date_time(date_str, time(7, 0, 0))
-    grace_end = combine_date_time(date_str, time(7, 5, 0))
+    grace_end = combine_date_time(date_str, time(7, 5, 30))
     official_mission = is_official_mission_day(row)
     correction_done = is_correction_done_day(row)
     implicit_leave = is_implicit_leave_late(row)
@@ -942,8 +950,13 @@ def lock_device(today, emp_id, emp_name):
 
 def register_operation(operation, emp_id, note=""):
     override_active,_=get_location_override()
+    no_gps_allowed = bool(st.session_state.get("allow_no_gps_today", False))
+    gps_status_note = ""
     if not st.session_state.get("location_allowed",False) and not override_active:
-        st.error("❌ يجب تحديد الموقع أولاً أو تفعيل تجاوز الموقع من الأدمن."); return False
+        if no_gps_allowed:
+            gps_status_note = " | ⚠️ بدون تحقق GPS"
+        else:
+            st.error("❌ يجب تحديد الموقع أولاً، أو اختيار تعذر التحقق من الموقع، أو تفعيل تجاوز الموقع من الأدمن."); return False
 
     emp_id=ar_to_en_digits(emp_id).strip()
     emp=validate_employee(emp_id) or st.session_state.get("emp_data")
@@ -976,6 +989,8 @@ def register_operation(operation, emp_id, note=""):
 
     now=now_bh(); today=now.strftime("%Y-%m-%d")
     day_name=now.strftime("%A"); time_now=now.strftime("%H:%M:%S")
+    if gps_status_note and gps_status_note not in str(note or ""):
+        note = (str(note or "").strip() + gps_status_note).strip()
 
     # تنظيف أي تكرار سابق لنفس الموظفة قبل العملية حتى لا يعتمد النظام آخر ضغطة بالخطأ
     try:
@@ -1005,7 +1020,7 @@ def register_operation(operation, emp_id, note=""):
 
         # إذا حضرت متأخرة بسبب موعد/سبب آخر، يوثق النظام ذلك كاستئذان ضمني:
         # خروج الاستئذان من 7:00، ووقت الحضور هو العودة.
-        att_is_late = now.time() > time(7, 5, 0)
+        att_is_late = now.time() > time(7, 5, 30)
         note_txt = str(note or "").strip()
         implicit_leave = att_is_late and note_txt and not any(x in note_txt for x in ["رعاية", "دوام مرن", "مهمة رسمية"])
         implicit_exit_time = "07:00:00" if implicit_leave else ""
@@ -1087,11 +1102,89 @@ def register_operation(operation, emp_id, note=""):
 
     st.error("❌ عملية غير معروفة."); return False
 
+
+# ─── طلبات التسجيل اليدوي / مشاكل المتصفح والموقع ─────────────────────
+def submit_manual_request(emp_id, emp_name, school, task, req_type, actual_att, actual_dep, problem_type, notes):
+    try:
+        now = now_bh()
+        fp = get_device_fingerprint()
+        row = [now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), ar_to_en_digits(emp_id).strip(), normalize_name(emp_name), str(school or "").strip(), str(task or "").strip(), str(req_type or "").strip(), str(actual_att or "").strip(), str(actual_dep or "").strip(), str(problem_type or "").strip(), str(notes or "").strip(), "بانتظار الاعتماد", fp, "", ""]
+        ok = safe_append(manual_requests_sheet, row)
+        get_manual_requests.clear()
+        return ok
+    except Exception:
+        return False
+
+def approve_manual_request(req_row_num, req, approve_type="حضور", use_actual_time=True):
+    eid = str(req.get("الرقم الشخصي", "")).strip()
+    if not eid:
+        st.error("❌ لا يوجد رقم شخصي في الطلب.")
+        return False
+    emp = validate_employee(eid) or {}
+    full_name = normalize_name(req.get("الاسم", "") or emp.get("الاسم", ""))
+    school = req.get("المدرسة", "") or emp.get("المدرسة", "")
+    task = req.get("المهمة", "") or emp.get("المهمة", "")
+    support_value = "نعم" if ("دعم" in str(task) or is_yes(emp.get("دعم", ""))) else "لا"
+    date_str = str(req.get("تاريخ الطلب", "") or now_bh().strftime("%Y-%m-%d"))
+    try:
+        d_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+        day_name = d_obj.strftime("%A")
+    except Exception:
+        day_name = day_arabic
+    request_time = str(req.get("وقت الطلب", "") or now_bh().strftime("%H:%M:%S"))
+    att_time = str(req.get("وقت الحضور الفعلي", "") or "").strip() if use_actual_time else request_time
+    dep_time = str(req.get("وقت الانصراف الفعلي", "") or "").strip()
+    problem = str(req.get("نوع المشكلة", "") or "مشكلة تقنية").strip()
+    notes = str(req.get("ملاحظات", "") or "").strip()
+    reason_note = f"[طلب يدوي] {problem} | وقت إرسال الطلب: {request_time} | {notes}".strip()
+    existing_matches = find_daily_rows_fresh(date_str, eid)
+    existing_idx, existing_row = pick_main_daily_row(existing_matches)
+    if approve_type == "حضور":
+        if not att_time:
+            st.error("❌ وقت الحضور الفعلي مطلوب لاعتماد الحضور.")
+            return False
+        if existing_idx:
+            safe_update(sheet, existing_idx, COL_ATTEND, att_time)
+            safe_update(sheet, existing_idx, COL_LATE_REASON, reason_note)
+            if dep_time:
+                safe_update(sheet, existing_idx, COL_DEPART, dep_time)
+            existing_row["وقت الحضور"] = att_time
+            existing_row["سبب التأخير"] = reason_note
+            existing_row["وقت الانصراف"] = dep_time or existing_row.get("وقت الانصراف", "")
+            update_work_calculation(existing_idx, existing_row)
+        else:
+            safe_append(sheet, [date_str, day_name, school, task, support_value, full_name, eid, att_time, reason_note, dep_time, "", "", "", "⚠️ طلب يدوي بدون تحقق GPS"])
+            idx_after, row_after = find_today_row_fresh(date_str, eid)
+            if idx_after:
+                update_work_calculation(idx_after, row_after)
+        log_audit(eid, full_name, "اعتماد طلب حضور يدوي", f"التاريخ:{date_str}|حضور:{att_time}|السبب:{reason_note}")
+    elif approve_type == "انصراف":
+        if not existing_idx:
+            st.error("❌ لا يوجد سجل حضور لاعتماد الانصراف.")
+            return False
+        dep_to_use = dep_time or request_time
+        safe_update(sheet, existing_idx, COL_DEPART, dep_to_use)
+        safe_update(sheet, existing_idx, COL_DEPART_REASON, reason_note)
+        existing_row["وقت الانصراف"] = dep_to_use
+        existing_row["سبب الانصراف"] = reason_note
+        update_work_calculation(existing_idx, existing_row)
+        log_audit(eid, full_name, "اعتماد طلب انصراف يدوي", f"التاريخ:{date_str}|انصراف:{dep_to_use}|السبب:{reason_note}")
+    else:
+        return False
+    try:
+        manual_requests_sheet.update_cell(req_row_num, 12, "تم الاعتماد")
+        manual_requests_sheet.update_cell(req_row_num, 14, now_bh().strftime("%Y-%m-%d %H:%M:%S"))
+        manual_requests_sheet.update_cell(req_row_num, 15, "أدمن")
+    except Exception:
+        pass
+    clear_caches()
+    return True
+
 # ─── Session State ──────────────────────────────────────────────
 default_state={
     "pending_operation":None,"admin_logged_in":False,"admin_last_active":None,
     "location_allowed":False,"emp_verified":False,"emp_data":None,
-    "data_locked_today":False,"locked_emp":None,"locked_date":None,"operation_saving":False,
+    "data_locked_today":False,"locked_emp":None,"locked_date":None,"operation_saving":False,"location_check_requested":False,"allow_no_gps_today":False,
 }
 for k,v in default_state.items():
     if k not in st.session_state: st.session_state[k]=v
@@ -1144,50 +1237,51 @@ if mode=="👤 موظفة":
     # ── الموقع ──────────────────────────────────────────────────
     with st.container(border=True):
         st.markdown('<div class="card-title">📍 التحقق من الموقع</div>', unsafe_allow_html=True)
-
-        with st.expander("📋 كيف أفعّل الموقع؟ اضغطي هنا"):
-            st.markdown("""
-**📱 على الجوال (iOS/Safari):**
-1. اضغطي على **⚙️ الإعدادات**
-2. اختاري **الخصوصية والأمان** ← **خدمات الموقع**
-3. فعّلي خدمات الموقع
-4. ابحثي عن **Safari** وغيّري إلى **أثناء الاستخدام**
-5. ارجعي للتطبيق وحدّثي الصفحة
-
-**📱 على الجوال (Android/Chrome):**
-1. اضغطي على **⚙️ الإعدادات**
-2. اختاري **التطبيقات** ← **Chrome**
-3. اضغطي **الأذونات** ← **الموقع** ← **السماح**
-4. ارجعي للتطبيق وحدّثي الصفحة
-
-**💻 على الكمبيوتر (Chrome):**
-1. اضغطي على أيقونة 🔒 يسار رابط الموقع
-2. اختاري **إعدادات الموقع**
-3. غيّري **الموقع** إلى **سماح**
-4. حدّثي الصفحة
-            """)
-
-        location=streamlit_geolocation()
-        if location:
-            lat=location.get("latitude"); lon=location.get("longitude"); error=location.get("error","")
-            if error:
-                st.session_state.location_allowed=False
-                st.warning("⚠️ الموقع غير مفعّل، الرجاء تفعيله من إعدادات المتصفح.")
-            elif lat is not None and lon is not None:
-                try:
-                    dist_val=distance_m(float(lat),float(lon),SCHOOL_LAT,SCHOOL_LON)
-                    if dist_val<=ALLOWED_RADIUS:
-                        st.session_state.location_allowed=True
-                        st.success(f"✅ داخل نطاق المدرسة — المسافة: {int(dist_val)} م")
-                    else:
-                        st.session_state.location_allowed=False
-                        st.error(f"❌ خارج النطاق — المسافة: {int(dist_val)} م")
-                except:
-                    st.session_state.location_allowed=False; st.error("❌ خطأ في قراءة الموقع.")
+        st.caption("اضغطي زر التحقق فقط عند الحاجة. إذا لم يظهر طلب السماح أو لم يعمل GPS، استخدمي خيار تعذر التحقق من الموقع مرة واحدة.")
+        c_loc1, c_loc2 = st.columns(2)
+        with c_loc1:
+            if st.button("📍 تحقق من موقعي الآن", use_container_width=True, key="btn_check_location"):
+                st.session_state.location_check_requested = True
+                st.session_state.allow_no_gps_today = False
+        with c_loc2:
+            if st.button("⚠️ تعذر التحقق من الموقع", use_container_width=True, key="btn_no_gps"):
+                st.session_state.allow_no_gps_today = True
+                st.session_state.location_allowed = False
+                st.warning("⚠️ سيتم السماح بعملية واحدة بدون تحقق GPS، وستظهر للأدمن للمراجعة.")
+        with st.expander("📋 إذا ظهر طلب الموقع ماذا أضغط؟"):
+            st.markdown('''إذا ظهر طلب السماح بالموقع اضغطي **سماح / Allow**.  
+إذا لم يظهر الطلب أو كان المتصفح لا يدعم الموقع، اضغطي **تعذر التحقق من الموقع** ثم سجلي العملية، وستظهر للأدمن بعلامة واضحة.''')
+        if st.session_state.get("location_check_requested", False):
+            try:
+                location=streamlit_geolocation()
+            except Exception:
+                location=None
+                st.warning("⚠️ تعذر تشغيل أداة الموقع في هذا المتصفح.")
+            if location:
+                lat=location.get("latitude"); lon=location.get("longitude"); error=location.get("error","")
+                if error:
+                    st.session_state.location_allowed=False
+                    st.warning("⚠️ الموقع غير مفعّل أو تم رفض السماح. يمكن استخدام خيار تعذر التحقق من الموقع عند الحاجة.")
+                elif lat is not None and lon is not None:
+                    try:
+                        dist_val=distance_m(float(lat),float(lon),SCHOOL_LAT,SCHOOL_LON)
+                        if dist_val<=ALLOWED_RADIUS:
+                            st.session_state.location_allowed=True
+                            st.session_state.allow_no_gps_today=False
+                            st.success(f"✅ داخل نطاق المدرسة — المسافة: {int(dist_val)} م")
+                        else:
+                            st.session_state.location_allowed=False
+                            st.error(f"❌ خارج النطاق — المسافة: {int(dist_val)} م")
+                    except Exception:
+                        st.session_state.location_allowed=False; st.error("❌ خطأ في قراءة الموقع.")
+                else:
+                    st.session_state.location_allowed=False; st.info("إذا لم تظهر نافذة السماح، استخدمي خيار تعذر التحقق من الموقع.")
             else:
-                st.session_state.location_allowed=False; st.info("اضغطي زر تحديد الموقع أعلاه.")
+                st.info("اضغطي الزر أعلاه لتشغيل التحقق من الموقع.")
+        elif st.session_state.get("allow_no_gps_today", False):
+            st.warning("⚠️ تم اختيار التسجيل بدون تحقق GPS. سيظهر ذلك في سجل العملية للأدمن.")
         else:
-            st.session_state.location_allowed=False; st.info("اضغطي زر تحديد الموقع أعلاه.")
+            st.info("لم يتم تشغيل GPS تلقائيًا حتى لا تتعطل الصفحة. اضغطي: تحقق من موقعي الآن.")
 
     ov_active,ov_end=get_location_override()
     if ov_active and ov_end:
@@ -1502,6 +1596,33 @@ if mode=="👤 موظفة":
                         st.session_state.operation_saving=False
                         st.rerun()
 
+
+    # ── طلب مشكلة تقنية / تسجيل يدوي ───────────────────────────────
+    with st.container(border=True):
+        st.markdown('<div class="card-title">🆘 عندي مشكلة في التسجيل</div>', unsafe_allow_html=True)
+        st.caption("استخدمي هذا الخيار إذا لم يظهر طلب الموقع، أو ظهرت صفحة بيضاء، أو الزر لا يستجيب. الطلب لا يسجل مباشرة إلا بعد اعتماد الأدمن.")
+        with st.expander("إرسال طلب للأدمن", expanded=False):
+            known_emp = st.session_state.get("emp_data") or {}
+            problem_id = ar_to_en_digits(st.text_input("الرقم الشخصي", value=str(known_emp.get("الرقم الشخصي", "")), key="prob_emp_id")).strip()
+            auto_emp = validate_employee(problem_id) if problem_id else None
+            problem_name = st.text_input("الاسم", value=(auto_emp.get("الاسم", "") if auto_emp else known_emp.get("الاسم", "")), key="prob_name")
+            problem_school = st.text_input("المدرسة", value=(auto_emp.get("المدرسة", "") if auto_emp else known_emp.get("المدرسة", "")), key="prob_school")
+            problem_task = st.text_input("المهمة", value=(auto_emp.get("المهمة", "") if auto_emp else known_emp.get("المهمة", "")), key="prob_task")
+            req_type = st.selectbox("نوع الطلب", ["حضور", "انصراف"], key="prob_req_type")
+            actual_att = st.text_input("وقت الحضور الفعلي", value="07:00:00", key="prob_actual_att")
+            actual_dep = st.text_input("وقت الانصراف الفعلي (اختياري)", key="prob_actual_dep")
+            problem_type = st.selectbox("نوع المشكلة", ["تعذر تحديد الموقع", "صفحة بيضاء", "الموقع لا يعمل", "زر لا يستجيب", "مشكلة في المتصفح", "أخرى"], key="prob_type")
+            problem_notes = st.text_area("ملاحظات اختيارية", key="prob_notes")
+            if st.button("📨 إرسال الطلب للأدمن", use_container_width=True, type="primary", key="send_manual_request"):
+                if not problem_id or not problem_name.strip() or not problem_school.strip() or not actual_att.strip():
+                    st.error("❌ الرقم الشخصي والاسم والمدرسة ووقت الحضور الفعلي مطلوبة.")
+                else:
+                    ok = submit_manual_request(problem_id, problem_name, problem_school, problem_task, req_type, actual_att, actual_dep, problem_type, problem_notes)
+                    if ok:
+                        st.success("✅ تم إرسال الطلب للأدمن. لا تضغطي مرة ثانية، سيتم اعتماد الطلب من لوحة الأدمن.")
+                    else:
+                        st.error("❌ تعذر إرسال الطلب. تواصلي مع الأدمن عبر واتساب.")
+
 # ══════════════════════════════════════════════════════════════════
 # ══ واجهة الأدمن ══
 # ══════════════════════════════════════════════════════════════════
@@ -1520,6 +1641,7 @@ else:
 
         admin_tab=st.selectbox("القسم",[
             "📊 إحصائيات اليوم",
+            "🆘 طلبات التسجيل اليدوي",
             "🔴 تسجيل الغياب",
             "📅 دوام الأقسام",
             "🧹 تنظيف التكرارات",
@@ -1580,6 +1702,7 @@ else:
             missing_depart=[r for r in today_required_rows if r.get("وقت الحضور") and not r.get("وقت الانصراف")]
             auto_closed=[r for r in data if str(r.get("إغلاق تلقائي","")).strip()]
             correction_done_rows=[r for r in today_required_rows if is_correction_done_day(r)]
+            no_gps_rows=[r for r in today_rows if "بدون تحقق GPS" in str(r.get("سبب التأخير", "")) or "بدون تحقق GPS" in str(r.get("سبب الانصراف", "")) or "بدون تحقق GPS" in str(r.get("محاولة", ""))]
 
             c1,c2,c3=st.columns(3)
             c1.metric("المتوقع حضورهم اليوم",len(required_wl))
@@ -1596,7 +1719,7 @@ else:
             c10,c11,c12=st.columns(3)
             c10.metric("معفى - انتهاء التصحيح",len(correction_done_rows))
             c11.metric("إغلاق تلقائي",len(auto_closed))
-            c12.metric("", "")
+            c12.metric("بدون تحقق GPS",len(no_gps_rows))
 
             st.info("✅ الإحصائيات الأساسية أعلاه تعتمد على دوام الأقسام المحدد لهذا اليوم، مع فصل الدعم الخارجي غير الموجود في القائمة البيضاء.")
 
@@ -1610,8 +1733,37 @@ else:
                     st.caption("هذه القائمة تساعدك للتواصل معهن قبل اعتماد الغياب. تستثني من حضرن أو تم تسجيل غيابهن يدويًا.")
                     for eid, emp in not_checked_in.items():
                         st.markdown(f'<div class="warn-row">🚨 {emp.get("الاسم", "")} — #{eid} — {emp.get("المدرسة", "")} — {emp.get("المهمة", "")}</div>', unsafe_allow_html=True)
+                        phone_raw = str(emp.get("رقم التواصل", "") or "").strip().replace(" ", "")
+                        msg = f"""السلام عليكم 🌷
+نلاحظ عدم تسجيل حضوركِ في نظام الحضور والانصراف لهذا اليوم.
+
+يرجى الدخول للنظام الآن. إذا كنتِ حاضرة في المركز من وقت سابق ولم يعمل معكِ التسجيل، اختاري: 🆘 عندي مشكلة في التسجيل، ثم اكتبي وقت حضوركِ الفعلي ليظهر الطلب عند الأدمن ويتم اعتماده يدويًا.
+
+أما إذا لم تحضري بعد، يرجى تسجيل الحضور عند الوصول للمركز فقط.
+
+رابط النظام:
+{APP_URL}"""
+                        cwa1, cwa2 = st.columns(2)
+                        if phone_raw:
+                            if not phone_raw.startswith("973"):
+                                phone_raw = "973" + phone_raw.lstrip("0")
+                            wa_url = "https://wa.me/" + phone_raw + "?text=" + urllib.parse.quote(msg)
+                            with cwa1:
+                                st.link_button("📩 إرسال تذكير واتساب", wa_url, use_container_width=True)
+                        else:
+                            with cwa1:
+                                st.caption("لا يوجد رقم تواصل في القائمة البيضاء")
+                        with cwa2:
+                            if st.button("✅ تسجيل أنه تم إرسال تذكير", key=f"reminder_sent_{eid}", use_container_width=True):
+                                log_audit(eid, emp.get("الاسم", ""), "إرسال تذكير عدم تسجيل", "تم فتح/تجهيز رسالة واتساب من الداشبورد")
+                                st.success("تم تسجيل التذكير في سجل التدقيق")
                 else:
                     st.success("✅ بعد الساعة 10:00: لا توجد أسماء مطلوبة لم تسجل حضور أو غياب.")
+
+            if no_gps_rows:
+                st.markdown("#### ⚠️ عمليات بدون تحقق GPS")
+                for r in no_gps_rows[-50:]:
+                    st.markdown(f'<div class="warn-row">⚠️ {r.get("الاسم الثلاثي","")} — #{r.get("الرقم الشخصي","")} — حضور: {r.get("وقت الحضور","") or "—"} — انصراف: {r.get("وقت الانصراف","") or "—"}</div>', unsafe_allow_html=True)
 
             if correction_done_rows:
                 st.markdown("#### ✅ معفى - الانتهاء من التصحيح")
@@ -1643,6 +1795,49 @@ else:
                 with st.expander("🔄 سجلات أُغلقت تلقائيًا", expanded=False):
                     for r in reversed(auto_closed[-50:]):
                         st.markdown(f'<div class="audit-row">{r.get("التاريخ","")} — {r.get("الاسم الثلاثي","")} — انصراف: {r.get("وقت الانصراف","")} — {r.get("إغلاق تلقائي","")}</div>',unsafe_allow_html=True)
+
+
+        # ── طلبات التسجيل اليدوي ─────────────────────────────────
+        elif admin_tab=="🆘 طلبات التسجيل اليدوي":
+            st.markdown("#### 🆘 طلبات التسجيل اليدوي / مشاكل الموقع والمتصفح")
+            reqs = get_manual_requests()
+            pending = [(i+2, r) for i, r in enumerate(reqs) if str(r.get("الحالة", "")).strip() in ["", "بانتظار الاعتماد"]]
+            done = [(i+2, r) for i, r in enumerate(reqs) if str(r.get("الحالة", "")).strip() not in ["", "بانتظار الاعتماد"]]
+            st.metric("طلبات بانتظار الاعتماد", len(pending))
+            if not pending:
+                st.success("✅ لا توجد طلبات معلقة حالياً.")
+            else:
+                for row_num, r in reversed(pending[-80:]):
+                    eid = str(r.get("الرقم الشخصي", "")).strip()
+                    title = f"{r.get('الاسم','')} — #{eid} — {r.get('نوع الطلب','')} — {r.get('نوع المشكلة','')}"
+                    with st.expander(title, expanded=False):
+                        st.markdown(f'<div class="warn-row"><b>تاريخ الطلب:</b> {r.get("تاريخ الطلب","")} — <b>وقت الإرسال:</b> {r.get("وقت الطلب","")}<br><b>وقت الحضور الفعلي:</b> {r.get("وقت الحضور الفعلي","")}<br><b>وقت الانصراف الفعلي:</b> {r.get("وقت الانصراف الفعلي","") or "—"}<br><b>المدرسة:</b> {r.get("المدرسة","")}<br><b>المهمة:</b> {r.get("المهمة","")}<br><b>الملاحظات:</b> {r.get("ملاحظات","") or "—"}</div>', unsafe_allow_html=True)
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            if st.button("✅ اعتماد حضور", key=f"approve_att_{row_num}", use_container_width=True, type="primary"):
+                                if approve_manual_request(row_num, r, "حضور", True):
+                                    st.success("✅ تم اعتماد الحضور اليدوي")
+                                    st.rerun()
+                        with c2:
+                            if st.button("🔵 اعتماد انصراف", key=f"approve_dep_{row_num}", use_container_width=True):
+                                if approve_manual_request(row_num, r, "انصراف", True):
+                                    st.success("✅ تم اعتماد الانصراف اليدوي")
+                                    st.rerun()
+                        with c3:
+                            if st.button("❌ رفض الطلب", key=f"reject_req_{row_num}", use_container_width=True):
+                                try:
+                                    manual_requests_sheet.update_cell(row_num, 12, "مرفوض")
+                                    manual_requests_sheet.update_cell(row_num, 14, now_bh().strftime("%Y-%m-%d %H:%M:%S"))
+                                    manual_requests_sheet.update_cell(row_num, 15, "أدمن")
+                                    log_audit(eid, r.get("الاسم", ""), "رفض طلب تسجيل يدوي", f"نوع المشكلة:{r.get('نوع المشكلة','')}|وقت الطلب:{r.get('وقت الطلب','')}")
+                                    clear_caches()
+                                    st.success("تم رفض الطلب")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"تعذر رفض الطلب: {e}")
+            with st.expander("الطلبات المعتمدة/المرفوضة الأخيرة", expanded=False):
+                for row_num, r in reversed(done[-40:]):
+                    st.markdown(f'<div class="audit-row">{r.get("الحالة","")} — {r.get("الاسم","")} — #{r.get("الرقم الشخصي","")} — {r.get("تاريخ الطلب","")} {r.get("وقت الطلب","")}</div>', unsafe_allow_html=True)
 
         # ── تسجيل الغياب ────────────────────────────────────────
         elif admin_tab=="🔴 تسجيل الغياب":
