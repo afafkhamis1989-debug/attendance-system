@@ -2353,25 +2353,158 @@ else:
                                      "وقت الحضور","وقت الانصراف","ساعات العمل","الساعات الإضافية","حالة الدوام","نوع الدوام اليومي"]
                         df_rows = []
                         for r in rows:
-                            df_rows.append({c: r.get(c,"") for c in cols_show})
+                            row_d = {c: r.get(c,"") for c in cols_show}
+                            # نحول الرقم الشخصي لنص عشان لا يظهر بصيغة علمية
+                            row_d["الرقم الشخصي"] = str(r.get("الرقم الشخصي","")).strip()
+                            df_rows.append(row_d)
                         df = pd.DataFrame(df_rows)
                         st.dataframe(df, use_container_width=True, hide_index=True)
 
-                        # ── تصدير Excel ──
+                        # ── تصدير Excel منسق ──
                         st.markdown("##### تصدير")
                         try:
+                            from openpyxl import load_workbook
+                            from openpyxl.styles import (
+                                Font, Alignment, PatternFill, Border, Side, GradientFill
+                            )
+                            from openpyxl.utils import get_column_letter
+
                             buf = BytesIO()
                             with pd.ExcelWriter(buf, engine="openpyxl") as writer:
                                 df.to_excel(writer, index=False, sheet_name="التقرير")
+                                # ── ملخص موظفة ──
+                                emp_sum_rows = []
+                                for r in rows:
+                                    eid  = str(r.get("الرقم الشخصي","")).strip()
+                                    name = str(r.get("الاسم الثلاثي","")).strip()
+                                    if not eid: continue
+                                    found = next((x for x in emp_sum_rows if x["الرقم الشخصي"]==eid), None)
+                                    if not found:
+                                        found = {"الرقم الشخصي": eid, "الاسم": name, "عدد الأيام": 0,
+                                                 "أيام التأخير": 0, "إغلاق تلقائي": 0}
+                                        emp_sum_rows.append(found)
+                                    found["عدد الأيام"] += 1
+                                    if is_late_for_statistics(r): found["أيام التأخير"] += 1
+                                    if str(r.get("إغلاق تلقائي","")).strip(): found["إغلاق تلقائي"] += 1
+                                if emp_sum_rows:
+                                    pd.DataFrame(emp_sum_rows).to_excel(writer, index=False, sheet_name="ملخص الموظفات")
+
+                            # ── تنسيق الملف ──
                             buf.seek(0)
+                            wb = load_workbook(buf)
+
+                            # ألوان
+                            header_fill   = PatternFill("solid", fgColor="0C3460")   # أزرق داكن للهيدر
+                            alt_fill      = PatternFill("solid", fgColor="EAF3DE")   # أخضر فاتح للصفوف الزوجية
+                            white_fill    = PatternFill("solid", fgColor="FFFFFF")
+                            late_fill     = PatternFill("solid", fgColor="FFF3CD")   # أصفر للتأخير
+                            complete_fill = PatternFill("solid", fgColor="D4EDDA")   # أخضر للمكتمل
+                            missing_fill  = PatternFill("solid", fgColor="F8D7DA")   # أحمر للناقص
+
+                            header_font  = Font(name="Arial", bold=True, color="FFFFFF", size=11)
+                            body_font    = Font(name="Arial", size=10)
+                            center_align = Alignment(horizontal="center", vertical="center",
+                                                     wrap_text=True, reading_order=2)
+                            right_align  = Alignment(horizontal="right",  vertical="center",
+                                                     wrap_text=True, reading_order=2)
+                            thin = Side(style="thin", color="CCCCCC")
+                            border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+                            # عرض الأعمدة لكل شيت
+                            col_widths = {
+                                "التاريخ": 14, "اليوم": 10, "اسم المدرسة": 28,
+                                "المهمة": 30, "الاسم الثلاثي": 28, "الرقم الشخصي": 16,
+                                "وقت الحضور": 13, "وقت الانصراف": 13,
+                                "ساعات العمل": 13, "الساعات الإضافية": 16,
+                                "حالة الدوام": 20, "نوع الدوام اليومي": 20,
+                            }
+
+                            for sheet_name in wb.sheetnames:
+                                ws = wb[sheet_name]
+                                ws.sheet_view.rightToLeft = True  # RTL
+
+                                # ارتفاع الهيدر
+                                ws.row_dimensions[1].height = 30
+
+                                # تنسيق الهيدر
+                                for cell in ws[1]:
+                                    cell.font      = header_font
+                                    cell.fill      = header_fill
+                                    cell.alignment = center_align
+                                    cell.border    = border
+
+                                # عرض الأعمدة تلقائياً
+                                for col_idx, col_cells in enumerate(ws.columns, 1):
+                                    col_letter = get_column_letter(col_idx)
+                                    header_val = str(ws.cell(1, col_idx).value or "")
+                                    ws.column_dimensions[col_letter].width = col_widths.get(header_val, 18)
+
+                                # تنسيق صفوف البيانات
+                                for row_idx, row_cells in enumerate(ws.iter_rows(min_row=2), 2):
+                                    ws.row_dimensions[row_idx].height = 20
+                                    row_fill = alt_fill if row_idx % 2 == 0 else white_fill
+
+                                    # لون خاص حسب حالة الدوام
+                                    status_val = ""
+                                    for cell in row_cells:
+                                        h = str(ws.cell(1, cell.column).value or "")
+                                        if h == "حالة الدوام":
+                                            status_val = str(cell.value or "")
+                                    if "ناقص" in status_val or "لم يكتمل" in status_val:
+                                        row_fill = missing_fill
+                                    elif "مكتمل" in status_val:
+                                        row_fill = complete_fill
+
+                                    for cell in row_cells:
+                                        cell.font      = body_font
+                                        cell.fill      = row_fill
+                                        cell.border    = border
+                                        h = str(ws.cell(1, cell.column).value or "")
+                                        # الأعمدة الرقمية والوقت توسيط، الباقي يمين
+                                        if h in ["وقت الحضور","وقت الانصراف","ساعات العمل",
+                                                 "الساعات الإضافية","التاريخ","اليوم"]:
+                                            cell.alignment = center_align
+                                        else:
+                                            cell.alignment = right_align
+                                        # الرقم الشخصي نصي دائماً
+                                        if h == "الرقم الشخصي" and cell.value:
+                                            cell.value     = str(cell.value)
+                                            cell.number_format = "@"
+
+                                # تجميد الهيدر
+                                ws.freeze_panes = "A2"
+
+                                # إعدادات الطباعة
+                                ws.page_setup.orientation      = "landscape"
+                                ws.page_setup.fitToPage        = True
+                                ws.page_setup.fitToWidth        = 1
+                                ws.page_setup.fitToHeight       = 0
+                                ws.page_setup.paperSize         = 9  # A4
+                                ws.print_title_rows             = "1:1"
+                                ws.page_margins.left            = 0.5
+                                ws.page_margins.right           = 0.5
+                                ws.page_margins.top             = 0.75
+                                ws.page_margins.bottom          = 0.75
+                                ws.sheet_properties.pageSetUpPr.fitToPage = True
+                                ws.oddHeader.center.text = f"مركز جدحفص الثانوية للتصحيح المركزي\nنظام الحضور والانصراف — {date_from} إلى {date_to}"
+                                ws.oddHeader.center.font = "Arial,Bold"
+                                ws.oddFooter.right.text  = "صفحة &P من &N"
+
+                            buf2 = BytesIO()
+                            wb.save(buf2)
+                            buf2.seek(0)
                             fname = f"تقرير_الحضور_{date_from}_{date_to}.xlsx"
-                            st.download_button("📥 تحميل Excel", data=buf, file_name=fname,
-                                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                               use_container_width=True)
+                            st.download_button(
+                                "📥 تحميل Excel — منسق وجاهز للطباعة",
+                                data=buf2,
+                                file_name=fname,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True,
+                            )
                         except Exception as e:
                             st.warning(f"⚠️ تعذّر إنشاء ملف Excel: {e}")
 
-                        # ── ملخص لكل موظفة ──
+                        # ── ملخص لكل موظفة (عرض في الصفحة) ──
                         st.markdown("---")
                         st.markdown("##### ملخص لكل موظفة")
                         emp_summary = {}
@@ -2380,7 +2513,7 @@ else:
                             name = str(r.get("الاسم الثلاثي","")).strip()
                             if not eid: continue
                             if eid not in emp_summary:
-                                emp_summary[eid] = {"الاسم": name, "أيام": 0, "تأخير": 0, "إغلاق تلقائي": 0, "ساعات إضافية": 0}
+                                emp_summary[eid] = {"الاسم": name, "أيام": 0, "تأخير": 0, "إغلاق تلقائي": 0}
                             emp_summary[eid]["أيام"] += 1
                             if is_late_for_statistics(r): emp_summary[eid]["تأخير"] += 1
                             if str(r.get("إغلاق تلقائي","")).strip(): emp_summary[eid]["إغلاق تلقائي"] += 1
