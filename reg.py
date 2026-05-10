@@ -1784,7 +1784,7 @@ if mode=="👤 موظفة":
 
                 # ── زر "الموقع ما اشتغل" — يظهر دائماً بعد أول ضغطة ──
                 st.markdown("---")
-                st.markdown('<div style="font-size:13px;font-weight:700;color:#633806;margin-bottom:6px;">⚠️ الموقع ما اشتغل أو ضغطتِ ولم يحدث شيء؟</div>', unsafe_allow_html=True)
+                st.markdown('<div style="font-size:13px;font-weight:700;color:#633806;margin-bottom:6px;">📋 سجّلي بدون تحديد موقع — سيُعتمد وقت الإرسال حضوراً أو انصرافاً من الأدمن</div>', unsafe_allow_html=True)
 
                 col_ng1, col_ng2 = st.columns(2)
                 with col_ng1:
