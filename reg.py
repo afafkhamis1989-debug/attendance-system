@@ -1603,18 +1603,38 @@ if mode=="👤 موظفة":
         st.caption("استخدمي هذا الخيار إذا لم يظهر طلب الموقع، أو ظهرت صفحة بيضاء، أو الزر لا يستجيب. الطلب لا يسجل مباشرة إلا بعد اعتماد الأدمن.")
         with st.expander("إرسال طلب للأدمن", expanded=False):
             known_emp = st.session_state.get("emp_data") or {}
-            problem_id = ar_to_en_digits(st.text_input("الرقم الشخصي", value=str(known_emp.get("الرقم الشخصي", "")), key="prob_emp_id")).strip()
+            default_problem_id = str(known_emp.get("الرقم الشخصي", "") or "")
+            problem_id = ar_to_en_digits(st.text_input("الرقم الشخصي", value=default_problem_id, key="prob_emp_id_lookup")).strip()
             auto_emp = validate_employee(problem_id) if problem_id else None
-            problem_name = st.text_input("الاسم", value=(auto_emp.get("الاسم", "") if auto_emp else known_emp.get("الاسم", "")), key="prob_name")
-            problem_school = st.text_input("المدرسة", value=(auto_emp.get("المدرسة", "") if auto_emp else known_emp.get("المدرسة", "")), key="prob_school")
-            problem_task = st.text_input("المهمة", value=(auto_emp.get("المهمة", "") if auto_emp else known_emp.get("المهمة", "")), key="prob_task")
+
+            if auto_emp:
+                problem_name = str(auto_emp.get("الاسم", "")).strip()
+                problem_school = str(auto_emp.get("المدرسة", "")).strip()
+                problem_task = str(auto_emp.get("المهمة", "")).strip()
+                st.success("✅ الرقم موجود في القائمة البيضاء، تم تعبئة البيانات تلقائيًا.")
+                st.markdown(f"""
+                <div class="field-lbl">الاسم</div><div class="field-val">{problem_name}</div>
+                <div class="field-lbl">المدرسة</div><div class="field-val">{problem_school}</div>
+                <div class="field-lbl">المهمة</div><div class="field-val blue">{problem_task}</div>
+                """, unsafe_allow_html=True)
+            else:
+                if problem_id:
+                    st.warning("⚠️ الرقم غير موجود في القائمة البيضاء، أدخلي البيانات يدويًا ليراجعها الأدمن.")
+                problem_name = st.text_input("الاسم", value=str(known_emp.get("الاسم", "") or ""), key="prob_name_manual")
+                school_choice = st.selectbox("المدرسة", schools + ["أخرى"], key="prob_school_choice_manual")
+                if school_choice == "أخرى":
+                    problem_school = st.text_input("اكتبي اسم المدرسة", key="prob_school_other_manual").strip()
+                else:
+                    problem_school = school_choice
+                problem_task = st.selectbox("المهمة", TASKS_ALL, key="prob_task_manual")
+
             req_type = st.selectbox("نوع الطلب", ["حضور", "انصراف"], key="prob_req_type")
             actual_att = st.text_input("وقت الحضور الفعلي", value="07:00:00", key="prob_actual_att")
             actual_dep = st.text_input("وقت الانصراف الفعلي (اختياري)", key="prob_actual_dep")
             problem_type = st.selectbox("نوع المشكلة", ["تعذر تحديد الموقع", "صفحة بيضاء", "الموقع لا يعمل", "زر لا يستجيب", "مشكلة في المتصفح", "أخرى"], key="prob_type")
             problem_notes = st.text_area("ملاحظات اختيارية", key="prob_notes")
             if st.button("📨 إرسال الطلب للأدمن", use_container_width=True, type="primary", key="send_manual_request"):
-                if not problem_id or not problem_name.strip() or not problem_school.strip() or not actual_att.strip():
+                if not problem_id or not str(problem_name).strip() or not str(problem_school).strip() or not actual_att.strip():
                     st.error("❌ الرقم الشخصي والاسم والمدرسة ووقت الحضور الفعلي مطلوبة.")
                 else:
                     ok = submit_manual_request(problem_id, problem_name, problem_school, problem_task, req_type, actual_att, actual_dep, problem_type, problem_notes)
