@@ -12,6 +12,8 @@ import random
 import string
 import time as time_module
 import urllib.parse
+from io import BytesIO
+import pandas as pd
 
 try:
     from streamlit_local_storage import LocalStorage
@@ -152,6 +154,7 @@ def get_all_sheets():
         "daily_schedule": _get_or_create("دوام_الأقسام_اليومي", ["التاريخ","المهمة","نشط","ملاحظات"]),
         "device":      _get_or_create("device_lock",              ["التاريخ","بصمة الجهاز","الرقم الشخصي","الاسم","وقت_القفل"]),
         "device_exceptions": _get_or_create("استثناءات_قفل_الجهاز", ["الرقم الشخصي","الاسم","تاريخ_الانتهاء","نشط","ملاحظات","تاريخ_الإضافة"]),
+        "trusted_devices": _get_or_create("الأجهزة_الموثوقة", ["بصمة الجهاز","اسم الجهاز","نشط","ملاحظات","تاريخ الاعتماد","آخر استخدام"]),
         "attempts":    _get_or_create("محاولات_تسجيل_باسم_آخر",  ["التاريخ","بصمة الجهاز","الرقم_المقفول_عليه","اسم_المقفول_عليه","الرقم_المحاول","اسم_المحاول","وقت_المحاولة","ملاحظات"]),
         "settings":    _get_or_create("إعدادات_النظام",           ["المفتاح","القيمة","تاريخ_الانتهاء","ملاحظات"]),
         "audit":       _get_or_create("سجل_التدقيق",              ["التاريخ","الوقت","المستخدم","الرقم الشخصي","نوع العملية","التفاصيل","بصمة الجهاز"]),
@@ -165,6 +168,7 @@ sheet           = _sheets["sheet"]
 whitelist_sheet = _sheets["whitelist"]
 device_sheet    = _sheets["device"]
 device_exceptions_sheet = _sheets["device_exceptions"]
+trusted_devices_sheet = _sheets["trusted_devices"]
 attempts_sheet  = _sheets["attempts"]
 settings_sheet  = _sheets["settings"]
 audit_sheet     = _sheets["audit"]
@@ -282,6 +286,11 @@ def get_device_exceptions():
     except: return []
 
 @st.cache_data(ttl=60, show_spinner=False)
+def get_trusted_devices():
+    try: return trusted_devices_sheet.get_all_records()
+    except: return []
+
+@st.cache_data(ttl=60, show_spinner=False)
 def get_settings_records():
     try: return settings_sheet.get_all_records()
     except: return []
@@ -359,7 +368,7 @@ def get_daily_schedule_records():
     except: return []
 
 def clear_caches():
-    get_sheet_data.clear(); get_device_locks.clear(); get_device_exceptions.clear(); get_settings_records.clear(); get_schedule_records.clear(); get_daily_schedule_records.clear(); get_manual_requests.clear()
+    get_sheet_data.clear(); get_device_locks.clear(); get_device_exceptions.clear(); get_trusted_devices.clear(); get_settings_records.clear(); get_schedule_records.clear(); get_daily_schedule_records.clear(); get_manual_requests.clear()
 
 
 # ─── دوال احتساب الدوام والساعات والإغلاق التلقائي ───────────────
@@ -965,6 +974,64 @@ def auto_cleanup_duplicate_attendance_for_emp(today, emp_id, reason="تنظيف 
         log_audit(emp_id, emp_name, reason, f"التاريخ:{today}|تم الاحتفاظ بالصف:{keep_row_num}|حذف الصفوف:{delete_rows}")
         clear_caches()
     return len(delete_rows)
+
+def is_current_device_trusted():
+    """يتحقق هل بصمة المتصفح الحالية معتمدة كجهاز موثوق في المركز."""
+    fp = get_device_fingerprint()
+    try:
+        for r in get_trusted_devices():
+            if str(r.get("بصمة الجهاز", "")).strip() == fp and is_yes(r.get("نشط", "")):
+                return True, r
+    except Exception:
+        pass
+    return False, None
+
+def approve_current_device_as_trusted(device_name, note=""):
+    """اعتماد الجهاز الحالي كجهاز موثوق يسمح بتسجيل أكثر من موظفة."""
+    fp = get_device_fingerprint()
+    now_txt = now_bh().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        records = trusted_devices_sheet.get_all_records()
+        found = None
+        for i, r in enumerate(records, start=2):
+            if str(r.get("بصمة الجهاز", "")).strip() == fp:
+                found = i
+                break
+        row = [fp, device_name or "جهاز موثوق", "نعم", note, now_txt, now_txt]
+        if found:
+            trusted_devices_sheet.update(f"A{found}:F{found}", [row], value_input_option="USER_ENTERED")
+        else:
+            trusted_devices_sheet.append_row(row, value_input_option="USER_ENTERED")
+        get_trusted_devices.clear()
+        return True
+    except Exception as e:
+        st.error(f"❌ تعذر اعتماد الجهاز: {e}")
+        return False
+
+def disable_trusted_device(fp):
+    try:
+        records = trusted_devices_sheet.get_all_records()
+        for i, r in enumerate(records, start=2):
+            if str(r.get("بصمة الجهاز", "")).strip() == str(fp).strip():
+                trusted_devices_sheet.update_cell(i, 3, "لا")
+                get_trusted_devices.clear()
+                return True
+    except Exception as e:
+        st.error(f"❌ تعذر تعطيل الجهاز: {e}")
+    return False
+
+def touch_trusted_device_usage():
+    fp = get_device_fingerprint()
+    try:
+        records = trusted_devices_sheet.get_all_records()
+        for i, r in enumerate(records, start=2):
+            if str(r.get("بصمة الجهاز", "")).strip() == fp and is_yes(r.get("نشط", "")):
+                trusted_devices_sheet.update_cell(i, 6, now_bh().strftime("%Y-%m-%d %H:%M:%S"))
+                get_trusted_devices.clear()
+                return
+    except Exception:
+        pass
+
 def check_device_lock(today, emp_id, emp_name):
     """قفل الجهاز طوال اليوم: نفس بصمة المتصفح لا تسجل لأكثر من رقم في نفس التاريخ.
     يمكن للأدمن تعطيله للجميع أو استثناء رقم شخصي محدد.
@@ -977,6 +1044,12 @@ def check_device_lock(today, emp_id, emp_name):
     # استثناء شخصي مؤقت من الأدمن
     emp_off, _ = employee_has_device_exception(emp_id)
     if emp_off:
+        return True
+
+    # الجهاز الموثوق يسمح بتسجيل أكثر من موظفة من نفس الجهاز الاحتياطي داخل المركز
+    trusted, _trusted_row = is_current_device_trusted()
+    if trusted:
+        touch_trusted_device_usage()
         return True
 
     fp = get_device_fingerprint()
@@ -1114,7 +1187,7 @@ def register_operation(operation, emp_id, note=""):
                 ok=safe_append(sheet,[today,day_name,school,task,is_support,full_name,emp_id,time_now,note,"","",implicit_exit_time,implicit_return_time,"","","","","","","","","","دعم مباشر" if is_support == "نعم" else "تسجيل ذاتي"])
                 if not ok: st.error("❌ تعذر الحفظ، حاولي بعد قليل."); return False
         lock_device(today,emp_id,full_name)
-        log_audit(emp_id,full_name,"تسجيل حضور",f"الوقت:{time_now}|السبب:{note or 'بدون'}")
+        log_audit(emp_id,full_name,"تسجيل حضور",f"الوقت:{time_now}|السبب:{note or 'بدون'}" + ("|جهاز موثوق" if is_current_device_trusted()[0] else ""))
         # ثبّت البيانات
         st.session_state.data_locked_today=True
         st.session_state.locked_emp={"الرقم الشخصي":emp_id,"الاسم":full_name,"المدرسة":school,"المهمة":task,"دعم":is_support=="نعم","نشط":"نعم"}
@@ -1421,7 +1494,7 @@ if mode=="👤 موظفة":
     # ── الموقع ──────────────────────────────────────────────────
     with st.container(border=True):
         st.markdown('<div class="card-title">📍 التحقق من الموقع</div>', unsafe_allow_html=True)
-        st.caption("اتبعي الخطوات بالترتيب. خيار التعذر لا يظهر إلا بعد محاولة فعلية إذا فشل GPS أو ظهر خارج النطاق.")
+        st.caption("التحقق من الموقع هو الخطوة الأساسية قبل تسجيل الحضور أو الانصراف. إذا فشل GPS سيظهر خيار إرسال طلب للأدمن.")
 
         if st.session_state.get("location_allowed", False):
             st.success("✅ تم التحقق من الموقع بنجاح.")
@@ -1431,15 +1504,11 @@ if mode=="👤 موظفة":
         st.markdown('''
         <div class="gps-steps-box">
             <div class="gps-steps-title">📋 خطوات التحقق من الموقع</div>
-            <div class="gps-step"><span class="gps-step-num">1</span><span>اضغطي زر <b>ابدئي التحقق من الموقع</b> بالأسفل.</span></div>
-            <div class="gps-step"><span class="gps-step-num">2</span><span>بعدها ستظهر أيقونة الموقع الصغيرة بالأسفل، اضغطيها.</span></div>
+            <div class="gps-step"><span class="gps-step-num">1</span><span>اضغطي زر <b>ابدئي التحقق من الموقع</b>.</span></div>
+            <div class="gps-step"><span class="gps-step-num">2</span><span>اضغطي أيقونة الموقع الصغيرة التي تظهر بالأسفل مباشرة.</span></div>
             <div class="gps-step"><span class="gps-step-num">3</span><span>إذا ظهر طلب السماح اختاري <b>سماح / Allow</b>.</span></div>
         </div>
         ''', unsafe_allow_html=True)
-
-        with st.expander("📋 ماذا أفعل إذا لم يظهر طلب الموقع؟"):
-            st.markdown('''إذا لم تظهر نافذة السماح أو ظهر خارج النطاق، انتظري نتيجة المحاولة.  
-بعد الفشل فقط سيظهر خيار **تعذر التحقق من الموقع** لإرسال طلب للأدمن.''')
 
         if st.button("1️⃣ ابدئي التحقق من الموقع", use_container_width=True, key="btn_check_location"):
             st.session_state.location_check_requested = True
@@ -1492,8 +1561,8 @@ if mode=="👤 موظفة":
             and not st.session_state.get("location_allowed", False)
             and not st.session_state.get("allow_no_gps_today", False)):
             st.markdown("---")
-            st.warning("⚠️ لأن التحقق من الموقع فشل أو ظهر خارج النطاق، يمكنك الآن إرسال طلب للأدمن.")
-            if st.button("⚠️ تعذر التحقق من الموقع — إرسال طلب للأدمن", use_container_width=True, key="btn_no_gps_after_fail"):
+            st.warning("⚠️ فشل التحقق من الموقع أو ظهر خارج النطاق. يمكنك إرسال طلب للأدمن للاعتماد.")
+            if st.button("⚠️ تعذر التحقق — فتح طلب اعتماد للأدمن", use_container_width=True, key="btn_no_gps_after_fail"):
                 st.session_state.allow_no_gps_today = True
                 st.session_state.location_allowed = False
                 st.warning("⚠️ تم تفعيل خيار التعذر لهذا اليوم. أي عملية بدون GPS ستُعلّم للأدمن للمراجعة ولا تُكرر لنفس نوع العملية.")
@@ -1893,6 +1962,8 @@ else:
 
         admin_tab=st.selectbox("القسم",[
             "📊 إحصائيات اليوم",
+            "📑 التقارير",
+            "🛠️ إصلاح شامل",
             "🆘 طلبات التسجيل اليدوي",
             "⚙️ إعدادات التسجيل اليدوي",
             "🔴 تسجيل الغياب",
@@ -1904,6 +1975,7 @@ else:
             "🚫 محاولات التسجيل",
             "📡 تجاوز الموقع",
             "⚙️ قفل الجهاز",
+            "📱 الأجهزة الموثوقة",
             "🔓 فتح قفل جهاز",
             "🔍 سجل التدقيق",
             "⚠️ تقرير الأجهزة",
@@ -2810,6 +2882,42 @@ else:
                 for r, end_dt in active_ex[-50:]:
                     st.markdown(f'<div class="audit-row">🔓 {r.get("الاسم","")} — #{r.get("الرقم الشخصي","")} — حتى {end_dt.strftime("%H:%M")}<br><small>{r.get("ملاحظات","")}</small></div>', unsafe_allow_html=True)
 
+
+        # ── الأجهزة الموثوقة ───────────────────────────────────────
+        elif admin_tab=="📱 الأجهزة الموثوقة":
+            st.markdown("#### 📱 الأجهزة الموثوقة")
+            st.info("افتحي هذه الصفحة من جهاز الحضور الاحتياطي داخل المركز، ثم اعتمديه. الجهاز الموثوق يسمح بتسجيل أكثر من موظفة من نفس الجهاز بدون قفل الجهاز.")
+            current_fp = get_device_fingerprint()
+            trusted_now, trusted_row = is_current_device_trusted()
+            if trusted_now:
+                st.success(f"✅ هذا الجهاز موثوق حاليًا: {trusted_row.get('اسم الجهاز','جهاز موثوق')}")
+            else:
+                st.warning("⚠️ هذا الجهاز غير معتمد كجهاز موثوق.")
+            dev_name = st.text_input("اسم الجهاز", value="جهاز الحضور الاحتياطي", key="trusted_dev_name")
+            dev_note = st.text_input("ملاحظات", value="جهاز مخصص للتسجيل داخل المركز", key="trusted_dev_note")
+            if st.button("⭐ اعتماد هذا الجهاز كجهاز موثوق", use_container_width=True, type="primary"):
+                if approve_current_device_as_trusted(dev_name, dev_note):
+                    log_audit("—", "أدمن", "اعتماد جهاز موثوق", f"اسم الجهاز:{dev_name}|بصمة:{current_fp[:8]}...")
+                    st.success("✅ تم اعتماد هذا الجهاز كجهاز موثوق.")
+                    st.rerun()
+            st.markdown("---")
+            st.markdown("#### قائمة الأجهزة الموثوقة")
+            rows = get_trusted_devices()
+            active_rows = [r for r in rows if is_yes(r.get("نشط", ""))]
+            if not active_rows:
+                st.info("لا توجد أجهزة موثوقة نشطة.")
+            else:
+                for idx, r in enumerate(active_rows, start=1):
+                    fp = str(r.get("بصمة الجهاز", "")).strip()
+                    with st.expander(f"📱 {r.get('اسم الجهاز','جهاز موثوق')} — آخر استخدام: {r.get('آخر استخدام','')}"):
+                        st.write(f"ملاحظات: {r.get('ملاحظات','')}")
+                        st.code(fp)
+                        if st.button("🛑 تعطيل هذا الجهاز", key=f"disable_trusted_{idx}", use_container_width=True):
+                            if disable_trusted_device(fp):
+                                log_audit("—", "أدمن", "تعطيل جهاز موثوق", f"اسم الجهاز:{r.get('اسم الجهاز','')}|بصمة:{fp[:8]}...")
+                                st.success("✅ تم تعطيل الجهاز.")
+                                st.rerun()
+
         # ── فتح قفل جهاز ────────────────────────────────────────
         elif admin_tab=="🔓 فتح قفل جهاز":
             st.info("استخدمي هذه الخاصية عند وجود سبب رسمي.")
@@ -2907,7 +3015,6 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
-
 
 
 
