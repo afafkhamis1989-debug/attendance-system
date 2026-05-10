@@ -279,10 +279,67 @@ def get_settings_records():
     try: return settings_sheet.get_all_records()
     except: return []
 
+def get_system_setting(key, default=""):
+    """قراءة قيمة من ورقة إعدادات_النظام."""
+    try:
+        for r in get_settings_records():
+            if str(r.get("المفتاح", "")).strip() == str(key).strip():
+                return str(r.get("القيمة", default)).strip()
+    except Exception:
+        pass
+    return default
+
+
+def set_system_setting(key, value, note=""):
+    """حفظ/تحديث قيمة في ورقة إعدادات_النظام."""
+    try:
+        records = settings_sheet.get_all_records()
+        row_found = None
+        for i, r in enumerate(records):
+            if str(r.get("المفتاح", "")).strip() == str(key).strip():
+                row_found = i + 2
+                break
+        row_values = [str(key), str(value), "", note]
+        if row_found:
+            settings_sheet.update(f"A{row_found}:D{row_found}", [row_values], value_input_option="USER_ENTERED")
+        else:
+            safe_append(settings_sheet, row_values)
+        get_settings_records.clear()
+        return True
+    except Exception as e:
+        st.error(f"❌ تعذر حفظ الإعداد: {e}")
+        return False
+
+
+def manual_requests_enabled():
+    """طلبات التسجيل اليدوي من واجهة الموظفة مفعلة افتراضيًا، ويمكن تعطيلها من الأدمن."""
+    val = get_system_setting("manual_requests_enabled", "true").lower()
+    return val in ["true", "1", "yes", "نعم", "مفعل", "on", ""]
+
 @st.cache_data(ttl=60, show_spinner=False)
 def get_manual_requests():
     try: return manual_requests_sheet.get_all_records()
     except: return []
+
+def manual_request_exists_today(emp_id, req_type):
+    """يمنع تكرار نفس نوع الطلب لنفس الرقم في نفس التاريخ فقط.
+    يسمح بحضور ثم انصراف، لكنه يمنع حضورين أو انصرافين في نفس اليوم.
+    """
+    emp_id = ar_to_en_digits(emp_id).strip()
+    req_type = str(req_type or "").strip()
+    today = now_bh().strftime("%Y-%m-%d")
+    try:
+        for r in get_manual_requests():
+            status = str(r.get("الحالة", "")).strip()
+            if status == "مرفوض":
+                continue
+            if str(r.get("تاريخ الطلب", "")).strip() == today and \
+               str(r.get("الرقم الشخصي", "")).strip() == emp_id and \
+               str(r.get("نوع الطلب", "")).strip() == req_type:
+                return True, r
+    except Exception:
+        pass
+    return False, None
 
 @st.cache_data(ttl=120, show_spinner=False)
 def get_schedule_records():
@@ -1104,14 +1161,48 @@ def register_operation(operation, emp_id, note=""):
 
 
 # ─── طلبات التسجيل اليدوي / مشاكل المتصفح والموقع ─────────────────────
-def submit_manual_request(emp_id, emp_name, school, task, req_type, actual_att, actual_dep, problem_type, notes):
+def submit_manual_request(emp_id, emp_name, school, task, req_type, actual_att="", actual_dep="", problem_type="", notes=""):
+    """إرسال طلب تسجيل يدوي للأدمن.
+    الوقت يعتمد تلقائيًا على وقت إرسال الطلب، ولا يُطلب من الموظفة إدخال وقت يدوي.
+    يمنع تكرار نفس نوع الطلب لنفس الرقم في نفس اليوم.
+    """
     try:
+        emp_id = ar_to_en_digits(emp_id).strip()
+        req_type = str(req_type or "").strip()
+        exists, old_req = manual_request_exists_today(emp_id, req_type)
+        if exists:
+            old_time = str(old_req.get("وقت الطلب", "") or "")
+            st.warning(f"⚠️ تم إرسال طلب {req_type} سابق لهذا اليوم{(' الساعة ' + old_time) if old_time else ''}. لا يمكن تكرار نفس الطلب.")
+            return "duplicate"
+
         now = now_bh()
+        request_time = now.strftime("%H:%M:%S")
         fp = get_device_fingerprint()
-        row = [now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), ar_to_en_digits(emp_id).strip(), normalize_name(emp_name), str(school or "").strip(), str(task or "").strip(), str(req_type or "").strip(), str(actual_att or "").strip(), str(actual_dep or "").strip(), str(problem_type or "").strip(), str(notes or "").strip(), "بانتظار الاعتماد", fp, "", ""]
+
+        # نحفظ وقت الإرسال في خانة الحضور أو الانصراف حسب نوع الطلب، للتوثيق فقط.
+        request_att = request_time if req_type == "حضور" else ""
+        request_dep = request_time if req_type == "انصراف" else ""
+
+        row = [
+            now.strftime("%Y-%m-%d"),
+            request_time,
+            emp_id,
+            normalize_name(emp_name),
+            str(school or "").strip(),
+            str(task or "").strip(),
+            req_type,
+            request_att,
+            request_dep,
+            str(problem_type or "").strip(),
+            str(notes or "").strip(),
+            "بانتظار الاعتماد",
+            fp,
+            "",
+            ""
+        ]
         ok = safe_append(manual_requests_sheet, row)
         get_manual_requests.clear()
-        return ok
+        return True if ok else False
     except Exception:
         return False
 
@@ -1132,28 +1223,23 @@ def approve_manual_request(req_row_num, req, approve_type="حضور", use_actual
     except Exception:
         day_name = day_arabic
     request_time = str(req.get("وقت الطلب", "") or now_bh().strftime("%H:%M:%S"))
-    att_time = str(req.get("وقت الحضور الفعلي", "") or "").strip() if use_actual_time else request_time
-    dep_time = str(req.get("وقت الانصراف الفعلي", "") or "").strip()
+    # الاعتماد يكون دائمًا حسب وقت إرسال الطلب، وليس وقتًا تكتبه الموظفة يدويًا.
+    att_time = request_time
+    dep_time = request_time
     problem = str(req.get("نوع المشكلة", "") or "مشكلة تقنية").strip()
     notes = str(req.get("ملاحظات", "") or "").strip()
     reason_note = f"[طلب يدوي] {problem} | وقت إرسال الطلب: {request_time} | {notes}".strip()
     existing_matches = find_daily_rows_fresh(date_str, eid)
     existing_idx, existing_row = pick_main_daily_row(existing_matches)
     if approve_type == "حضور":
-        if not att_time:
-            st.error("❌ وقت الحضور الفعلي مطلوب لاعتماد الحضور.")
-            return False
         if existing_idx:
             safe_update(sheet, existing_idx, COL_ATTEND, att_time)
             safe_update(sheet, existing_idx, COL_LATE_REASON, reason_note)
-            if dep_time:
-                safe_update(sheet, existing_idx, COL_DEPART, dep_time)
             existing_row["وقت الحضور"] = att_time
             existing_row["سبب التأخير"] = reason_note
-            existing_row["وقت الانصراف"] = dep_time or existing_row.get("وقت الانصراف", "")
             update_work_calculation(existing_idx, existing_row)
         else:
-            safe_append(sheet, [date_str, day_name, school, task, support_value, full_name, eid, att_time, reason_note, dep_time, "", "", "", "⚠️ طلب يدوي بدون تحقق GPS"])
+            safe_append(sheet, [date_str, day_name, school, task, support_value, full_name, eid, att_time, reason_note, "", "", "", "", "⚠️ طلب يدوي بدون تحقق GPS"])
             idx_after, row_after = find_today_row_fresh(date_str, eid)
             if idx_after:
                 update_work_calculation(idx_after, row_after)
@@ -1718,44 +1804,59 @@ if mode=="👤 موظفة":
     # ── طلب مشكلة تقنية / تسجيل يدوي ───────────────────────────────
     with st.container(border=True):
         st.markdown('<div class="card-title">🆘 عندي مشكلة في التسجيل</div>', unsafe_allow_html=True)
-        st.caption("استخدمي هذا الخيار إذا لم يظهر طلب الموقع، أو ظهرت صفحة بيضاء، أو الزر لا يستجيب. الطلب لا يسجل مباشرة إلا بعد اعتماد الأدمن.")
-        with st.expander("إرسال طلب للأدمن", expanded=False):
-            known_emp = st.session_state.get("emp_data") or {}
-            default_problem_id = str(known_emp.get("الرقم الشخصي", "") or "")
-            problem_id = ar_to_en_digits(st.text_input("الرقم الشخصي", value=default_problem_id, key="prob_emp_id_lookup")).strip()
-            auto_emp = validate_employee(problem_id) if problem_id else None
+        if not manual_requests_enabled():
+            st.warning("⚠️ طلبات التسجيل اليدوي من واجهة الموظفة معطّلة حاليًا. في حال وجود مشكلة تقنية، يرجى التواصل مع الأدمن مباشرة.")
+        else:
+            st.caption("استخدمي هذا الخيار إذا لم يظهر طلب الموقع، أو ظهرت صفحة بيضاء، أو الزر لا يستجيب. الطلب لا يسجل مباشرة إلا بعد اعتماد الأدمن.")
+            with st.expander("إرسال طلب للأدمن", expanded=False):
+                known_emp = st.session_state.get("emp_data") or {}
+                default_problem_id = str(known_emp.get("الرقم الشخصي", "") or "")
+                problem_id = ar_to_en_digits(st.text_input("الرقم الشخصي", value=default_problem_id, key="prob_emp_id_lookup")).strip()
+                auto_emp = validate_employee(problem_id) if problem_id else None
 
-            if auto_emp:
-                problem_name = str(auto_emp.get("الاسم", "")).strip()
-                problem_school = str(auto_emp.get("المدرسة", "")).strip()
-                problem_task = str(auto_emp.get("المهمة", "")).strip()
-                # لا نعرض الاسم تلقائيًا للموظفة؛ نستخدم بيانات القائمة البيضاء داخليًا للأدمن فقط.
-                st.success("✅ الرقم موجود في القائمة البيضاء. أكملي نوع الطلب ووقت الحضور الفعلي فقط.")
-            else:
-                if problem_id:
-                    st.warning("⚠️ الرقم غير موجود في القائمة البيضاء، أدخلي البيانات يدويًا ليراجعها الأدمن.")
-                problem_name = st.text_input("الاسم", value=str(known_emp.get("الاسم", "") or ""), key="prob_name_manual")
-                school_choice = st.selectbox("المدرسة", schools + ["أخرى"], key="prob_school_choice_manual")
-                if school_choice == "أخرى":
-                    problem_school = st.text_input("اكتبي اسم المدرسة", key="prob_school_other_manual").strip()
+                if auto_emp:
+                    problem_name = str(auto_emp.get("الاسم", "")).strip()
+                    problem_school = str(auto_emp.get("المدرسة", "")).strip()
+                    problem_task = str(auto_emp.get("المهمة", "")).strip()
+                    # لا نعرض الاسم تلقائيًا للموظفة؛ نستخدم بيانات القائمة البيضاء داخليًا للأدمن فقط.
+                    st.success("✅ الرقم موجود في القائمة البيضاء. أكملي نوع الطلب ووقت الحضور الفعلي فقط.")
                 else:
-                    problem_school = school_choice
-                problem_task = st.selectbox("المهمة", TASKS_ALL, key="prob_task_manual")
-
-            req_type = st.selectbox("نوع الطلب", ["حضور", "انصراف"], key="prob_req_type")
-            actual_att = st.text_input("وقت الحضور الفعلي", value="07:00:00", key="prob_actual_att")
-            actual_dep = st.text_input("وقت الانصراف الفعلي (اختياري)", key="prob_actual_dep")
-            problem_type = st.selectbox("نوع المشكلة", ["تعذر تحديد الموقع", "صفحة بيضاء", "الموقع لا يعمل", "زر لا يستجيب", "مشكلة في المتصفح", "أخرى"], key="prob_type")
-            problem_notes = st.text_area("ملاحظات اختيارية", key="prob_notes")
-            if st.button("📨 إرسال الطلب للأدمن", use_container_width=True, type="primary", key="send_manual_request"):
-                if not problem_id or not str(problem_name).strip() or not str(problem_school).strip() or not actual_att.strip():
-                    st.error("❌ الرقم الشخصي والاسم والمدرسة ووقت الحضور الفعلي مطلوبة.")
-                else:
-                    ok = submit_manual_request(problem_id, problem_name, problem_school, problem_task, req_type, actual_att, actual_dep, problem_type, problem_notes)
-                    if ok:
-                        st.success("✅ تم إرسال الطلب للأدمن. لا تضغطي مرة ثانية، سيتم اعتماد الطلب من لوحة الأدمن.")
+                    if problem_id:
+                        st.warning("⚠️ الرقم غير موجود في القائمة البيضاء، أدخلي البيانات يدويًا ليراجعها الأدمن.")
+                    problem_name = st.text_input("الاسم", value=str(known_emp.get("الاسم", "") or ""), key="prob_name_manual")
+                    school_choice = st.selectbox("المدرسة", schools + ["أخرى"], key="prob_school_choice_manual")
+                    if school_choice == "أخرى":
+                        problem_school = st.text_input("اكتبي اسم المدرسة", key="prob_school_other_manual").strip()
                     else:
-                        st.error("❌ تعذر إرسال الطلب. تواصلي مع الأدمن عبر واتساب.")
+                        problem_school = school_choice
+                    problem_task = st.selectbox("المهمة", TASKS_ALL, key="prob_task_manual")
+
+                req_type = st.selectbox("نوع الطلب", ["حضور", "انصراف"], key="prob_req_type")
+                st.info("⏱️ سيتم اعتماد الوقت تلقائيًا حسب وقت إرسال الطلب، بدون إدخال وقت يدوي.")
+                problem_type = st.selectbox("نوع المشكلة", ["تعذر تحديد الموقع", "صفحة بيضاء", "الموقع لا يعمل", "زر لا يستجيب", "مشكلة في المتصفح", "أخرى"], key="prob_type")
+                problem_notes = st.text_area("ملاحظات اختيارية", key="prob_notes")
+
+                exists_req, old_req = manual_request_exists_today(problem_id, req_type) if problem_id else (False, None)
+                if exists_req:
+                    st.warning(f"⚠️ تم إرسال طلب {req_type} سابق لهذا اليوم الساعة {old_req.get('وقت الطلب','')}. لا يمكن تكرار نفس الطلب.")
+
+                if st.session_state.get("manual_request_saving"):
+                    st.info("⏳ يرجى الانتظار… جارٍ إرسال الطلب للأدمن.")
+
+                if st.button("📨 إرسال الطلب للأدمن", use_container_width=True, type="primary", key="send_manual_request", disabled=st.session_state.get("manual_request_saving", False) or exists_req):
+                    if not problem_id or not str(problem_name).strip() or not str(problem_school).strip():
+                        st.error("❌ الرقم الشخصي والاسم والمدرسة مطلوبة.")
+                    else:
+                        st.session_state.manual_request_saving = True
+                        ok = submit_manual_request(problem_id, problem_name, problem_school, problem_task, req_type, "", "", problem_type, problem_notes)
+                        st.session_state.manual_request_saving = False
+                        if ok == "duplicate":
+                            st.warning("⚠️ تم إرسال طلب سابق من نفس النوع لهذا اليوم، لا يمكن تكراره.")
+                        elif ok:
+                            st.success("✅ تم إرسال الطلب للأدمن. لا تضغطي مرة ثانية، سيتم اعتماد الطلب من لوحة الأدمن.")
+                            st.rerun()
+                        else:
+                            st.error("❌ تعذر إرسال الطلب. تواصلي مع الأدمن عبر واتساب.")
 
 # ══════════════════════════════════════════════════════════════════
 # ══ واجهة الأدمن ══
@@ -1871,7 +1972,7 @@ else:
                         msg = f"""السلام عليكم 🌷
 نلاحظ عدم تسجيل حضوركِ في نظام الحضور والانصراف لهذا اليوم.
 
-يرجى الدخول للنظام الآن. إذا كنتِ حاضرة في المركز من وقت سابق ولم يعمل معكِ التسجيل، اختاري: 🆘 عندي مشكلة في التسجيل، ثم اكتبي وقت حضوركِ الفعلي ليظهر الطلب عند الأدمن ويتم اعتماده يدويًا.
+يرجى الدخول للنظام الآن. إذا كنتِ في المركز ولم يعمل معكِ التسجيل، اختاري: 🆘 عندي مشكلة في التسجيل. سيتم إرسال وقت الطلب تلقائيًا للأدمن لاعتماده.
 
 أما إذا لم تحضري بعد، يرجى تسجيل الحضور عند الوصول للمركز فقط.
 
@@ -1931,6 +2032,34 @@ else:
                         st.markdown(f'<div class="audit-row">{r.get("التاريخ","")} — {r.get("الاسم الثلاثي","")} — انصراف: {r.get("وقت الانصراف","")} — {r.get("إغلاق تلقائي","")}</div>',unsafe_allow_html=True)
 
 
+        # ── إعدادات التسجيل اليدوي ───────────────────────────────
+        elif admin_tab=="⚙️ إعدادات التسجيل اليدوي":
+            st.markdown("#### ⚙️ إعدادات التسجيل اليدوي للموظفات")
+            current_enabled = manual_requests_enabled()
+            if current_enabled:
+                st.success("✅ طلبات التسجيل اليدوي من واجهة الموظفة مفعّلة حاليًا.")
+            else:
+                st.warning("⚠️ طلبات التسجيل اليدوي من واجهة الموظفة معطّلة حاليًا. الموظفات سيظهر لهن تنبيه للتواصل مع الأدمن فقط.")
+
+            new_enabled = st.radio(
+                "حالة الخاصية",
+                ["مفعّلة", "معطّلة"],
+                index=0 if current_enabled else 1,
+                horizontal=True,
+                key="manual_requests_enabled_radio"
+            )
+            setting_note = st.text_input("ملاحظة/سبب التغيير", value="تغيير إعداد طلبات التسجيل اليدوي", key="manual_requests_setting_note")
+
+            if st.button("💾 حفظ إعداد التسجيل اليدوي", use_container_width=True, type="primary"):
+                value = "true" if new_enabled == "مفعّلة" else "false"
+                if set_system_setting("manual_requests_enabled", value, setting_note):
+                    log_audit("—", "أدمن", "تعديل إعداد التسجيل اليدوي", f"manual_requests_enabled={value}|{setting_note}")
+                    clear_caches()
+                    st.success("✅ تم حفظ الإعداد بنجاح.")
+                    st.rerun()
+
+            st.info("حتى عند تعطيل هذه الخاصية، يبقى قسم ➕ تسجيل يدوي في لوحة الأدمن شغالًا، وتستطيعين تسجيل الموظفة يدويًا بعد التواصل معها.")
+
         # ── طلبات التسجيل اليدوي ─────────────────────────────────
         elif admin_tab=="🆘 طلبات التسجيل اليدوي":
             st.markdown("#### 🆘 طلبات التسجيل اليدوي / مشاكل الموقع والمتصفح")
@@ -1945,16 +2074,16 @@ else:
                     eid = str(r.get("الرقم الشخصي", "")).strip()
                     title = f"{r.get('الاسم','')} — #{eid} — {r.get('نوع الطلب','')} — {r.get('نوع المشكلة','')}"
                     with st.expander(title, expanded=False):
-                        st.markdown(f'<div class="warn-row"><b>تاريخ الطلب:</b> {r.get("تاريخ الطلب","")} — <b>وقت الإرسال:</b> {r.get("وقت الطلب","")}<br><b>وقت الحضور الفعلي:</b> {r.get("وقت الحضور الفعلي","")}<br><b>وقت الانصراف الفعلي:</b> {r.get("وقت الانصراف الفعلي","") or "—"}<br><b>المدرسة:</b> {r.get("المدرسة","")}<br><b>المهمة:</b> {r.get("المهمة","")}<br><b>الملاحظات:</b> {r.get("ملاحظات","") or "—"}</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="warn-row"><b>تاريخ الطلب:</b> {r.get("تاريخ الطلب","")} — <b>وقت الإرسال المعتمد:</b> {r.get("وقت الطلب","")}<br><b>نوع الطلب:</b> {r.get("نوع الطلب","")}<br><b>المدرسة:</b> {r.get("المدرسة","")}<br><b>المهمة:</b> {r.get("المهمة","")}<br><b>الملاحظات:</b> {r.get("ملاحظات","") or "—"}</div>', unsafe_allow_html=True)
                         c1, c2, c3 = st.columns(3)
                         with c1:
                             if st.button("✅ اعتماد حضور", key=f"approve_att_{row_num}", use_container_width=True, type="primary"):
-                                if approve_manual_request(row_num, r, "حضور", True):
+                                if approve_manual_request(row_num, r, "حضور", False):
                                     st.success("✅ تم اعتماد الحضور اليدوي")
                                     st.rerun()
                         with c2:
                             if st.button("🔵 اعتماد انصراف", key=f"approve_dep_{row_num}", use_container_width=True):
-                                if approve_manual_request(row_num, r, "انصراف", True):
+                                if approve_manual_request(row_num, r, "انصراف", False):
                                     st.success("✅ تم اعتماد الانصراف اليدوي")
                                     st.rerun()
                         with c3:
