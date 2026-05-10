@@ -345,7 +345,7 @@ def is_implicit_leave_late(row):
     لا ينطبق على الرعاية أو الدوام المرن أو المهمة الرسمية.
     """
     att = parse_time_value(row.get("وقت الحضور", ""))
-    if not att or att <= time(7, 5, 0):
+    if not att or att <= time(7, 5, 30):
         return False
     reason = str(row.get("سبب التأخير", "")).strip()
     if not reason:
