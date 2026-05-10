@@ -1444,6 +1444,8 @@ default_state={
     "no_gps_option_available":False,
     "emp_step":"login",
     "nogps_saving":False,
+    "_queued_op":"",
+    "_queued_note":"",
 }
 for k,v in default_state.items():
     if k not in st.session_state: st.session_state[k]=v
@@ -1869,6 +1871,22 @@ if mode=="👤 موظفة":
     elif emp_step == "action":
         emp = st.session_state.emp_data
         emp_id = str(emp.get("الرقم الشخصي","")).strip()
+
+        # ── تنفيذ العملية المؤجلة (بعد rerun مع operation_saving=True) ──
+        if st.session_state.get("operation_saving"):
+            queued_op   = st.session_state.get("_queued_op","")
+            queued_note = st.session_state.get("_queued_note","")
+            with st.spinner("⏳ جارٍ حفظ العملية… يرجى الانتظار"):
+                if queued_op:
+                    register_operation(queued_op, emp_id, queued_note)
+                else:
+                    # عودة من استئذان (لا تحتاج note)
+                    register_operation("عودة من استئذان", emp_id)
+            st.session_state.operation_saving = False
+            st.session_state._queued_op = ""
+            st.session_state._queued_note = ""
+            st.rerun()
+
         data = get_sheet_data()
         _, today_row = find_today_row(data, today_str, emp_id)
 
@@ -1939,38 +1957,56 @@ if mode=="👤 موظفة":
             if st.session_state.get("operation_saving"):
                 st.info("⏳ جارٍ حفظ العملية… يرجى عدم الضغط مرة أخرى.")
 
+            _saving = st.session_state.get("operation_saving", False)
+            # حماية إضافية: تعطيل الأزرار لو سُجّل حضور مسبقاً أو انصراف مسبقاً
+            _has_att = bool(today_row and today_row.get("وقت الحضور","").strip())
+            _has_dep = bool(today_row and today_row.get("وقت الانصراف","").strip())
+
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("✅ تسجيل حضور", use_container_width=True, disabled=st.session_state.get("operation_saving", False)):
-                    st.session_state.pending_operation = None
-                    if now_bh().time() > time(7,30):
-                        st.session_state.pending_operation = "تسجيل حضور"
+                if st.button("✅ تسجيل حضور", use_container_width=True,
+                             disabled=_saving or _has_att,
+                             key="btn_att_main"):
+                    if _has_att:
+                        st.warning(f"⚠️ تم تسجيل حضورك مسبقاً الساعة {today_row.get('وقت الحضور','')}")
                     else:
-                        st.session_state.operation_saving = True
-                        register_operation("تسجيل حضور", emp_id)
-                        st.session_state.operation_saving = False
-                        st.rerun()
+                        st.session_state.pending_operation = None
+                        if now_bh().time() > time(7,30):
+                            st.session_state.pending_operation = "تسجيل حضور"
+                            st.rerun()
+                        else:
+                            st.session_state.operation_saving = True
+                            st.rerun()
             with col2:
-                if st.button("🔵 تسجيل انصراف", use_container_width=True, disabled=st.session_state.get("operation_saving", False)):
-                    st.session_state.pending_operation = None
-                    if now_bh().time() < time(14,0):
-                        st.session_state.pending_operation = "تسجيل انصراف"
+                if st.button("🔵 تسجيل انصراف", use_container_width=True,
+                             disabled=_saving or _has_dep,
+                             key="btn_dep_main"):
+                    if _has_dep:
+                        st.warning(f"⚠️ تم تسجيل انصرافك مسبقاً الساعة {today_row.get('وقت الانصراف','')}")
                     else:
-                        st.session_state.operation_saving = True
-                        register_operation("تسجيل انصراف", emp_id)
-                        st.session_state.operation_saving = False
-                        st.rerun()
+                        st.session_state.pending_operation = None
+                        if now_bh().time() < time(14,0):
+                            st.session_state.pending_operation = "تسجيل انصراف"
+                            st.rerun()
+                        else:
+                            st.session_state.operation_saving = True
+                            st.rerun()
             col3, col4 = st.columns(2)
             with col3:
-                if st.button("📤 خروج استئذان", use_container_width=True, disabled=st.session_state.get("operation_saving", False)):
+                if st.button("📤 خروج استئذان", use_container_width=True,
+                             disabled=_saving,
+                             key="btn_exit_main"):
                     st.session_state.pending_operation = "خروج استئذان"
+                    st.rerun()
             with col4:
-                if st.button("🔁 عودة من استئذان", use_container_width=True, disabled=st.session_state.get("operation_saving", False)):
+                if st.button("🔁 عودة من استئذان", use_container_width=True,
+                             disabled=_saving,
+                             key="btn_return_main"):
                     st.session_state.pending_operation = None
                     st.session_state.operation_saving = True
-                    register_operation("عودة من استئذان", emp_id)
-                    st.session_state.operation_saving = False
                     st.rerun()
+
+            # تنفيذ العمليات يتم في أول الخطوة عبر _queued_op (انظر أعلاه)
 
             if st.session_state.pending_operation == "تسجيل حضور":
                 with st.container(border=True):
@@ -1979,11 +2015,11 @@ if mode=="👤 موظفة":
                     late_other = ""
                     if late_reason == "أخرى": late_other = st.text_input("اكتبي السبب", key="late_other")
                     final = "" if late_reason == "اختاري السبب (اختياري)" else (late_other.strip() if late_reason == "أخرى" else late_reason)
-                    if st.button("تأكيد تسجيل الحضور", use_container_width=True, type="primary"):
+                    if st.button("تأكيد تسجيل الحضور", use_container_width=True, type="primary", key="btn_confirm_att"):
                         st.session_state.pending_operation = None
                         st.session_state.operation_saving = True
-                        register_operation("تسجيل حضور", emp_id, final)
-                        st.session_state.operation_saving = False
+                        st.session_state._queued_op = "تسجيل حضور"
+                        st.session_state._queued_note = final
                         st.rerun()
 
             if st.session_state.pending_operation == "تسجيل انصراف":
@@ -1993,13 +2029,13 @@ if mode=="👤 موظفة":
                     other = ""
                     if reason == "أخرى": other = st.text_input("اكتبي السبب", key="early_other")
                     final = other.strip() if reason == "أخرى" else reason
-                    if st.button("تأكيد تسجيل الانصراف", use_container_width=True, type="primary"):
+                    if st.button("تأكيد تسجيل الانصراف", use_container_width=True, type="primary", key="btn_confirm_dep"):
                         if not final: st.error("السبب مطلوب")
                         else:
                             st.session_state.pending_operation = None
                             st.session_state.operation_saving = True
-                            register_operation("تسجيل انصراف", emp_id, final)
-                            st.session_state.operation_saving = False
+                            st.session_state._queued_op = "تسجيل انصراف"
+                            st.session_state._queued_note = final
                             st.rerun()
 
             if st.session_state.pending_operation == "خروج استئذان":
@@ -2015,63 +2051,64 @@ if mode=="👤 موظفة":
                     if reason == "أخرى": other = st.text_input("اكتبي السبب", key="exit_other")
                     reason_final = other.strip() if reason == "أخرى" else reason
                     final = f"{leave_kind} — {reason_final}" if reason_final else leave_kind
-                    if st.button("تأكيد خروج الاستئذان", use_container_width=True, type="primary"):
+                    if st.button("تأكيد خروج الاستئذان", use_container_width=True, type="primary", key="btn_confirm_exit"):
                         if not reason_final: st.error("السبب مطلوب")
                         else:
                             st.session_state.pending_operation = None
                             st.session_state.operation_saving = True
-                            register_operation("خروج استئذان", emp_id, final)
-                            st.session_state.operation_saving = False
+                            st.session_state._queued_op = "خروج استئذان"
+                            st.session_state._queued_note = final
                             st.rerun()
 
-        # ── مشكلة تقنية ──────────────────────────────────────────
+        # ── الدعم الفني عبر واتساب ────────────────────────────────
+        st.markdown("---")
         with st.container(border=True):
-            st.markdown('<div class="card-title">🆘 عندي مشكلة في التسجيل</div>', unsafe_allow_html=True)
-            if not manual_requests_enabled():
-                st.warning("⚠️ طلبات التسجيل اليدوي معطّلة حاليًا. تواصلي مع الأدمن مباشرة.")
-            else:
-                st.caption("استخدمي هذا الخيار إذا لم يظهر طلب الموقع، أو ظهرت صفحة بيضاء، أو الزر لا يستجيب.")
-                with st.expander("إرسال طلب للأدمن", expanded=False):
-                    known_emp = st.session_state.get("emp_data") or {}
-                    default_problem_id = str(known_emp.get("الرقم الشخصي","") or "")
-                    problem_id = ar_to_en_digits(st.text_input("الرقم الشخصي", value=default_problem_id, key="prob_emp_id_lookup")).strip()
-                    auto_emp = validate_employee(problem_id) if problem_id else None
-                    if auto_emp:
-                        problem_name = str(auto_emp.get("الاسم","")).strip()
-                        problem_school = str(auto_emp.get("المدرسة","")).strip()
-                        problem_task = str(auto_emp.get("المهمة","")).strip()
-                        st.success("✅ الرقم موجود في القائمة البيضاء.")
-                    else:
-                        if problem_id:
-                            st.warning("⚠️ الرقم غير موجود في القائمة البيضاء، أدخلي البيانات يدويًا.")
-                        problem_name = st.text_input("الاسم", value=str(known_emp.get("الاسم","") or ""), key="prob_name_manual")
-                        school_choice = st.selectbox("المدرسة", schools + ["أخرى"], key="prob_school_choice_manual")
-                        problem_school = st.text_input("اكتبي اسم المدرسة", key="prob_school_other_manual").strip() if school_choice == "أخرى" else school_choice
-                        problem_task = st.selectbox("المهمة", TASKS_ALL, key="prob_task_manual")
-                    req_type = st.selectbox("نوع الطلب", ["حضور","انصراف"], key="prob_req_type")
-                    st.info("⏱️ سيتم اعتماد الوقت تلقائيًا حسب وقت إرسال الطلب.")
-                    problem_type = st.selectbox("نوع المشكلة", ["تعذر تحديد الموقع","صفحة بيضاء","الموقع لا يعمل","زر لا يستجيب","مشكلة في المتصفح","أخرى"], key="prob_type")
-                    problem_notes = st.text_area("ملاحظات اختيارية", key="prob_notes")
-                    exists_req, old_req = manual_request_exists_today(problem_id, req_type) if problem_id else (False, None)
-                    if exists_req:
-                        st.warning(f"⚠️ تم إرسال طلب {req_type} سابق لهذا اليوم الساعة {old_req.get('وقت الطلب','')}.")
-                    if st.session_state.get("manual_request_saving"):
-                        st.info("⏳ يرجى الانتظار…")
-                    if st.button("📨 إرسال الطلب للأدمن", use_container_width=True, type="primary", key="send_manual_request",
-                                 disabled=st.session_state.get("manual_request_saving", False) or exists_req):
-                        if not problem_id or not str(problem_name).strip() or not str(problem_school).strip():
-                            st.error("❌ الرقم الشخصي والاسم والمدرسة مطلوبة.")
-                        else:
-                            st.session_state.manual_request_saving = True
-                            ok = submit_manual_request(problem_id, problem_name, problem_school, problem_task, req_type, "", "", problem_type, problem_notes)
-                            st.session_state.manual_request_saving = False
-                            if ok == "duplicate":
-                                st.warning("⚠️ تم إرسال طلب سابق من نفس النوع لهذا اليوم.")
-                            elif ok:
-                                st.success("✅ تم إرسال الطلب للأدمن. لا تضغطي مرة ثانية.")
-                                st.rerun()
-                            else:
-                                st.error("❌ تعذر إرسال الطلب. تواصلي مع الأدمن عبر واتساب.")
+            st.markdown('<div class="card-title">💬 تواصلي مع الأدمن</div>', unsafe_allow_html=True)
+            st.caption("لتصحيح وقت الحضور أو الانصراف أو أي تعديل على بياناتك، تواصلي مع الأدمن عبر واتساب.")
+
+            emp_wa = st.session_state.get("emp_data") or {}
+            emp_id_wa   = str(emp_wa.get("الرقم الشخصي","")).strip()
+            name_wa     = emp_wa.get("الاسم","") or (today_row.get("الاسم الثلاثي","") if today_row else "")
+            school_wa   = emp_wa.get("المدرسة","") or (today_row.get("اسم المدرسة","") if today_row else "")
+            task_wa     = emp_wa.get("المهمة","") or (today_row.get("المهمة","") if today_row else "")
+            att_wa      = today_row.get("وقت الحضور","—")   if today_row else "—"
+            dep_wa      = today_row.get("وقت الانصراف","—") if today_row else "—"
+            exit_wa     = today_row.get("خروج استئذان","—") if today_row else "—"
+            return_wa   = today_row.get("عودة","—")          if today_row else "—"
+
+            issue_options = [
+                "تصحيح وقت الحضور",
+                "تصحيح وقت الانصراف",
+                "تعديل سبب التأخير أو الانصراف",
+                "مشكلة تقنية في التسجيل",
+                "تعديل بيانات شخصية",
+                "أخرى",
+            ]
+            issue_choice = st.selectbox("نوع المشكلة", issue_options, key="wa_issue_type")
+            issue_notes  = st.text_input("تفاصيل إضافية (اختياري)", key="wa_issue_notes")
+
+            wa_msg = f"""مرحباً 👋
+
+لدي طلب في نظام الحضور والانصراف:
+
+الاسم: {name_wa}
+الرقم الشخصي: {emp_id_wa}
+المدرسة: {school_wa}
+المهمة: {task_wa}
+التاريخ: {today_str}
+الوقت الحالي: {now_bh().strftime('%H:%M:%S')}
+
+بيانات اليوم:
+وقت الحضور: {att_wa or '—'}
+وقت الانصراف: {dep_wa or '—'}
+خروج استئذان: {exit_wa or '—'}
+عودة من استئذان: {return_wa or '—'}
+
+نوع الطلب: {issue_choice}
+{('التفاصيل: ' + issue_notes) if issue_notes.strip() else ''}
+"""
+            wa_link = "https://wa.me/97333738668?text=" + urllib.parse.quote(wa_msg)
+            st.link_button("📞 فتح واتساب برسالة جاهزة", wa_link, use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════════
 # ══ واجهة الأدمن ══
