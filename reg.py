@@ -2347,14 +2347,20 @@ else:
 
                         st.markdown("---")
 
+                        # ── ترتيب البيانات: المهمة ← المدرسة ← وقت الحضور ──
+                        rows_sorted = sorted(rows, key=lambda r: (
+                            str(r.get("اسم المدرسة","")).strip(),
+                            str(r.get("المهمة","")).strip(),
+                            str(r.get("وقت الحضور","")).strip(),
+                        ))
+
                         # ── جدول تفصيلي ──
                         st.markdown("##### تفاصيل السجلات")
                         cols_show = ["التاريخ","اليوم","اسم المدرسة","المهمة","الاسم الثلاثي","الرقم الشخصي",
                                      "وقت الحضور","وقت الانصراف","ساعات العمل","الساعات الإضافية","حالة الدوام","نوع الدوام اليومي"]
                         df_rows = []
-                        for r in rows:
+                        for r in rows_sorted:
                             row_d = {c: r.get(c,"") for c in cols_show}
-                            # نحول الرقم الشخصي لنص عشان لا يظهر بصيغة علمية
                             row_d["الرقم الشخصي"] = str(r.get("الرقم الشخصي","")).strip()
                             df_rows.append(row_d)
                         df = pd.DataFrame(df_rows)
@@ -2395,11 +2401,8 @@ else:
 
                             # ألوان
                             header_fill   = PatternFill("solid", fgColor="0C3460")   # أزرق داكن للهيدر
-                            alt_fill      = PatternFill("solid", fgColor="EAF3DE")   # أخضر فاتح للصفوف الزوجية
                             white_fill    = PatternFill("solid", fgColor="FFFFFF")
-                            late_fill     = PatternFill("solid", fgColor="FFF3CD")   # أصفر للتأخير
-                            complete_fill = PatternFill("solid", fgColor="D4EDDA")   # أخضر للمكتمل
-                            missing_fill  = PatternFill("solid", fgColor="F8D7DA")   # أحمر للناقص
+                            alt_fill      = PatternFill("solid", fgColor="F5F5F5")   # رمادي خفيف للصفوف الزوجية
 
                             header_font  = Font(name="Arial", bold=True, color="FFFFFF", size=11)
                             body_font    = Font(name="Arial", size=10)
@@ -2443,17 +2446,6 @@ else:
                                 for row_idx, row_cells in enumerate(ws.iter_rows(min_row=2), 2):
                                     ws.row_dimensions[row_idx].height = 20
                                     row_fill = alt_fill if row_idx % 2 == 0 else white_fill
-
-                                    # لون خاص حسب حالة الدوام
-                                    status_val = ""
-                                    for cell in row_cells:
-                                        h = str(ws.cell(1, cell.column).value or "")
-                                        if h == "حالة الدوام":
-                                            status_val = str(cell.value or "")
-                                    if "ناقص" in status_val or "لم يكتمل" in status_val:
-                                        row_fill = missing_fill
-                                    elif "مكتمل" in status_val:
-                                        row_fill = complete_fill
 
                                     for cell in row_cells:
                                         cell.font      = body_font
@@ -2508,12 +2500,12 @@ else:
                         st.markdown("---")
                         st.markdown("##### ملخص لكل موظفة")
                         emp_summary = {}
-                        for r in rows:
+                        for r in rows_sorted:
                             eid  = str(r.get("الرقم الشخصي","")).strip()
                             name = str(r.get("الاسم الثلاثي","")).strip()
                             if not eid: continue
                             if eid not in emp_summary:
-                                emp_summary[eid] = {"الاسم": name, "أيام": 0, "تأخير": 0, "إغلاق تلقائي": 0}
+                                emp_summary[eid] = {"الاسم": name, "المهمة": str(r.get("المهمة","")).strip(), "أيام": 0, "تأخير": 0, "إغلاق تلقائي": 0}
                             emp_summary[eid]["أيام"] += 1
                             if is_late_for_statistics(r): emp_summary[eid]["تأخير"] += 1
                             if str(r.get("إغلاق تلقائي","")).strip(): emp_summary[eid]["إغلاق تلقائي"] += 1
