@@ -2493,8 +2493,12 @@ else:
             if st.button("📊 إنشاء التقرير", use_container_width=True, type="primary", key="btn_gen_report"):
                 try:
                     data = get_sheet_data()
+
+                    def normalize_date(d):
+                        return str(d).strip().replace("/","-")
+
                     rows = [r for r in data
-                            if date_from <= str(r.get("التاريخ","")).strip() <= date_to
+                            if date_from <= normalize_date(r.get("التاريخ","")) <= date_to
                             and (rpt_school == "الكل" or str(r.get("اسم المدرسة","")).strip() == rpt_school)]
 
                     if not rows:
@@ -2802,10 +2806,27 @@ else:
         # ── طلبات التسجيل اليدوي ─────────────────────────────────
         elif admin_tab=="🆘 طلبات التسجيل اليدوي":
             st.markdown("#### 🆘 طلبات التسجيل اليدوي / مشاكل الموقع والمتصفح")
+
+            # تهيئة قائمة الطلبات المعتمدة/المرفوضة محلياً لتجنب اختفائها بعد rerun
+            if "approved_req_rows" not in st.session_state:
+                st.session_state.approved_req_rows = set()
+
             reqs = get_manual_requests()
-            pending = [(i+2, r) for i, r in enumerate(reqs) if str(r.get("الحالة", "")).strip() in ["", "بانتظار الاعتماد"]]
-            done = [(i+2, r) for i, r in enumerate(reqs) if str(r.get("الحالة", "")).strip() not in ["", "بانتظار الاعتماد"]]
+            pending = [(i+2, r) for i, r in enumerate(reqs)
+                       if str(r.get("الحالة", "")).strip() in ["", "بانتظار الاعتماد"]
+                       and (i+2) not in st.session_state.approved_req_rows]
+            done = [(i+2, r) for i, r in enumerate(reqs)
+                    if str(r.get("الحالة", "")).strip() not in ["", "بانتظار الاعتماد"]
+                    or (i+2) in st.session_state.approved_req_rows]
+
             st.metric("طلبات بانتظار الاعتماد", len(pending))
+
+            # زر تحديث يدوي
+            if st.button("🔄 تحديث القائمة", key="btn_refresh_reqs"):
+                st.session_state.approved_req_rows = set()
+                get_manual_requests.clear()
+                st.rerun()
+
             if not pending:
                 st.success("✅ لا توجد طلبات معلقة حالياً.")
             else:
@@ -2818,11 +2839,13 @@ else:
                         with c1:
                             if st.button("✅ اعتماد حضور", key=f"approve_att_{row_num}", use_container_width=True, type="primary"):
                                 if approve_manual_request(row_num, r, "حضور", False):
+                                    st.session_state.approved_req_rows.add(row_num)
                                     st.success("✅ تم اعتماد الحضور اليدوي")
                                     st.rerun()
                         with c2:
                             if st.button("🔵 اعتماد انصراف", key=f"approve_dep_{row_num}", use_container_width=True):
                                 if approve_manual_request(row_num, r, "انصراف", False):
+                                    st.session_state.approved_req_rows.add(row_num)
                                     st.success("✅ تم اعتماد الانصراف اليدوي")
                                     st.rerun()
                         with c3:
@@ -2832,6 +2855,7 @@ else:
                                     manual_requests_sheet.update_cell(row_num, 14, now_bh().strftime("%Y-%m-%d %H:%M:%S"))
                                     manual_requests_sheet.update_cell(row_num, 15, "أدمن")
                                     log_audit(eid, r.get("الاسم", ""), "رفض طلب تسجيل يدوي", f"نوع المشكلة:{r.get('نوع المشكلة','')}|وقت الطلب:{r.get('وقت الطلب','')}")
+                                    st.session_state.approved_req_rows.add(row_num)
                                     clear_caches()
                                     st.success("تم رفض الطلب")
                                     st.rerun()
