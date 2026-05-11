@@ -1509,6 +1509,7 @@ default_state={
     "_queued_op":"",
     "_queued_note":"",
     "_loc_step_initialized": False,
+    "_emp_session_active": False,
 }
 for k,v in default_state.items():
     if k not in st.session_state: st.session_state[k]=v
@@ -1566,6 +1567,12 @@ if mode=="👤 موظفة":
         st.session_state.emp_verified = False
     if "emp_data" not in st.session_state:
         st.session_state.emp_data = None
+
+    # ── مسح البيانات القديمة إذا ما في رقم مدخل في هذه الجلسة ──
+    if not st.session_state.get("_emp_session_active"):
+        st.session_state.emp_verified = False
+        st.session_state.emp_data     = None
+        st.session_state._emp_session_active = True
 
     trusted, _trusted_rec = is_current_device_trusted()
 
@@ -1953,11 +1960,6 @@ if mode=="👤 موظفة":
             st.warning("⚠️ لم يتم تسجيل الانصراف. يرجى تسجيله قبل المغادرة.")
 
         with st.container(border=True):
-            st.markdown(f"""
-            <div class="field-lbl">الاسم</div><div class="field-val">{emp.get("الاسم","")}</div>
-            <div class="field-lbl">المهمة</div><div class="field-val blue">{emp.get("المهمة","")}</div>
-            """, unsafe_allow_html=True)
-
             if has_exit:
                 st.markdown(f"""<div class="today-strip">
                     <div class="stat-cell"><span class="stat-val">{att_time}</span><span class="stat-lbl">حضور</span></div>
