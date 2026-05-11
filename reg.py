@@ -1837,7 +1837,8 @@ if mode=="👤 موظفة":
     # ══════════════════════════════════
     # كرت 4: العمليات (حضور/انصراف)
     # ══════════════════════════════════
-    if st.session_state.emp_verified and st.session_state.emp_data and (st.session_state.get("location_allowed") or trusted):
+    _permit_active = bool(get_active_permit(str((st.session_state.emp_data or {}).get("الرقم الشخصي","")).strip())) if st.session_state.emp_data else False
+    if st.session_state.emp_verified and st.session_state.emp_data and (st.session_state.get("location_allowed") or trusted or _permit_active):
         emp    = st.session_state.emp_data
         emp_id = str(emp.get("الرقم الشخصي","")).strip()
 
