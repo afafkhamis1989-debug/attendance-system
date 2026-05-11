@@ -1625,9 +1625,10 @@ if mode=="👤 موظفة":
                     else:
                         st.session_state.no_gps_option_available = True
 
-                # ── تسجيل بدون موقع ──
-                st.markdown("---")
-                st.markdown('<div style="font-size:13px;font-weight:700;color:#633806;margin-bottom:6px;">📋 سجّلي بدون تحديد موقع — سيُعتمد وقت الإرسال حضوراً أو انصرافاً من الأدمن</div>', unsafe_allow_html=True)
+                # ── تسجيل بدون موقع — يظهر فقط بعد فشل GPS ──
+                if st.session_state.get("no_gps_option_available", False):
+                    st.markdown("---")
+                    st.markdown('<div style="font-size:13px;font-weight:700;color:#633806;margin-bottom:6px;">📋 سجّلي بدون تحديد موقع — سيُعتمد وقت الإرسال حضوراً أو انصرافاً من الأدمن</div>', unsafe_allow_html=True)
 
                 # نحتاج الرقم الشخصي لإرسال الطلب — لو ما أدخلته بعد نطلبه هنا
                 if not emp_id_loc:
