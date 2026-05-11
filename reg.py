@@ -1570,8 +1570,11 @@ if mode=="👤 موظفة":
 
     # ── مسح البيانات القديمة إذا ما في رقم مدخل في هذه الجلسة ──
     if not st.session_state.get("_emp_session_active"):
-        st.session_state.emp_verified = False
-        st.session_state.emp_data     = None
+        st.session_state.emp_verified        = False
+        st.session_state.emp_data            = None
+        st.session_state.pending_operation   = None
+        st.session_state._queued_op          = ""
+        st.session_state._queued_note        = ""
         st.session_state._emp_session_active = True
 
     trusted, _trusted_rec = is_current_device_trusted()
@@ -1989,13 +1992,14 @@ if mode=="👤 موظفة":
     if trusted and st.session_state.emp_verified and st.session_state.emp_data:
         st.markdown("---")
         if st.button("🚪 تسجيل موظفة أخرى", use_container_width=True, key="btn_next_emp"):
-            st.session_state.emp_data            = None
-            st.session_state.emp_verified        = False
-            st.session_state.location_allowed    = True  # الجهاز موثوق — لا نعيد التحقق
-            st.session_state.pending_operation   = None
-            st.session_state._queued_op          = ""
-            st.session_state._queued_note        = ""
-            st.session_state._emp_session_active = False
+            # مسح كل بيانات الموظفة الحالية
+            for key in ["emp_data","emp_verified","pending_operation","_queued_op",
+                        "_queued_note","operation_saving","_emp_session_active",
+                        "nogps_saving","location_check_requested","no_gps_option_available"]:
+                if key in st.session_state:
+                    del st.session_state[key]
+            # الموقع يبقى مسموح للجهاز الموثوق
+            st.session_state.location_allowed = True
             st.rerun()
     # ══════════════════════════════════
     with st.expander("🆘 مشكلة في التسجيل؟ اضغطي هنا", expanded=False):
