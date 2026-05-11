@@ -1454,6 +1454,7 @@ default_state={
     "nogps_saving":False,
     "_queued_op":"",
     "_queued_note":"",
+    "_loc_step_initialized": False,
 }
 for k,v in default_state.items():
     if k not in st.session_state: st.session_state[k]=v
@@ -1544,6 +1545,14 @@ if mode=="👤 موظفة":
         emp_school_loc = str((st.session_state.get("emp_data") or {}).get("المدرسة","")).strip()
         emp_task_loc   = str((st.session_state.get("emp_data") or {}).get("المهمة","")).strip()
 
+        # ── تصفير حالة GPS عند كل فتح للصفحة جديد ──
+        if not st.session_state.get("_loc_step_initialized"):
+            st.session_state.location_allowed          = False
+            st.session_state.location_check_requested  = False
+            st.session_state.no_gps_option_available   = False
+            st.session_state.allow_no_gps_today        = False
+            st.session_state._loc_step_initialized     = True
+
         # تجاوز الموقع من الأدمن
         ov_active, ov_end = get_location_override()
         if ov_active and ov_end:
@@ -1558,6 +1567,7 @@ if mode=="👤 موظفة":
             if st.session_state.get("location_allowed", False):
                 st.success("✅ تم التحقق من الموقع بنجاح.")
                 if st.button("التالي ← (إدخال الرقم الشخصي)", use_container_width=True, type="primary", key="btn_loc_next"):
+                    st.session_state._loc_step_initialized = False
                     st.session_state.emp_step = "login"
                     st.rerun()
 
@@ -1565,6 +1575,7 @@ if mode=="👤 موظفة":
             elif st.session_state.get("allow_no_gps_today", False):
                 st.warning("⚠️ تم إرسال طلبك — بانتظار اعتماد الأدمن.")
                 if st.button("التالي ← (إدخال الرقم الشخصي)", use_container_width=True, type="primary", key="btn_loc_next_nogps"):
+                    st.session_state._loc_step_initialized = False
                     st.session_state.emp_step = "login"
                     st.rerun()
 
