@@ -1507,6 +1507,11 @@ if mode=="👤 موظفة":
     if st.session_state.get("emp_step","location") not in ["location","login","profile","action"]:
         st.session_state.emp_step = "location"
 
+    # ── الجهاز الموثوق يتخطى خطوة الموقع ──
+    if st.session_state.get("emp_step","location") == "location" and is_current_device_trusted():
+        st.session_state.location_allowed = True
+        st.session_state.emp_step = "login"
+
     # ── لو بيانات اليوم محفوظة وتجاوزنا الموقع مسبقاً، نتخطى للبيانات ──
     if _data_locked and st.session_state.get("emp_step","location") == "login":
         st.session_state.emp_step = "profile"
