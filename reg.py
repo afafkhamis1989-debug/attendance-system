@@ -49,7 +49,7 @@ SHEET_ID       = "1svkfgRq4-osKr86_2WJQFZShuoy8Ek5DOiUaaHKL-6Y"
 SCHOOL_LAT     = 26.216371784473964
 SCHOOL_LON     = 50.54035843289093
 ALLOWED_RADIUS = 1000
-ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "Afaf1234")
+ADMIN_PASSWORD = "Afaf1234"
 DEVICE_COOLDOWN_MINUTES = 10  # لم يعد مستخدماً كمهلة أساسية؛ القفل الآن طوال اليوم إلا إذا عطله الأدمن
 DEVICE_LOCK_STRICT_FULL_DAY = True
 APP_URL = "ضعوا رابط النظام هنا"
@@ -1344,14 +1344,6 @@ def approve_manual_request(req_row_num, req, approve_type="حضور", use_actual
     except Exception:
         pass
     clear_caches()
-    # ── إعادة حساب الساعات بعد الاعتماد بقراءة مباشرة من الشيت ──
-    try:
-        fresh_matches = find_daily_rows_fresh(date_str, eid)
-        fresh_idx, fresh_row = pick_main_daily_row(fresh_matches)
-        if fresh_idx and fresh_row:
-            update_work_calculation(fresh_idx, fresh_row)
-    except Exception:
-        pass
     return True
 
 
@@ -1450,11 +1442,6 @@ default_state={
     "location_check_requested":False,
     "allow_no_gps_today":False,
     "no_gps_option_available":False,
-    "emp_step":"login",
-    "nogps_saving":False,
-    "_queued_op":"",
-    "_queued_note":"",
-    "_loc_step_initialized": False,
 }
 for k,v in default_state.items():
     if k not in st.session_state: st.session_state[k]=v
@@ -1504,792 +1491,458 @@ mode=st.radio("",["👤 موظفة","🛡️ أدمن"],horizontal=True,label_vi
 # ══════════════════════════════════════════════════════════════════
 if mode=="👤 موظفة":
 
-    # ── تهيئة الخطوة الأولى: الموقع دائماً ──
-    if st.session_state.get("emp_step","location") not in ["location","login","profile","action"]:
-        st.session_state.emp_step = "location"
+    # ── الموقع ──────────────────────────────────────────────────
+    with st.container(border=True):
+        st.markdown('<div class="card-title">📍 التحقق من الموقع</div>', unsafe_allow_html=True)
+        st.caption("التحقق من الموقع هو الخطوة الأساسية قبل تسجيل الحضور أو الانصراف. إذا فشل GPS سيظهر خيار إرسال طلب للأدمن.")
 
-    # ── الجهاز الموثوق يتخطى خطوة الموقع ──
-    if st.session_state.get("emp_step","location") == "location" and is_current_device_trusted():
-        st.session_state.location_allowed = True
-        st.session_state.emp_step = "login"
+        if st.session_state.get("location_allowed", False):
+            st.success("✅ تم التحقق من الموقع بنجاح.")
+        elif st.session_state.get("allow_no_gps_today", False):
+            st.warning("⚠️ تم اختيار التسجيل بدون تحقق GPS. سيظهر ذلك في سجل العملية للأدمن.")
 
-    # ── لو بيانات اليوم محفوظة وتجاوزنا الموقع مسبقاً، نتخطى للبيانات ──
-    if _data_locked and st.session_state.get("emp_step","location") == "login":
-        st.session_state.emp_step = "profile"
+        st.markdown('''
+        <div class="gps-steps-box">
+            <div class="gps-steps-title">📋 خطوات التحقق من الموقع</div>
+            <div class="gps-step"><span class="gps-step-num">1</span><span>اضغطي زر <b>ابدئي التحقق من الموقع</b>.</span></div>
+            <div class="gps-step"><span class="gps-step-num">2</span><span>اضغطي أيقونة الموقع الصغيرة التي تظهر بالأسفل مباشرة.</span></div>
+            <div class="gps-step"><span class="gps-step-num">3</span><span>إذا ظهر طلب السماح اختاري <b>سماح / Allow</b>.</span></div>
+        </div>
+        ''', unsafe_allow_html=True)
 
-    emp_step = st.session_state.get("emp_step", "location")
+        if st.button("1️⃣ ابدئي التحقق من الموقع", use_container_width=True, key="btn_check_location"):
+            st.session_state.location_check_requested = True
+            st.session_state.no_gps_option_available = False
+            st.session_state.allow_no_gps_today = False
+            st.session_state.location_allowed = False
 
-    # ── مؤشر الخطوات (من اليمين لليسار: الموقع → البيانات → التسجيل) ──
-    steps_map     = {"location": 1, "login": 2, "profile": 2, "action": 3}
-    current_step_num = steps_map.get(emp_step, 1)
-    step_labels_rtl  = ["التسجيل", "البيانات", "الموقع"]
-    step_nums_rtl    = [3, 2, 1]
-    steps_html = '<div style="display:flex;justify-content:center;gap:0;margin:0 0 18px 0;direction:rtl;">'
-    for lbl, num in zip(step_labels_rtl, step_nums_rtl):
-        if num < current_step_num:
-            bg, tc, bord = "#3B6D11", "#fff", "2px solid #3B6D11"
-        elif num == current_step_num:
-            bg, tc, bord = "#0c3460", "#fff", "2px solid #0c3460"
-        else:
-            bg, tc, bord = "#f0f4f8", "#888780", "2px solid #d3d1c7"
-        steps_html += f'<div style="flex:1;text-align:center;padding:7px 2px;background:{bg};color:{tc};border:{bord};font-size:12px;font-weight:700;">{lbl}</div>'
-    steps_html += '</div>'
-    st.markdown(steps_html, unsafe_allow_html=True)
+        if st.session_state.get("location_check_requested", False) and not st.session_state.get("location_allowed", False):
+            st.info("⏳ جارٍ محاولة التحقق من الموقع… إذا لم تظهر نافذة السماح أو فشل التحقق سيظهر خيار التعذر بالأسفل.")
+            st.markdown('<div class="gps-click-hint">2️⃣ الآن اضغطي أيقونة الموقع الصغيرة التي ظهرت بالأسفل، ثم اختاري سماح / Allow إذا ظهر الطلب</div>', unsafe_allow_html=True)
+            try:
+                location = streamlit_geolocation()
+            except Exception:
+                location = None
+                st.session_state.no_gps_option_available = True
+                st.warning("⚠️ تعذر تشغيل أداة الموقع في هذا المتصفح.")
 
-    # ════════════════════════════════════════════════════
-    # الخطوة 1: التحقق من الموقع (أولاً دائماً)
-    # ════════════════════════════════════════════════════
-    if emp_step == "location":
-        emp_id_loc     = str((st.session_state.get("emp_data") or {}).get("الرقم الشخصي","")).strip()
-        emp_name_loc   = str((st.session_state.get("emp_data") or {}).get("الاسم","")).strip()
-        emp_school_loc = str((st.session_state.get("emp_data") or {}).get("المدرسة","")).strip()
-        emp_task_loc   = str((st.session_state.get("emp_data") or {}).get("المهمة","")).strip()
-
-        # ── تصفير حالة GPS عند كل فتح للصفحة جديد ──
-        if not st.session_state.get("_loc_step_initialized"):
-            st.session_state.location_allowed          = False
-            st.session_state.location_check_requested  = False
-            st.session_state.no_gps_option_available   = False
-            st.session_state.allow_no_gps_today        = False
-            st.session_state._loc_step_initialized     = True
-
-        # تجاوز الموقع من الأدمن
-        ov_active, ov_end = get_location_override()
-        if ov_active and ov_end:
-            remaining = max(0, int((ov_end - now_bh()).total_seconds() // 60))
-            st.warning(f"⚠️ وضع تجاوز الموقع مفعّل — ينتهي بعد {remaining} دقيقة.")
-            st.session_state.location_allowed = True
-
-        with st.container(border=True):
-            st.markdown('<div class="card-title">📍 التحقق من الموقع</div>', unsafe_allow_html=True)
-
-            # ── GPS نجح ──
-            if st.session_state.get("location_allowed", False):
-                st.success("✅ تم التحقق من الموقع بنجاح.")
-                if st.button("التالي ← (إدخال الرقم الشخصي)", use_container_width=True, type="primary", key="btn_loc_next"):
-                    st.session_state._loc_step_initialized = False
-                    st.session_state.emp_step = "login"
-                    st.rerun()
-
-            # ── أرسلت طلب بدون GPS مسبقاً ──
-            elif st.session_state.get("allow_no_gps_today", False):
-                st.warning("⚠️ تم إرسال طلبك — بانتظار اعتماد الأدمن.")
-                if st.button("التالي ← (إدخال الرقم الشخصي)", use_container_width=True, type="primary", key="btn_loc_next_nogps"):
-                    st.session_state._loc_step_initialized = False
-                    st.session_state.emp_step = "login"
-                    st.rerun()
-
-            # ── شاشة التحقق ──
-            else:
-                st.markdown('''
-                <div class="gps-steps-box">
-                    <div class="gps-steps-title">📋 خطوات التحقق من الموقع</div>
-                    <div class="gps-step"><span class="gps-step-num">1</span><span>اضغطي زر <b>ابدئي التحقق من الموقع</b>.</span></div>
-                    <div class="gps-step"><span class="gps-step-num">2</span><span>اضغطي أيقونة الموقع الصغيرة التي تظهر بالأسفل.</span></div>
-                    <div class="gps-step"><span class="gps-step-num">3</span><span>إذا ظهر طلب السماح اختاري <b>سماح / Allow</b>.</span></div>
-                    <div class="gps-step"><span class="gps-step-num" style="background:#BA7517;">!</span><span>لو ضغطتِ ولم يحدث شيء: افتحي <b>إعدادات الهاتف ← الخصوصية ← الموقع</b> وفعّليه.</span></div>
-                </div>
-                ''', unsafe_allow_html=True)
-
-                if st.button("1️⃣ ابدئي التحقق من الموقع", use_container_width=True, type="primary", key="btn_check_location"):
-                    st.session_state.location_check_requested = True
-                    st.session_state.no_gps_option_available  = False
-                    st.session_state.location_allowed          = False
-
-                if st.session_state.get("location_check_requested", False) and not st.session_state.get("location_allowed", False):
-                    st.info("⏳ جارٍ محاولة التحقق…")
-                    st.markdown('<div class="gps-click-hint">2️⃣ اضغطي أيقونة الموقع الصغيرة بالأسفل، ثم اختاري سماح / Allow</div>', unsafe_allow_html=True)
-                    try:
-                        location = streamlit_geolocation()
-                    except Exception:
-                        location = None
-                        st.session_state.no_gps_option_available = True
-
-                    if location:
-                        lat   = location.get("latitude")
-                        lon   = location.get("longitude")
-                        error = location.get("error", "")
-                        if error:
-                            st.session_state.location_allowed        = False
-                            st.session_state.no_gps_option_available = True
-                            st.warning("⚠️ الموقع غير مفعّل أو تم رفض السماح.")
-                        elif lat is not None and lon is not None:
-                            try:
-                                dist_val = distance_m(float(lat), float(lon), SCHOOL_LAT, SCHOOL_LON)
-                                if dist_val <= ALLOWED_RADIUS:
-                                    st.session_state.location_allowed        = True
-                                    st.session_state.no_gps_option_available = False
-                                    st.success(f"✅ داخل نطاق المدرسة — المسافة: {int(dist_val)} م")
-                                    st.rerun()
-                                else:
-                                    st.session_state.location_allowed        = False
-                                    st.session_state.no_gps_option_available = True
-                                    st.error(f"❌ خارج النطاق — المسافة: {int(dist_val)} م")
-                            except Exception:
-                                st.session_state.location_allowed        = False
-                                st.session_state.no_gps_option_available = True
-                                st.error("❌ خطأ في قراءة الموقع.")
-                        else:
-                            st.session_state.location_allowed        = False
-                            st.session_state.no_gps_option_available = True
-                            st.warning("⚠️ لم يتم استلام إحداثيات. راجعي إعدادات الموقع في هاتفك.")
-                    else:
-                        st.session_state.no_gps_option_available = True
-
-                # ── تسجيل بدون موقع — يظهر فقط بعد فشل GPS ──
-                if st.session_state.get("no_gps_option_available", False):
-                    st.markdown("---")
-                    st.markdown('<div style="font-size:13px;font-weight:700;color:#633806;margin-bottom:6px;">📋 سجّلي بدون تحديد موقع — سيُعتمد وقت الإرسال حضوراً أو انصرافاً من الأدمن</div>', unsafe_allow_html=True)
-
-                # نحتاج الرقم الشخصي لإرسال الطلب — لو ما أدخلته بعد نطلبه هنا
-                if not emp_id_loc:
-                    nogps_id_raw = st.text_input("الرقم الشخصي (مطلوب للتسجيل بدون موقع)",
-                                                  placeholder="أدخلي رقمك الشخصي", key="nogps_id_input")
-                    emp_id_loc = ar_to_en_digits(nogps_id_raw).strip()
-                    if emp_id_loc:
-                        found_emp = validate_employee(emp_id_loc)
-                        if found_emp:
-                            emp_name_loc   = str(found_emp.get("الاسم","")).strip()
-                            emp_school_loc = str(found_emp.get("المدرسة","")).strip()
-                            emp_task_loc   = str(found_emp.get("المهمة","")).strip()
-
-                exists_att_req, _ = manual_request_exists_today(emp_id_loc, "حضور")  if emp_id_loc else (False, None)
-                exists_dep_req, _ = manual_request_exists_today(emp_id_loc, "انصراف") if emp_id_loc else (False, None)
-                nogps_used_key    = f"nogps_used_{emp_id_loc}_{today_str}"
-
-                col_ng1, col_ng2 = st.columns(2)
-                with col_ng1:
-                    _att_done = exists_att_req or st.session_state.get("nogps_saving", False)
-                    if st.button(
-                        "✅ تم إرسال طلب الحضور" if exists_att_req else "📋 تسجيل حضور بدون موقع",
-                        use_container_width=True, key="btn_nogps_att", disabled=_att_done,
-                    ):
-                        if not emp_id_loc:
-                            st.error("❌ أدخلي رقمك الشخصي أولاً.")
-                        else:
-                            st.session_state.nogps_saving = True
-                            ok = submit_manual_request(emp_id_loc, emp_name_loc, emp_school_loc,
-                                                       emp_task_loc, "حضور", "", "",
-                                                       "تعذر تحديد الموقع — GPS",
-                                                       f"تسجيل بدون GPS | {today_str}")
-                            st.session_state.nogps_saving = False
-                            if ok and ok != "duplicate":
-                                ls_set(nogps_used_key, "done", f"set_{nogps_used_key}")
-                                log_audit(emp_id_loc, emp_name_loc, "تسجيل بدون GPS", f"نوع: حضور | {today_str}")
-                                st.session_state.allow_no_gps_today = True
-                                st.session_state.emp_data = st.session_state.get("emp_data") or {
-                                    "الرقم الشخصي": emp_id_loc, "الاسم": emp_name_loc,
-                                    "المدرسة": emp_school_loc, "المهمة": emp_task_loc, "_existing": True
-                                }
-                                st.success("✅ تم إرسال طلب الحضور — بانتظار اعتماد الأدمن.")
-                                st.rerun()
-                            elif ok == "duplicate":
-                                st.warning("⚠️ تم إرسال طلب سابق لهذا اليوم.")
-                            else:
-                                st.error("❌ تعذّر الإرسال. تواصلي مع الأدمن.")
-                with col_ng2:
-                    _dep_done = exists_dep_req or st.session_state.get("nogps_saving", False)
-                    if st.button(
-                        "✅ تم إرسال طلب الانصراف" if exists_dep_req else "📋 تسجيل انصراف بدون موقع",
-                        use_container_width=True, key="btn_nogps_dep", disabled=_dep_done,
-                    ):
-                        if not emp_id_loc:
-                            st.error("❌ أدخلي رقمك الشخصي أولاً.")
-                        else:
-                            st.session_state.nogps_saving = True
-                            ok = submit_manual_request(emp_id_loc, emp_name_loc, emp_school_loc,
-                                                       emp_task_loc, "انصراف", "", "",
-                                                       "تعذر تحديد الموقع — GPS",
-                                                       f"تسجيل بدون GPS | {today_str}")
-                            st.session_state.nogps_saving = False
-                            if ok and ok != "duplicate":
-                                ls_set(nogps_used_key, "done", f"set_{nogps_used_key}")
-                                log_audit(emp_id_loc, emp_name_loc, "تسجيل بدون GPS", f"نوع: انصراف | {today_str}")
-                                st.session_state.allow_no_gps_today = True
-                                st.session_state.emp_data = st.session_state.get("emp_data") or {
-                                    "الرقم الشخصي": emp_id_loc, "الاسم": emp_name_loc,
-                                    "المدرسة": emp_school_loc, "المهمة": emp_task_loc, "_existing": True
-                                }
-                                st.success("✅ تم إرسال طلب الانصراف — بانتظار اعتماد الأدمن.")
-                                st.rerun()
-                            elif ok == "duplicate":
-                                st.warning("⚠️ تم إرسال طلب سابق لهذا اليوم.")
-                            else:
-                                st.error("❌ تعذّر الإرسال. تواصلي مع الأدمن.")
-
-    # ════════════════════════════════════════════════════
-    # الخطوة 2: إدخال الرقم الشخصي
-    # ════════════════════════════════════════════════════
-    elif emp_step == "login":
-        with st.container(border=True):
-            st.markdown('<div class="card-title">🪪 أدخلي رقمك الشخصي</div>', unsafe_allow_html=True)
-            emp_id_raw = st.text_input("الرقم الشخصي", placeholder="مثال: 12345", max_chars=20, key="login_emp_id")
-            emp_id_clean = ar_to_en_digits(emp_id_raw).strip()
-
-            if st.button("بحث ←", use_container_width=True, type="primary", key="btn_login_search"):
-                if not emp_id_clean:
-                    st.error("❌ يرجى إدخال رقمك الشخصي أولاً.")
-                else:
-                    st.session_state._login_emp_id = emp_id_clean
-                    existing = validate_employee(emp_id_clean)
-                    if existing:
-                        is_sup = str(existing.get("دعم","")).strip() in ["نعم","yes","Yes","TRUE","true","1"]
-                        st.session_state.emp_data = {
-                            "الرقم الشخصي": emp_id_clean,
-                            "الاسم": existing.get("الاسم",""),
-                            "المدرسة": existing.get("المدرسة",""),
-                            "المهمة": existing.get("المهمة",""),
-                            "نشط":"نعم",
-                            "دعم": is_sup,
-                            "_is_support_pending": is_sup,
-                            "_existing": True,
-                        }
-                        st.session_state.emp_verified = True
-                        st.session_state.emp_step = "profile"
-                    else:
-                        st.session_state.emp_data = {"الرقم الشخصي": emp_id_clean, "_existing": False}
-                        st.session_state.emp_verified = False
-                        st.session_state.emp_step = "profile"
-                    st.rerun()
-
-    # ════════════════════════════════════════════════════
-    # الخطوة 2: عرض أو إكمال البيانات
-    # ════════════════════════════════════════════════════
-    elif emp_step == "profile":
-        emp = st.session_state.get("emp_data") or {}
-        emp_id = str(emp.get("الرقم الشخصي","")).strip()
-
-        with st.container(border=True):
-            # ── موظفة موجودة ────────────────────────────────
-            if emp.get("_existing"):
-                is_sup_pending = emp.get("_is_support_pending", False)
-
-                if is_sup_pending:
-                    st.markdown(f"""
-                    <div class="field-lbl">الاسم</div><div class="field-val">{emp.get("الاسم","")}</div>
-                    <div style="background:#faeeda;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:700;color:#633806;margin-bottom:10px;">
-                    🔄 أنتِ مسجّلة كدعم مؤقت
-                    </div>
-                    """, unsafe_allow_html=True)
-                    still_support = st.radio(
-                        "ما زلتِ دعم أم صرتِ عضوة؟",
-                        ["🔄 لا زلت دعم", "🏫 صرت عضوة في المركز"],
-                        horizontal=True, key="support_upgrade"
-                    )
-                    if still_support == "🔄 لا زلت دعم":
-                        st.warning("🔄 سيتم تسجيل حضورك لهذا اليوم فقط كدعم.")
-                        if st.button("التالي ← (تسجيل الموقع)", use_container_width=True, type="primary", key="btn_profile_next_sup"):
-                            st.session_state.emp_data["دعم"] = True
-                            st.session_state.emp_verified = True
-                            st.session_state.emp_step = "location"
-                            st.rerun()
-                    else:
-                        st.info("🏫 أكملي بياناتك لتُضافي كعضوة دائمة")
-                        emp_task_new = st.selectbox("المهمة الجديدة", TASKS_MAIN, key="upgrade_task")
-                        emp_job_new = st.selectbox("المسمى الوظيفي", JOB_TITLES, key="upgrade_job")
-                        emp_phone_new = st.text_input("رقم التواصل", value=emp.get("رقم التواصل",""), key="upgrade_phone")
-                        emp_email_new = st.text_input("البريد الإلكتروني", value=emp.get("البريد الإلكتروني",""), key="upgrade_email")
-                        if st.button("💾 حفظ كعضوة والتالي ←", use_container_width=True, type="primary", key="btn_upgrade"):
-                            try:
-                                wl_records = whitelist_sheet.get_all_records()
-                                for i, r in enumerate(wl_records):
-                                    if str(r.get("الرقم الشخصي","")).strip() == emp_id:
-                                        rn = i + 2
-                                        whitelist_sheet.update_cell(rn, 4, emp_task_new)
-                                        whitelist_sheet.update_cell(rn, 5, "لا")
-                                        whitelist_sheet.update_cell(rn, 6, emp_phone_new)
-                                        whitelist_sheet.update_cell(rn, 7, emp_email_new)
-                                        whitelist_sheet.update_cell(rn, 8, emp_job_new)
-                                        break
-                                get_whitelist.clear()
-                                st.session_state.emp_data.update({"المهمة": emp_task_new, "دعم": False})
-                                st.session_state.emp_verified = True
-                                st.session_state.emp_step = "action"
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"خطأ: {e}")
-                else:
-                    # موظفة دائمة عادية — بيانات مثبتة
-                    st.markdown('<div class="card-title">✅ بياناتك</div>', unsafe_allow_html=True)
-                    st.markdown(f"""
-                    <div class="field-lbl">الاسم</div><div class="field-val">{emp.get("الاسم","")}</div>
-                    <div class="field-lbl">المدرسة</div><div class="field-val">{emp.get("المدرسة","")}</div>
-                    <div class="field-lbl">المهمة في الكنترول</div><div class="field-val blue">{emp.get("المهمة","")}</div>
-                    <div style="font-size:12px;color:#3B6D11;font-weight:700;margin-bottom:8px;">🔒 بياناتك محفوظة</div>
-                    """, unsafe_allow_html=True)
-                    show_previous_auto_close_notice(emp_id)
-                    if st.button("التالي ← (تسجيل الحضور)", use_container_width=True, type="primary", key="btn_profile_next_existing"):
-                        st.session_state.emp_step = "action"
-                        st.rerun()
-
-            # ── موظفة جديدة ────────────────────────────────
-            else:
-                st.markdown('<div class="card-title">📝 بياناتك الجديدة</div>', unsafe_allow_html=True)
-                emp_type = st.radio("نوع التسجيل", ["🏫 عضوة في المركز","🔄 دعم"], horizontal=True, key="emp_type")
-                is_sup = emp_type == "🔄 دعم"
-                emp_name = st.text_input("الاسم الثلاثي", placeholder="اكتبي اسمك الثلاثي", key="new_name")
-                if is_sup:
-                    emp_school_choice = st.selectbox("المدرسة", schools + ["أخرى"], key="new_school_support")
-                    emp_school = st.text_input("اكتبي اسم المدرسة", key="new_school_other").strip() if emp_school_choice == "أخرى" else emp_school_choice
-                else:
-                    emp_school = st.selectbox("المدرسة", schools, key="new_school")
-                emp_task = st.selectbox("المهمة", TASKS_SUPPORT if is_sup else TASKS_MAIN, key="new_task")
-                if not is_sup:
-                    emp_job = st.selectbox("المسمى الوظيفي", JOB_TITLES, key="new_job")
-                    emp_phone = st.text_input("رقم التواصل", placeholder="مثال: 39XXXXXX", key="new_phone")
-                    emp_email = st.text_input("البريد الإلكتروني", placeholder="مثال: name@moe.bh", key="new_email")
-                else:
-                    emp_job = "دعم"; emp_phone = ""; emp_email = ""
-                    st.warning("🔄 سيتم تسجيل حضورك اليوم فقط كدعم")
-
-                if st.button("💾 حفظ والتالي ←", use_container_width=True, type="primary", key="confirm_new",
-                             disabled=not emp_name.strip()):
-                    if not str(emp_school).strip():
-                        st.error("❌ اسم المدرسة مطلوب.")
-                    else:
-                        new_emp_data = {
-                            "الرقم الشخصي": emp_id,
-                            "الاسم": normalize_name(emp_name),
-                            "المدرسة": emp_school,
-                            "المهمة": emp_task,
-                            "المسمى الوظيفي": emp_job,
-                            "رقم التواصل": emp_phone,
-                            "البريد الإلكتروني": emp_email,
-                            "نشط":"نعم",
-                            "دعم": is_sup,
-                            "_existing": False,
-                        }
-                        if not is_sup:
-                            try:
-                                whitelist_sheet.append_row([emp_id, normalize_name(emp_name), emp_school, emp_task, "لا", emp_phone, emp_email, emp_job, "نعم"])
-                                get_whitelist.clear()
-                            except Exception as e:
-                                st.warning(f"⚠️ تعذّر الحفظ في القائمة: {e}")
-                        st.session_state.emp_data = new_emp_data
-                        st.session_state.emp_verified = True
-                        st.session_state.emp_step = "action"
-                        st.rerun()
-
-        # زر الرجوع للموقع
-        if st.button("← رجوع", key="btn_profile_back"):
-            st.session_state.emp_step = "location"
-            st.session_state.emp_data = None
-            st.session_state.emp_verified = False
-            st.rerun()
-
-    # ════════════════════════════════════════════════════
-    # الخطوة 3: التحقق من الموقع
-    # ════════════════════════════════════════════════════
-    elif emp_step == "location":
-        emp = st.session_state.get("emp_data") or {}
-        emp_id_loc  = str(emp.get("الرقم الشخصي","")).strip()
-        emp_name_loc   = str(emp.get("الاسم","")).strip()
-        emp_school_loc = str(emp.get("المدرسة","")).strip()
-        emp_task_loc   = str(emp.get("المهمة","")).strip()
-
-        # تجاوز الموقع من الأدمن
-        ov_active, ov_end = get_location_override()
-        if ov_active and ov_end:
-            remaining = max(0, int((ov_end - now_bh()).total_seconds() // 60))
-            st.warning(f"⚠️ وضع تجاوز الموقع مفعّل — ينتهي بعد {remaining} دقيقة.")
-            st.session_state.location_allowed = True
-
-        # عداد استخدام "بدون GPS" اليومي — من LocalStorage
-        nogps_used_key  = f"nogps_used_{emp_id_loc}_{today_str}"
-        nogps_used_today = str(ls_get(nogps_used_key) or "").strip() == "done"
-
-        # هل أرسلت طلب حضور أو انصراف بالفعل اليوم؟
-        exists_att_req, _ = manual_request_exists_today(emp_id_loc, "حضور")  if emp_id_loc else (False, None)
-        exists_dep_req, _ = manual_request_exists_today(emp_id_loc, "انصراف") if emp_id_loc else (False, None)
-
-        with st.container(border=True):
-            st.markdown('<div class="card-title">📍 التحقق من الموقع</div>', unsafe_allow_html=True)
-
-            # ── الحالة 1: GPS نجح ──────────────────────────────
-            if st.session_state.get("location_allowed", False):
-                st.success("✅ تم التحقق من الموقع بنجاح.")
-                if st.button("التالي ← (تسجيل الحضور)", use_container_width=True, type="primary", key="btn_loc_next"):
-                    st.session_state.emp_step = "action"
-                    st.rerun()
-
-            # ── الحالة 2: أرسلت طلب بدون GPS مسبقاً ──────────
-            elif nogps_used_today or st.session_state.get("allow_no_gps_today", False):
-                st.warning("⚠️ تم تسجيل طلبك بدون GPS — بانتظار اعتماد الأدمن.")
-                if st.button("التالي ← (عرض الحالة)", use_container_width=True, type="primary", key="btn_loc_next_nogps"):
-                    st.session_state.allow_no_gps_today = True
-                    st.session_state.emp_step = "action"
-                    st.rerun()
-
-            # ── الحالة 3: شاشة التحقق الرئيسية ───────────────
-            else:
-                # تعليمات مختصرة
-                st.markdown('''
-                <div class="gps-steps-box">
-                    <div class="gps-steps-title">📋 خطوات التحقق من الموقع</div>
-                    <div class="gps-step"><span class="gps-step-num">1</span><span>اضغطي زر <b>ابدئي التحقق من الموقع</b>.</span></div>
-                    <div class="gps-step"><span class="gps-step-num">2</span><span>اضغطي أيقونة الموقع الصغيرة التي تظهر بالأسفل.</span></div>
-                    <div class="gps-step"><span class="gps-step-num">3</span><span>إذا ظهر طلب السماح اختاري <b>سماح / Allow</b>.</span></div>
-                    <div class="gps-step"><span class="gps-step-num" style="background:#BA7517;">!</span><span>لو ضغطتِ ولم يحدث شيء: افتحي <b>إعدادات الهاتف ← الخصوصية ← الموقع</b> وفعّليه، ثم ارجعي واضغطي مرة أخرى.</span></div>
-                </div>
-                ''', unsafe_allow_html=True)
-
-                # زر GPS الأساسي
-                if st.button("1️⃣ ابدئي التحقق من الموقع", use_container_width=True, type="primary", key="btn_check_location"):
-                    st.session_state.location_check_requested = True
-                    st.session_state.no_gps_option_available = False
+            if location:
+                lat = location.get("latitude")
+                lon = location.get("longitude")
+                error = location.get("error", "")
+                if error:
                     st.session_state.location_allowed = False
-
-                # تشغيل GPS بعد الضغط
-                if st.session_state.get("location_check_requested", False) and not st.session_state.get("location_allowed", False):
-                    st.info("⏳ جارٍ محاولة التحقق…")
-                    st.markdown('<div class="gps-click-hint">2️⃣ اضغطي أيقونة الموقع الصغيرة بالأسفل، ثم اختاري سماح / Allow</div>', unsafe_allow_html=True)
+                    st.session_state.no_gps_option_available = True
+                    st.warning("⚠️ الموقع غير مفعّل أو تم رفض السماح.")
+                elif lat is not None and lon is not None:
                     try:
-                        location = streamlit_geolocation()
+                        dist_val = distance_m(float(lat), float(lon), SCHOOL_LAT, SCHOOL_LON)
+                        if dist_val <= ALLOWED_RADIUS:
+                            st.session_state.location_allowed = True
+                            st.session_state.allow_no_gps_today = False
+                            st.session_state.no_gps_option_available = False
+                            st.success(f"✅ داخل نطاق المدرسة — المسافة: {int(dist_val)} م")
+                        else:
+                            st.session_state.location_allowed = False
+                            st.session_state.no_gps_option_available = True
+                            st.error(f"❌ خارج النطاق — المسافة: {int(dist_val)} م")
                     except Exception:
-                        location = None
+                        st.session_state.location_allowed = False
                         st.session_state.no_gps_option_available = True
-
-                    if location:
-                        lat   = location.get("latitude")
-                        lon   = location.get("longitude")
-                        error = location.get("error", "")
-                        if error:
-                            st.session_state.location_allowed = False
-                            st.session_state.no_gps_option_available = True
-                            st.warning("⚠️ الموقع غير مفعّل أو تم رفض السماح.")
-                        elif lat is not None and lon is not None:
-                            try:
-                                dist_val = distance_m(float(lat), float(lon), SCHOOL_LAT, SCHOOL_LON)
-                                if dist_val <= ALLOWED_RADIUS:
-                                    st.session_state.location_allowed = True
-                                    st.session_state.no_gps_option_available = False
-                                    st.success(f"✅ داخل نطاق المدرسة — المسافة: {int(dist_val)} م")
-                                    st.rerun()
-                                else:
-                                    st.session_state.location_allowed = False
-                                    st.session_state.no_gps_option_available = True
-                                    st.error(f"❌ خارج النطاق — المسافة: {int(dist_val)} م")
-                            except Exception:
-                                st.session_state.location_allowed = False
-                                st.session_state.no_gps_option_available = True
-                                st.error("❌ خطأ في قراءة الموقع.")
-                        else:
-                            st.session_state.location_allowed = False
-                            st.session_state.no_gps_option_available = True
-                            st.warning("⚠️ لم يتم استلام إحداثيات. لو ضغطتِ ولم يحدث شيء، راجعي إعدادات الموقع في هاتفك.")
-                    else:
-                        st.session_state.no_gps_option_available = True
-
-                # ── زر "الموقع ما اشتغل" — يظهر دائماً بعد أول ضغطة ──
-                st.markdown("---")
-                st.markdown('<div style="font-size:13px;font-weight:700;color:#633806;margin-bottom:6px;">📋 سجّلي بدون تحديد موقع — سيُعتمد وقت الإرسال حضوراً أو انصرافاً من الأدمن</div>', unsafe_allow_html=True)
-
-                col_ng1, col_ng2 = st.columns(2)
-                with col_ng1:
-                    # تعطيل لو أرسلت طلب حضور مسبقاً أو استخدمت الخيار اليوم
-                    _att_done = exists_att_req or st.session_state.get("nogps_saving", False)
-                    if st.button(
-                        "📋 تسجيل حضور بدون موقع" if not _att_done else "✅ تم إرسال طلب الحضور",
-                        use_container_width=True,
-                        key="btn_nogps_att",
-                        disabled=_att_done,
-                    ):
-                        if not emp_id_loc:
-                            st.error("❌ بيانات الموظفة غير مكتملة.")
-                        else:
-                            st.session_state.nogps_saving = True
-                            ok = submit_manual_request(
-                                emp_id_loc, emp_name_loc, emp_school_loc,
-                                emp_task_loc, "حضور", "", "",
-                                "تعذر تحديد الموقع — GPS",
-                                f"الموقع لم يستجب — عداد اليوم: {today_str}"
-                            )
-                            st.session_state.nogps_saving = False
-                            if ok and ok != "duplicate":
-                                ls_set(nogps_used_key, "done", f"set_{nogps_used_key}")
-                                log_audit(emp_id_loc, emp_name_loc, "تسجيل بدون GPS", f"نوع: حضور | التاريخ: {today_str}")
-                                st.session_state.allow_no_gps_today = True
-                                st.success("✅ تم إرسال طلب الحضور — بانتظار اعتماد الأدمن.")
-                                st.rerun()
-                            elif ok == "duplicate":
-                                st.warning("⚠️ تم إرسال طلب سابق لهذا اليوم.")
-                            else:
-                                st.error("❌ تعذّر الإرسال. تواصلي مع الأدمن عبر واتساب.")
-
-                with col_ng2:
-                    _dep_done = exists_dep_req or st.session_state.get("nogps_saving", False)
-                    if st.button(
-                        "📋 تسجيل انصراف بدون موقع" if not _dep_done else "✅ تم إرسال طلب الانصراف",
-                        use_container_width=True,
-                        key="btn_nogps_dep",
-                        disabled=_dep_done,
-                    ):
-                        if not emp_id_loc:
-                            st.error("❌ بيانات الموظفة غير مكتملة.")
-                        else:
-                            st.session_state.nogps_saving = True
-                            ok = submit_manual_request(
-                                emp_id_loc, emp_name_loc, emp_school_loc,
-                                emp_task_loc, "انصراف", "", "",
-                                "تعذر تحديد الموقع — GPS",
-                                f"الموقع لم يستجب — عداد اليوم: {today_str}"
-                            )
-                            st.session_state.nogps_saving = False
-                            if ok and ok != "duplicate":
-                                ls_set(nogps_used_key, "done", f"set_{nogps_used_key}")
-                                log_audit(emp_id_loc, emp_name_loc, "تسجيل بدون GPS", f"نوع: انصراف | التاريخ: {today_str}")
-                                st.session_state.allow_no_gps_today = True
-                                st.success("✅ تم إرسال طلب الانصراف — بانتظار اعتماد الأدمن.")
-                                st.rerun()
-                            elif ok == "duplicate":
-                                st.warning("⚠️ تم إرسال طلب سابق لهذا اليوم.")
-                            else:
-                                st.error("❌ تعذّر الإرسال. تواصلي مع الأدمن عبر واتساب.")
-
-    # ════════════════════════════════════════════════════
-    # الخطوة 3: تسجيل الحضور / الانصراف
-    # ════════════════════════════════════════════════════
-    elif emp_step == "action":
-        emp = st.session_state.emp_data
-        emp_id = str(emp.get("الرقم الشخصي","")).strip()
-
-        # ── تنفيذ العملية المؤجلة (بعد rerun مع operation_saving=True) ──
-        if st.session_state.get("operation_saving"):
-            queued_op   = st.session_state.get("_queued_op","")
-            queued_note = st.session_state.get("_queued_note","")
-            with st.spinner("⏳ جارٍ حفظ العملية… يرجى الانتظار"):
-                if queued_op:
-                    register_operation(queued_op, emp_id, queued_note)
+                        st.error("❌ خطأ في قراءة الموقع.")
                 else:
-                    # عودة من استئذان (لا تحتاج note)
-                    register_operation("عودة من استئذان", emp_id)
-            st.session_state.operation_saving = False
-            st.session_state._queued_op = ""
-            st.session_state._queued_note = ""
-            st.rerun()
+                    st.session_state.location_allowed = False
+                    st.session_state.no_gps_option_available = True
+                    st.warning("⚠️ لم يتم استلام إحداثيات من الجهاز. إذا لم تظهر نافذة السماح يمكنك استخدام خيار التعذر.")
+            else:
+                st.session_state.no_gps_option_available = True
 
-        data = get_sheet_data()
-        _, today_row = find_today_row(data, today_str, emp_id)
+        if (st.session_state.get("no_gps_option_available", False)
+            and not st.session_state.get("location_allowed", False)
+            and not st.session_state.get("allow_no_gps_today", False)):
+            st.markdown("---")
+            st.warning("⚠️ فشل التحقق من الموقع أو ظهر خارج النطاق. يمكنك إرسال طلب للأدمن للاعتماد.")
+            if st.button("⚠️ تعذر التحقق — فتح طلب اعتماد للأدمن", use_container_width=True, key="btn_no_gps_after_fail"):
+                st.session_state.allow_no_gps_today = True
+                st.session_state.location_allowed = False
+                st.warning("⚠️ تم تفعيل خيار التعذر لهذا اليوم. أي عملية بدون GPS ستُعلّم للأدمن للمراجعة ولا تُكرر لنفس نوع العملية.")
+                st.rerun()
 
-        att_time  = today_row.get("وقت الحضور","—")  if today_row else "—"
-        dep_time  = today_row.get("وقت الانصراف","—") if today_row else "—"
-        exit_time = today_row.get("خروج استئذان","—") if today_row else "—"
-        return_time = today_row.get("عودة","—")       if today_row else "—"
-        has_exit   = bool(today_row and today_row.get("خروج استئذان"))
+        if (not st.session_state.get("location_check_requested", False)
+            and not st.session_state.get("allow_no_gps_today", False)
+            and not st.session_state.get("location_allowed", False)):
+            st.info("لم يتم تشغيل GPS تلقائيًا حتى لا تتعطل الصفحة. اضغطي: تحقق من موقعي الآن.")
+
+    ov_active,ov_end=get_location_override()
+    if ov_active and ov_end:
+        remaining=max(0, int((ov_end-now_bh()).total_seconds()//60))
+        st.warning(f"⚠️ وضع تجاوز الموقع مفعّل — ينتهي بعد {remaining} دقيقة.")
+        st.session_state.location_allowed=True
+
+    # ── البيانات الشخصية ─────────────────────────────────────────
+    with st.container(border=True):
+        st.markdown('<div class="card-title">🪪 البيانات الشخصية</div>', unsafe_allow_html=True)
+
+        if _data_locked:
+            emp=st.session_state.emp_data
+            st.markdown(f"""
+            <div class="field-lbl">الرقم الشخصي</div><div class="field-val">{emp.get("الرقم الشخصي","")}</div>
+            <div class="field-lbl">الاسم</div><div class="field-val">{emp.get("الاسم","")}</div>
+            <div class="field-lbl">المدرسة</div><div class="field-val">{emp.get("المدرسة","")}</div>
+            <div class="field-lbl">المهمة في الكنترول</div><div class="field-val blue">{emp.get("المهمة","")}</div>
+            <div style="font-size:12px;color:#3B6D11;font-weight:700;">🔒 بياناتك محفوظة لهذا اليوم</div>
+            """, unsafe_allow_html=True)
+            show_previous_auto_close_notice(emp.get("الرقم الشخصي", ""))
+        else:
+            emp_id_raw=st.text_input("الرقم الشخصي", placeholder="أدخلي رقمك الشخصي", max_chars=20)
+            emp_id=ar_to_en_digits(emp_id_raw).strip()
+
+            if emp_id:
+                show_previous_auto_close_notice(emp_id)
+                existing=validate_employee(emp_id)
+                if existing:
+                    is_prev_support = str(existing.get("دعم","")).strip() in ["نعم","yes","Yes","TRUE","true","1"]
+
+                    if is_prev_support:
+                        # موظفة كانت دعم — نسألها هل لا زالت دعم
+                        st.markdown(f"""
+                        <div class="field-lbl">الاسم</div><div class="field-val">{existing.get("الاسم","")}</div>
+                        <div style="background:#faeeda;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:700;color:#633806;margin-bottom:10px;">
+                        🔄 أنتِ مسجّلة كدعم مؤقت
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        still_support = st.radio(
+                            "ما زلتِ دعم أم صرتِ عضوة في المركز؟",
+                            ["🔄 لا زلت دعم", "🏫 صرت عضوة في المركز"],
+                            horizontal=True, key="support_upgrade"
+                        )
+
+                        if still_support == "🔄 لا زلت دعم":
+                            st.session_state.emp_verified=True
+                            st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":existing.get("الاسم",""),"المدرسة":existing.get("المدرسة",""),"المهمة":existing.get("المهمة",""),"نشط":"نعم","دعم":True}
+                            st.warning("🔄سيتم تسجيل حضوركِ لهذا اليوم فقط كدعم")
+
+                        else:
+                            # تريد تنتقل لعضوة — تكمّل بياناتها
+                            st.info("🏫 ممتاز! أكملي بياناتك لتُضافي كعضوة دائمة")
+                            emp_task_new=st.selectbox("المهمة الجديدة", TASKS_MAIN, key="upgrade_task")
+                            emp_job_new=st.selectbox("المسمى الوظيفي", JOB_TITLES, key="upgrade_job")
+                            emp_phone_new=st.text_input("رقم التواصل", value=existing.get("رقم التواصل",""), key="upgrade_phone")
+                            emp_email_new=st.text_input("البريد الإلكتروني", value=existing.get("البريد الإلكتروني",""), key="upgrade_email")
+
+                            if st.button("💾 حفظ كعضوة دائمة", use_container_width=True, type="primary", key="btn_upgrade"):
+                                try:
+                                    # ابحث عن صف الموظفة في القائمة البيضاء وحدّثه
+                                    wl_records = whitelist_sheet.get_all_records()
+                                    for i, r in enumerate(wl_records):
+                                        if str(r.get("الرقم الشخصي","")).strip() == emp_id:
+                                            row_num = i + 2
+                                            whitelist_sheet.update_cell(row_num, 4, emp_task_new)   # D - المهمة
+                                            whitelist_sheet.update_cell(row_num, 5, "لا")           # E - دعم
+                                            whitelist_sheet.update_cell(row_num, 6, emp_phone_new)  # F - رقم التواصل
+                                            whitelist_sheet.update_cell(row_num, 7, emp_email_new)  # G - البريد
+                                            whitelist_sheet.update_cell(row_num, 8, emp_job_new)    # H - المسمى
+                                            break
+                                    get_whitelist.clear()
+                                    st.session_state.emp_verified=True
+                                    st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":existing.get("الاسم",""),"المدرسة":existing.get("المدرسة",""),"المهمة":emp_task_new,"نشط":"نعم","دعم":False}
+                                    st.success("✅ تم تحديث بياناتك كعضوة دائمة!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"خطأ: {e}")
+                    else:
+                        # موظفة دائمة عادية
+                        st.session_state.emp_verified=True
+                        st.session_state.emp_data={"الرقم الشخصي":emp_id,"الاسم":existing.get("الاسم",""),"المدرسة":existing.get("المدرسة",""),"المهمة":existing.get("المهمة",""),"نشط":"نعم","دعم":False}
+                        st.markdown(f"""
+                        <div class="field-lbl">الاسم</div><div class="field-val">{existing.get("الاسم","")}</div>
+                        <div class="field-lbl">المدرسة</div><div class="field-val">{existing.get("المدرسة","")}</div>
+                        <div class="field-lbl">المهمة في الكنترول</div><div class="field-val blue">{existing.get("المهمة","")}</div>
+                        """, unsafe_allow_html=True)
+                        st.success("✅ تم التحقق من بياناتك.")
+                else:
+                    # موظفة جديدة — تدخل بياناتها
+                    # ── نوع التسجيل أولاً ──
+                    emp_type=st.radio("نوع التسجيل",["🏫 عضوة في المركز","🔄 دعم"],horizontal=True,key="emp_type")
+                    is_sup=emp_type=="🔄 دعم"
+
+                    # ── البيانات حسب النوع ──
+                    emp_name=st.text_input("الاسم الثلاثي", placeholder="اكتبي اسمك الثلاثي", key="new_name")
+                    if is_sup:
+                        school_options_support = schools + ["أخرى"]
+                        emp_school_choice = st.selectbox("المدرسة", school_options_support, key="new_school_support")
+                        if emp_school_choice == "أخرى":
+                            emp_school_other = st.text_input("اكتبي اسم المدرسة", key="new_school_other")
+                            emp_school = emp_school_other.strip()
+                        else:
+                            emp_school = emp_school_choice
+                    else:
+                        emp_school=st.selectbox("المدرسة", schools, key="new_school")
+                    emp_task=st.selectbox("المهمة", TASKS_SUPPORT if is_sup else TASKS_MAIN, key="new_task")
+
+                    if not is_sup:
+                        emp_job=st.selectbox("المسمى الوظيفي", JOB_TITLES, key="new_job")
+                        emp_phone=st.text_input("رقم التواصل", placeholder="مثال: 39XXXXXX", key="new_phone")
+                        emp_email=st.text_input("البريد الإلكتروني", placeholder="مثال: name@moe.bh", key="new_email")
+                    else:
+                        emp_job="دعم"; emp_phone=""; emp_email=""
+                        st.warning("🔄 سيتم تسجيل حضورك اليوم فقط كدعم")
+
+                    # ── زر الحفظ ──
+                    if emp_name.strip():
+                        if st.button("💾 حفظ البيانات والمتابعة", use_container_width=True, type="primary", key="confirm_new"):
+                            if not str(emp_school).strip():
+                                st.error("❌ اسم المدرسة مطلوب، خصوصًا عند اختيار أخرى.")
+                                st.stop()
+                            new_emp_data={
+                                "الرقم الشخصي":emp_id,
+                                "الاسم":normalize_name(emp_name),
+                                "المدرسة":emp_school,
+                                "المهمة":emp_task,
+                                "المسمى الوظيفي":emp_job,
+                                "رقم التواصل":emp_phone,
+                                "البريد الإلكتروني":emp_email,
+                                "نشط":"نعم",
+                                "دعم":is_sup
+                            }
+                            st.session_state.emp_verified=True
+                            st.session_state.emp_data=new_emp_data
+                            # حفظ في القائمة البيضاء فوراً (إلا دعم)
+                            if not is_sup:
+                                try:
+                                    whitelist_sheet.append_row([
+                                        emp_id,           # A - الرقم الشخصي
+                                        normalize_name(emp_name),  # B - الاسم
+                                        emp_school,       # C - المدرسة
+                                        emp_task,         # D - المهمة
+                                        "لا",             # E - دعم
+                                        emp_phone,        # F - رقم التواصل
+                                        emp_email,        # G - البريد الإلكتروني
+                                        emp_job,          # H - المسمى الوظيفي
+                                        "نعم"             # I - نشط
+                                    ])
+                                    get_whitelist.clear()
+                                    st.success("✅ تم حفظ بياناتك في القائمة البيضاء، يمكنك الآن تسجيل الحضور")
+                                except Exception as e:
+                                    st.warning(f"⚠️ تعذّر الحفظ في القائمة: {e}")
+                            else:
+                                st.success("✅ تم تسجيل بياناتك، يمكنك الآن تسجيل الحضور")
+                            st.rerun()
+            else:
+                st.session_state.emp_verified=False; st.session_state.emp_data=None
+
+    # ── العمليات ─────────────────────────────────────────────────
+    if st.session_state.emp_verified and st.session_state.emp_data:
+        emp=st.session_state.emp_data
+        emp_id=str(emp.get("الرقم الشخصي","")).strip()
+        data=get_sheet_data(); _,today_row=find_today_row(data,today_str,emp_id)
+        att_time=today_row.get("وقت الحضور","—") if today_row else "—"
+        dep_time=today_row.get("وقت الانصراف","—") if today_row else "—"
+        exit_time=today_row.get("خروج استئذان","—") if today_row else "—"
+        return_time=today_row.get("عودة","—") if today_row else "—"
+        has_exit = bool(today_row and today_row.get("خروج استئذان"))
         has_return = bool(today_row and today_row.get("عودة"))
         has_depart = bool(today_row and today_row.get("وقت الانصراف"))
-
         if has_exit and not has_return and not has_depart:
-            status = "استئذان مفتوح"; stat_col = "#BA7517"
-        elif has_exit and has_depart and "استئذان انصراف" in str(today_row.get("سبب الانصراف","")):
-            status = "انصراف باستئذان"; stat_col = "#185FA5"
+            status="استئذان مفتوح"
+            stat_col="#BA7517"
+        elif has_exit and has_depart and "استئذان انصراف" in str(today_row.get("سبب الانصراف", "")):
+            status="انصراف باستئذان"
+            stat_col="#185FA5"
         elif has_exit and has_return and has_depart:
-            status = "منصرف بعد الاستئذان ✓"; stat_col = "#185FA5"
+            status="منصرف بعد الاستئذان ✓"
+            stat_col="#185FA5"
         elif has_depart:
-            status = "منصرف ✓"; stat_col = "#185FA5"
+            status="منصرف ✓"
+            stat_col="#185FA5"
         elif today_row and today_row.get("وقت الحضور"):
-            status = "حاضر ✓"; stat_col = "#3B6D11"
+            status="حاضر ✓"
+            stat_col="#3B6D11"
         else:
-            status = "لم يُسجَّل"; stat_col = "#A32D2D"
-
-        show_previous_auto_close_notice(emp_id)
+            status="لم يُسجَّل"
+            stat_col="#A32D2D"
 
         if today_row and today_row.get("وقت الحضور") and not today_row.get("وقت الانصراف") and now_bh().time() >= time(13,30):
             st.warning("⚠️ لم يتم تسجيل الانصراف حتى الآن. يرجى تسجيل الانصراف قبل مغادرة المركز.")
 
-        with st.container(border=True):
+        if has_exit:
             st.markdown(f"""
-            <div class="field-lbl">الاسم</div><div class="field-val">{emp.get("الاسم","")}</div>
-            <div class="field-lbl">المهمة</div><div class="field-val blue">{emp.get("المهمة","")}</div>
+            <div class="pro-card"><h3 style="color:#0c3460;text-align:right;">⚡ العمليات</h3>
+            <div class="today-strip">
+                <div class="stat-cell"><span class="stat-val">{att_time}</span><span class="stat-lbl">وقت الحضور</span></div>
+                <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
+                <div class="stat-cell"><span class="stat-val">{exit_time}</span><span class="stat-lbl">خروج استئذان</span></div>
+                <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
+                <div class="stat-cell"><span class="stat-val">{return_time if has_return else 'لم تُسجل'}</span><span class="stat-lbl">العودة</span></div>
+                <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
+                <div class="stat-cell"><span class="stat-val">{dep_time if has_depart else 'لم يُسجل'}</span><span class="stat-lbl">وقت الانصراف</span></div>
+                <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
+                <div class="stat-cell"><span class="stat-val" style="color:{stat_col};">{status}</span><span class="stat-lbl">الحالة</span></div>
+            </div></div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="pro-card"><h3 style="color:#0c3460;text-align:right;">⚡ العمليات</h3>
+            <div class="today-strip">
+                <div class="stat-cell"><span class="stat-val">{att_time}</span><span class="stat-lbl">وقت الحضور</span></div>
+                <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
+                <div class="stat-cell"><span class="stat-val">{dep_time}</span><span class="stat-lbl">وقت الانصراف</span></div>
+                <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
+                <div class="stat-cell"><span class="stat-val" style="color:{stat_col};">{status}</span><span class="stat-lbl">الحالة</span></div>
+            </div></div>
             """, unsafe_allow_html=True)
 
-            if has_exit:
-                st.markdown(f"""
-                <div class="today-strip">
-                    <div class="stat-cell"><span class="stat-val">{att_time}</span><span class="stat-lbl">وقت الحضور</span></div>
-                    <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
-                    <div class="stat-cell"><span class="stat-val">{exit_time}</span><span class="stat-lbl">خروج استئذان</span></div>
-                    <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
-                    <div class="stat-cell"><span class="stat-val">{return_time if has_return else 'لم تُسجل'}</span><span class="stat-lbl">العودة</span></div>
-                    <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
-                    <div class="stat-cell"><span class="stat-val">{dep_time if has_depart else 'لم يُسجل'}</span><span class="stat-lbl">وقت الانصراف</span></div>
-                    <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
-                    <div class="stat-cell"><span class="stat-val" style="color:{stat_col};">{status}</span><span class="stat-lbl">الحالة</span></div>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="today-strip">
-                    <div class="stat-cell"><span class="stat-val">{att_time}</span><span class="stat-lbl">وقت الحضور</span></div>
-                    <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
-                    <div class="stat-cell"><span class="stat-val">{dep_time}</span><span class="stat-lbl">وقت الانصراف</span></div>
-                    <div style="width:1px;background:#d3d1c7;margin:4px 0;"></div>
-                    <div class="stat-cell"><span class="stat-val" style="color:{stat_col};">{status}</span><span class="stat-lbl">الحالة</span></div>
-                </div>
-                """, unsafe_allow_html=True)
-
-            if today_row and today_row.get("وقت الانصراف") and "رعاية" not in str(today_row.get("سبب الانصراف","")) and "رعاية" not in str(today_row.get("سبب التأخير","")):
-                with st.expander("هل لديكِ رعاية لهذا اليوم؟", expanded=False):
-                    st.info("إذا كان دوامك اليوم رعاية، اضغطي نعم ليتم احتساب المطلوب 5 ساعات.")
-                    if st.button("نعم، لدي رعاية", use_container_width=True, key="confirm_care_today"):
-                        if mark_care_for_today(emp_id):
-                            st.rerun()
-
-            if st.session_state.get("operation_saving"):
-                st.info("⏳ جارٍ حفظ العملية… يرجى عدم الضغط مرة أخرى.")
-
-            _saving = st.session_state.get("operation_saving", False)
-            # حماية إضافية: تعطيل الأزرار لو سُجّل حضور مسبقاً أو انصراف مسبقاً
-            _has_att = bool(today_row and today_row.get("وقت الحضور","").strip())
-            _has_dep = bool(today_row and today_row.get("وقت الانصراف","").strip())
-
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("✅ تسجيل حضور", use_container_width=True,
-                             disabled=_saving or _has_att,
-                             key="btn_att_main"):
-                    if _has_att:
-                        st.warning(f"⚠️ تم تسجيل حضورك مسبقاً الساعة {today_row.get('وقت الحضور','')}")
-                    else:
-                        st.session_state.pending_operation = None
-                        if now_bh().time() > time(7,30):
-                            st.session_state.pending_operation = "تسجيل حضور"
-                            st.rerun()
-                        else:
-                            st.session_state.operation_saving = True
-                            st.rerun()
-            with col2:
-                if st.button("🔵 تسجيل انصراف", use_container_width=True,
-                             disabled=_saving or _has_dep,
-                             key="btn_dep_main"):
-                    if _has_dep:
-                        st.warning(f"⚠️ تم تسجيل انصرافك مسبقاً الساعة {today_row.get('وقت الانصراف','')}")
-                    else:
-                        st.session_state.pending_operation = None
-                        if now_bh().time() < time(14,0):
-                            st.session_state.pending_operation = "تسجيل انصراف"
-                            st.rerun()
-                        else:
-                            st.session_state.operation_saving = True
-                            st.rerun()
-            col3, col4 = st.columns(2)
-            with col3:
-                if st.button("📤 خروج استئذان", use_container_width=True,
-                             disabled=_saving,
-                             key="btn_exit_main"):
-                    st.session_state.pending_operation = "خروج استئذان"
-                    st.rerun()
-            with col4:
-                if st.button("🔁 عودة من استئذان", use_container_width=True,
-                             disabled=_saving,
-                             key="btn_return_main"):
-                    st.session_state.pending_operation = None
-                    st.session_state.operation_saving = True
-                    st.rerun()
-
-            # تنفيذ العمليات يتم في أول الخطوة عبر _queued_op (انظر أعلاه)
-
-            if st.session_state.pending_operation == "تسجيل حضور":
-                with st.container(border=True):
-                    st.markdown('<div class="card-title">سبب التأخير بعد 7:05:30 — اختياري</div>', unsafe_allow_html=True)
-                    late_reason = st.selectbox("السبب", ["اختاري السبب (اختياري)"] + reasons, key="late_reason")
-                    late_other = ""
-                    if late_reason == "أخرى": late_other = st.text_input("اكتبي السبب", key="late_other")
-                    final = "" if late_reason == "اختاري السبب (اختياري)" else (late_other.strip() if late_reason == "أخرى" else late_reason)
-                    if st.button("تأكيد تسجيل الحضور", use_container_width=True, type="primary", key="btn_confirm_att"):
-                        st.session_state.pending_operation = None
-                        st.session_state.operation_saving = True
-                        st.session_state._queued_op = "تسجيل حضور"
-                        st.session_state._queued_note = final
+        if today_row and today_row.get("وقت الانصراف") and "رعاية" not in str(today_row.get("سبب الانصراف", "")) and "رعاية" not in str(today_row.get("سبب التأخير", "")):
+            with st.expander("هل لديكِ رعاية لهذا اليوم؟", expanded=False):
+                st.info("إذا كان دوامك اليوم رعاية، اضغطي نعم ليتم احتساب المطلوب 5 ساعات. إذا لم تختاري رعاية سيبقى الحساب دوام عادي/مرن حسب البيانات.")
+                if st.button("نعم، لدي رعاية", use_container_width=True, key="confirm_care_today"):
+                    if mark_care_for_today(emp_id):
                         st.rerun()
 
-            if st.session_state.pending_operation == "تسجيل انصراف":
-                with st.container(border=True):
-                    st.markdown('<div class="card-title">سبب الانصراف قبل 2:00</div>', unsafe_allow_html=True)
-                    reason = st.selectbox("السبب", reasons, key="early_reason")
-                    other = ""
-                    if reason == "أخرى": other = st.text_input("اكتبي السبب", key="early_other")
-                    final = other.strip() if reason == "أخرى" else reason
-                    if st.button("تأكيد تسجيل الانصراف", use_container_width=True, type="primary", key="btn_confirm_dep"):
-                        if not final: st.error("السبب مطلوب")
-                        else:
-                            st.session_state.pending_operation = None
-                            st.session_state.operation_saving = True
-                            st.session_state._queued_op = "تسجيل انصراف"
-                            st.session_state._queued_note = final
-                            st.rerun()
+        if st.session_state.get("operation_saving"):
+            st.info("⏳ جارٍ حفظ العملية… يرجى عدم الضغط مرة أخرى.")
 
-            if st.session_state.pending_operation == "خروج استئذان":
-                with st.container(border=True):
-                    st.markdown('<div class="card-title">نوع وسبب خروج الاستئذان</div>', unsafe_allow_html=True)
-                    leave_kind = st.radio("نوع الاستئذان", ["استئذان مع عودة","استئذان انصراف"], horizontal=True, key="leave_kind")
-                    if leave_kind == "استئذان مع عودة":
-                        st.info("سيتم تسجيل خروج الاستئذان فقط. عند الرجوع اضغطي زر عودة من استئذان.")
+        col1,col2=st.columns(2)
+        with col1:
+            if st.button("✅ تسجيل حضور",use_container_width=True, disabled=st.session_state.get("operation_saving", False)):
+                st.session_state.pending_operation=None
+                if now_bh().time()>time(7,30): st.session_state.pending_operation="تسجيل حضور"
+                else:
+                    st.session_state.operation_saving=True
+                    register_operation("تسجيل حضور",emp_id)
+                    st.session_state.operation_saving=False
+                    st.rerun()
+        with col2:
+            if st.button("🔵 تسجيل انصراف",use_container_width=True, disabled=st.session_state.get("operation_saving", False)):
+                st.session_state.pending_operation=None
+                if now_bh().time()<time(14,0): st.session_state.pending_operation="تسجيل انصراف"
+                else:
+                    st.session_state.operation_saving=True
+                    register_operation("تسجيل انصراف",emp_id)
+                    st.session_state.operation_saving=False
+                    st.rerun()
+        col3,col4=st.columns(2)
+        with col3:
+            if st.button("📤 خروج استئذان",use_container_width=True, disabled=st.session_state.get("operation_saving", False)):
+                st.session_state.pending_operation="خروج استئذان"
+        with col4:
+            if st.button("🔁 عودة من استئذان",use_container_width=True, disabled=st.session_state.get("operation_saving", False)):
+                st.session_state.pending_operation=None
+                st.session_state.operation_saving=True
+                register_operation("عودة من استئذان",emp_id)
+                st.session_state.operation_saving=False
+                st.rerun()
+
+        if st.session_state.pending_operation=="تسجيل حضور":
+            with st.container(border=True):
+                st.markdown('<div class="card-title">سبب التأخير بعد 7:05:30 — اختياري</div>',unsafe_allow_html=True)
+                late_reason=st.selectbox("السبب",["اختاري السبب (اختياري)"]+reasons,key="late_reason")
+                late_other="" 
+                if late_reason=="أخرى": late_other=st.text_input("اكتبي السبب",key="late_other")
+                final="" if late_reason=="اختاري السبب (اختياري)" else (late_other.strip() if late_reason=="أخرى" else late_reason)
+                if st.button("تأكيد تسجيل الحضور",use_container_width=True,type="primary"):
+                    st.session_state.pending_operation=None
+                    st.session_state.operation_saving=True
+                    register_operation("تسجيل حضور",emp_id,final)
+                    st.session_state.operation_saving=False
+                    st.rerun()
+
+        if st.session_state.pending_operation=="تسجيل انصراف":
+            with st.container(border=True):
+                st.markdown('<div class="card-title">سبب الانصراف قبل 2:00</div>',unsafe_allow_html=True)
+                reason=st.selectbox("السبب",reasons,key="early_reason")
+                other="" 
+                if reason=="أخرى": other=st.text_input("اكتبي السبب",key="early_other")
+                final=other.strip() if reason=="أخرى" else reason
+                if st.button("تأكيد تسجيل الانصراف",use_container_width=True,type="primary"):
+                    if not final: st.error("السبب مطلوب")
                     else:
-                        st.warning("سيتم احتساب وقت خروج الاستئذان كوقت انصراف.")
-                    reason = st.selectbox("السبب", reasons, key="exit_reason")
-                    other = ""
-                    if reason == "أخرى": other = st.text_input("اكتبي السبب", key="exit_other")
-                    reason_final = other.strip() if reason == "أخرى" else reason
-                    final = f"{leave_kind} — {reason_final}" if reason_final else leave_kind
-                    if st.button("تأكيد خروج الاستئذان", use_container_width=True, type="primary", key="btn_confirm_exit"):
-                        if not reason_final: st.error("السبب مطلوب")
-                        else:
-                            st.session_state.pending_operation = None
-                            st.session_state.operation_saving = True
-                            st.session_state._queued_op = "خروج استئذان"
-                            st.session_state._queued_note = final
+                        st.session_state.pending_operation=None
+                        st.session_state.operation_saving=True
+                        register_operation("تسجيل انصراف",emp_id,final)
+                        st.session_state.operation_saving=False
+                        st.rerun()
+
+        if st.session_state.pending_operation=="خروج استئذان":
+            with st.container(border=True):
+                st.markdown('<div class="card-title">نوع وسبب خروج الاستئذان</div>',unsafe_allow_html=True)
+                leave_kind=st.radio("نوع الاستئذان",["استئذان مع عودة","استئذان انصراف"],horizontal=True,key="leave_kind")
+                if leave_kind=="استئذان مع عودة":
+                    st.info("سيتم تسجيل خروج الاستئذان فقط. عند الرجوع يجب الضغط على زر عودة من استئذان، ثم تسجيل الانصراف لاحقًا.")
+                else:
+                    st.warning("سيتم احتساب وقت خروج الاستئذان كوقت انصراف، ولا تحتاجين لتسجيل عودة.")
+                reason=st.selectbox("السبب",reasons,key="exit_reason")
+                other=""
+                if reason=="أخرى": other=st.text_input("اكتبي السبب",key="exit_other")
+                reason_final=other.strip() if reason=="أخرى" else reason
+                final=f"{leave_kind} — {reason_final}" if reason_final else leave_kind
+                if st.button("تأكيد خروج الاستئذان",use_container_width=True,type="primary"):
+                    if not reason_final: st.error("السبب مطلوب")
+                    else:
+                        st.session_state.pending_operation=None
+                        st.session_state.operation_saving=True
+                        register_operation("خروج استئذان",emp_id,final)
+                        st.session_state.operation_saving=False
+                        st.rerun()
+
+
+    # ── طلب مشكلة تقنية / تسجيل يدوي ───────────────────────────────
+    with st.container(border=True):
+        st.markdown('<div class="card-title">🆘 عندي مشكلة في التسجيل</div>', unsafe_allow_html=True)
+        if not manual_requests_enabled():
+            st.warning("⚠️ طلبات التسجيل اليدوي من واجهة الموظفة معطّلة حاليًا. في حال وجود مشكلة تقنية، يرجى التواصل مع الأدمن مباشرة.")
+        else:
+            st.caption("استخدمي هذا الخيار إذا لم يظهر طلب الموقع، أو ظهرت صفحة بيضاء، أو الزر لا يستجيب. الطلب لا يسجل مباشرة إلا بعد اعتماد الأدمن.")
+            with st.expander("إرسال طلب للأدمن", expanded=False):
+                known_emp = st.session_state.get("emp_data") or {}
+                default_problem_id = str(known_emp.get("الرقم الشخصي", "") or "")
+                problem_id = ar_to_en_digits(st.text_input("الرقم الشخصي", value=default_problem_id, key="prob_emp_id_lookup")).strip()
+                auto_emp = validate_employee(problem_id) if problem_id else None
+
+                if auto_emp:
+                    problem_name = str(auto_emp.get("الاسم", "")).strip()
+                    problem_school = str(auto_emp.get("المدرسة", "")).strip()
+                    problem_task = str(auto_emp.get("المهمة", "")).strip()
+                    # لا نعرض الاسم تلقائيًا للموظفة؛ نستخدم بيانات القائمة البيضاء داخليًا للأدمن فقط.
+                    st.success("✅ الرقم موجود في القائمة البيضاء. أكملي نوع الطلب ووقت الحضور الفعلي فقط.")
+                else:
+                    if problem_id:
+                        st.warning("⚠️ الرقم غير موجود في القائمة البيضاء، أدخلي البيانات يدويًا ليراجعها الأدمن.")
+                    problem_name = st.text_input("الاسم", value=str(known_emp.get("الاسم", "") or ""), key="prob_name_manual")
+                    school_choice = st.selectbox("المدرسة", schools + ["أخرى"], key="prob_school_choice_manual")
+                    if school_choice == "أخرى":
+                        problem_school = st.text_input("اكتبي اسم المدرسة", key="prob_school_other_manual").strip()
+                    else:
+                        problem_school = school_choice
+                    problem_task = st.selectbox("المهمة", TASKS_ALL, key="prob_task_manual")
+
+                req_type = st.selectbox("نوع الطلب", ["حضور", "انصراف"], key="prob_req_type")
+                st.info("⏱️ سيتم اعتماد الوقت تلقائيًا حسب وقت إرسال الطلب، بدون إدخال وقت يدوي.")
+                problem_type = st.selectbox("نوع المشكلة", ["تعذر تحديد الموقع", "صفحة بيضاء", "الموقع لا يعمل", "زر لا يستجيب", "مشكلة في المتصفح", "أخرى"], key="prob_type")
+                problem_notes = st.text_area("ملاحظات اختيارية", key="prob_notes")
+
+                exists_req, old_req = manual_request_exists_today(problem_id, req_type) if problem_id else (False, None)
+                if exists_req:
+                    st.warning(f"⚠️ تم إرسال طلب {req_type} سابق لهذا اليوم الساعة {old_req.get('وقت الطلب','')}. لا يمكن تكرار نفس الطلب.")
+
+                if st.session_state.get("manual_request_saving"):
+                    st.info("⏳ يرجى الانتظار… جارٍ إرسال الطلب للأدمن.")
+
+                if st.button("📨 إرسال الطلب للأدمن", use_container_width=True, type="primary", key="send_manual_request", disabled=st.session_state.get("manual_request_saving", False) or exists_req):
+                    if not problem_id or not str(problem_name).strip() or not str(problem_school).strip():
+                        st.error("❌ الرقم الشخصي والاسم والمدرسة مطلوبة.")
+                    else:
+                        st.session_state.manual_request_saving = True
+                        ok = submit_manual_request(problem_id, problem_name, problem_school, problem_task, req_type, "", "", problem_type, problem_notes)
+                        st.session_state.manual_request_saving = False
+                        if ok == "duplicate":
+                            st.warning("⚠️ تم إرسال طلب سابق من نفس النوع لهذا اليوم، لا يمكن تكراره.")
+                        elif ok:
+                            st.success("✅ تم إرسال الطلب للأدمن. لا تضغطي مرة ثانية، سيتم اعتماد الطلب من لوحة الأدمن.")
                             st.rerun()
-
-        # ── الدعم الفني عبر واتساب ────────────────────────────────
-        st.markdown("---")
-        with st.container(border=True):
-            st.markdown('<div class="card-title">💬 تواصلي مع الأدمن</div>', unsafe_allow_html=True)
-            st.caption("لتصحيح وقت الحضور أو الانصراف أو أي تعديل على بياناتك، تواصلي مع الأدمن عبر واتساب.")
-
-            emp_wa = st.session_state.get("emp_data") or {}
-            emp_id_wa   = str(emp_wa.get("الرقم الشخصي","")).strip()
-            name_wa     = emp_wa.get("الاسم","") or (today_row.get("الاسم الثلاثي","") if today_row else "")
-            school_wa   = emp_wa.get("المدرسة","") or (today_row.get("اسم المدرسة","") if today_row else "")
-            task_wa     = emp_wa.get("المهمة","") or (today_row.get("المهمة","") if today_row else "")
-            att_wa      = today_row.get("وقت الحضور","—")   if today_row else "—"
-            dep_wa      = today_row.get("وقت الانصراف","—") if today_row else "—"
-            exit_wa     = today_row.get("خروج استئذان","—") if today_row else "—"
-            return_wa   = today_row.get("عودة","—")          if today_row else "—"
-
-            issue_options = [
-                "تصحيح وقت الحضور",
-                "تصحيح وقت الانصراف",
-                "تعديل سبب التأخير أو الانصراف",
-                "مشكلة تقنية في التسجيل",
-                "تعديل بيانات شخصية",
-                "أخرى",
-            ]
-            issue_choice = st.selectbox("نوع المشكلة", issue_options, key="wa_issue_type")
-            issue_notes  = st.text_input("تفاصيل إضافية (اختياري)", key="wa_issue_notes")
-
-            wa_msg = f"""مرحباً 👋
-
-لدي طلب في نظام الحضور والانصراف:
-
-الاسم: {name_wa}
-الرقم الشخصي: {emp_id_wa}
-المدرسة: {school_wa}
-المهمة: {task_wa}
-التاريخ: {today_str}
-الوقت الحالي: {now_bh().strftime('%H:%M:%S')}
-
-بيانات اليوم:
-وقت الحضور: {att_wa or '—'}
-وقت الانصراف: {dep_wa or '—'}
-خروج استئذان: {exit_wa or '—'}
-عودة من استئذان: {return_wa or '—'}
-
-نوع الطلب: {issue_choice}
-{('التفاصيل: ' + issue_notes) if issue_notes.strip() else ''}
-"""
-            wa_link = "https://wa.me/97333738668?text=" + urllib.parse.quote(wa_msg)
-            st.link_button("📞 فتح واتساب برسالة جاهزة", wa_link, use_container_width=True)
+                        else:
+                            st.error("❌ تعذر إرسال الطلب. تواصلي مع الأدمن عبر واتساب.")
 
 # ══════════════════════════════════════════════════════════════════
 # ══ واجهة الأدمن ══
@@ -2469,326 +2122,8 @@ else:
                         st.markdown(f'<div class="audit-row">{r.get("التاريخ","")} — {r.get("الاسم الثلاثي","")} — انصراف: {r.get("وقت الانصراف","")} — {r.get("إغلاق تلقائي","")}</div>',unsafe_allow_html=True)
 
 
-        # ── التقارير ──────────────────────────────────────────────
-        elif admin_tab=="📑 التقارير":
-            st.markdown("#### 📑 التقارير")
-
-            # فلاتر
-            col_f1, col_f2, col_f3 = st.columns(3)
-            with col_f1:
-                report_type = st.selectbox("نوع التقرير", ["يومي", "أسبوعي", "شهري", "نطاق مخصص"], key="rpt_type")
-            with col_f2:
-                if report_type == "يومي":
-                    rpt_date = st.date_input("التاريخ", value=now_bh().date(), key="rpt_date_single")
-                    date_from = date_to = rpt_date.strftime("%Y-%m-%d")
-                elif report_type == "أسبوعي":
-                    week_start = now_bh().date() - timedelta(days=now_bh().date().weekday())
-                    rpt_date = st.date_input("بداية الأسبوع", value=week_start, key="rpt_week")
-                    date_from = rpt_date.strftime("%Y-%m-%d")
-                    date_to   = (rpt_date + timedelta(days=6)).strftime("%Y-%m-%d")
-                elif report_type == "شهري":
-                    rpt_month = st.selectbox("الشهر", [f"{now_bh().year}-{m:02d}" for m in range(1,13)],
-                                             index=now_bh().month-1, key="rpt_month")
-                    date_from = f"{rpt_month}-01"
-                    date_to   = f"{rpt_month}-31"
-                else:
-                    rpt_date = st.date_input("من", value=now_bh().date(), key="rpt_from")
-                    date_from = rpt_date.strftime("%Y-%m-%d")
-                    date_to   = date_from
-            with col_f3:
-                if report_type == "نطاق مخصص":
-                    rpt_date_to = st.date_input("إلى", value=now_bh().date(), key="rpt_to")
-                    date_to = rpt_date_to.strftime("%Y-%m-%d")
-
-            rpt_school = st.selectbox("المدرسة", ["الكل"] + schools, key="rpt_school")
-
-            if st.button("📊 إنشاء التقرير", use_container_width=True, type="primary", key="btn_gen_report"):
-                try:
-                    data = get_sheet_data()
-
-                    def normalize_date(d):
-                        return str(d).strip().replace("/","-")
-
-                    rows = [r for r in data
-                            if date_from <= normalize_date(r.get("التاريخ","")) <= date_to
-                            and (rpt_school == "الكل" or str(r.get("اسم المدرسة","")).strip() == rpt_school)]
-
-                    if not rows:
-                        st.warning("⚠️ لا توجد بيانات للنطاق المحدد.")
-                    else:
-                        st.success(f"✅ تم تحميل {len(rows)} سجل.")
-
-                        # ── ملخص إجمالي ──
-                        total     = len(rows)
-                        attended  = len([r for r in rows if r.get("وقت الحضور","")])
-                        departed  = len([r for r in rows if r.get("وقت الانصراف","")])
-                        late      = len([r for r in rows if is_late_for_statistics(r)])
-                        auto_cls  = len([r for r in rows if str(r.get("إغلاق تلقائي","")).strip()])
-                        no_gps    = len([r for r in rows if "GPS" in str(r.get("محاولة","")) or "GPS" in str(r.get("سبب التأخير",""))])
-                        extra_hrs_rows = [r for r in rows if r.get("الساعات الإضافية","") and str(r.get("الساعات الإضافية","")).strip() not in ["","0:00","00:00"]]
-
-                        c1,c2,c3,c4 = st.columns(4)
-                        c1.metric("إجمالي السجلات", total)
-                        c2.metric("سجّلن حضور", attended)
-                        c3.metric("سجّلن انصراف", departed)
-                        c4.metric("حالات تأخير", late)
-                        c5,c6,c7,c8 = st.columns(4)
-                        c5.metric("إغلاق تلقائي", auto_cls)
-                        c6.metric("بدون GPS", no_gps)
-                        c7.metric("لديهن ساعات إضافية", len(extra_hrs_rows))
-                        c8.metric("نطاق التاريخ", f"{date_from} → {date_to}")
-
-                        st.markdown("---")
-
-                        # ── ترتيب البيانات: المهمة ← المدرسة ← وقت الحضور ──
-                        rows_sorted = sorted(rows, key=lambda r: (
-                            str(r.get("اسم المدرسة","")).strip(),
-                            str(r.get("المهمة","")).strip(),
-                            str(r.get("وقت الحضور","")).strip(),
-                        ))
-
-                        # ── جدول تفصيلي ──
-                        st.markdown("##### تفاصيل السجلات")
-                        cols_show = ["التاريخ","اليوم","اسم المدرسة","المهمة","الاسم الثلاثي","الرقم الشخصي",
-                                     "وقت الحضور","وقت الانصراف","ساعات العمل","الساعات الإضافية","حالة الدوام","نوع الدوام اليومي"]
-                        df_rows = []
-                        for r in rows_sorted:
-                            row_d = {c: r.get(c,"") for c in cols_show}
-                            row_d["الرقم الشخصي"] = str(r.get("الرقم الشخصي","")).strip()
-                            df_rows.append(row_d)
-                        df = pd.DataFrame(df_rows)
-                        st.dataframe(df, use_container_width=True, hide_index=True)
-
-                        # ── تصدير Excel منسق ──
-                        st.markdown("##### تصدير")
-                        try:
-                            from openpyxl import load_workbook
-                            from openpyxl.styles import (
-                                Font, Alignment, PatternFill, Border, Side, GradientFill
-                            )
-                            from openpyxl.utils import get_column_letter
-
-                            buf = BytesIO()
-                            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-                                df.to_excel(writer, index=False, sheet_name="التقرير")
-                                # ── ملخص موظفة ──
-                                emp_sum_rows = []
-                                for r in rows:
-                                    eid  = str(r.get("الرقم الشخصي","")).strip()
-                                    name = str(r.get("الاسم الثلاثي","")).strip()
-                                    if not eid: continue
-                                    found = next((x for x in emp_sum_rows if x["الرقم الشخصي"]==eid), None)
-                                    if not found:
-                                        found = {"الرقم الشخصي": eid, "الاسم": name, "عدد الأيام": 0,
-                                                 "أيام التأخير": 0, "إغلاق تلقائي": 0}
-                                        emp_sum_rows.append(found)
-                                    found["عدد الأيام"] += 1
-                                    if is_late_for_statistics(r): found["أيام التأخير"] += 1
-                                    if str(r.get("إغلاق تلقائي","")).strip(): found["إغلاق تلقائي"] += 1
-                                if emp_sum_rows:
-                                    pd.DataFrame(emp_sum_rows).to_excel(writer, index=False, sheet_name="ملخص الموظفات")
-
-                            # ── تنسيق الملف ──
-                            buf.seek(0)
-                            wb = load_workbook(buf)
-
-                            # ألوان
-                            header_fill   = PatternFill("solid", fgColor="0C3460")   # أزرق داكن للهيدر
-                            white_fill    = PatternFill("solid", fgColor="FFFFFF")
-                            alt_fill      = PatternFill("solid", fgColor="F5F5F5")   # رمادي خفيف للصفوف الزوجية
-
-                            header_font  = Font(name="Arial", bold=True, color="FFFFFF", size=11)
-                            body_font    = Font(name="Arial", size=10)
-                            center_align = Alignment(horizontal="center", vertical="center",
-                                                     wrap_text=True, readingOrder=2)
-                            right_align  = Alignment(horizontal="right",  vertical="center",
-                                                     wrap_text=True, readingOrder=2)
-                            thin = Side(style="thin", color="CCCCCC")
-                            border = Border(left=thin, right=thin, top=thin, bottom=thin)
-
-                            # عرض الأعمدة لكل شيت
-                            col_widths = {
-                                "التاريخ": 14, "اليوم": 10, "اسم المدرسة": 28,
-                                "المهمة": 30, "الاسم الثلاثي": 28, "الرقم الشخصي": 16,
-                                "وقت الحضور": 13, "وقت الانصراف": 13,
-                                "ساعات العمل": 13, "الساعات الإضافية": 16,
-                                "حالة الدوام": 20, "نوع الدوام اليومي": 20,
-                            }
-
-                            for sheet_name in wb.sheetnames:
-                                ws = wb[sheet_name]
-                                ws.sheet_view.rightToLeft = True  # RTL
-
-                                # ارتفاع الهيدر
-                                ws.row_dimensions[1].height = 30
-
-                                # تنسيق الهيدر
-                                for cell in ws[1]:
-                                    cell.font      = header_font
-                                    cell.fill      = header_fill
-                                    cell.alignment = center_align
-                                    cell.border    = border
-
-                                # عرض الأعمدة تلقائياً
-                                for col_idx, col_cells in enumerate(ws.columns, 1):
-                                    col_letter = get_column_letter(col_idx)
-                                    header_val = str(ws.cell(1, col_idx).value or "")
-                                    ws.column_dimensions[col_letter].width = col_widths.get(header_val, 18)
-
-                                # تنسيق صفوف البيانات
-                                for row_idx, row_cells in enumerate(ws.iter_rows(min_row=2), 2):
-                                    ws.row_dimensions[row_idx].height = 20
-                                    row_fill = alt_fill if row_idx % 2 == 0 else white_fill
-
-                                    for cell in row_cells:
-                                        cell.font      = body_font
-                                        cell.fill      = row_fill
-                                        cell.border    = border
-                                        h = str(ws.cell(1, cell.column).value or "")
-                                        # الأعمدة الرقمية والوقت توسيط، الباقي يمين
-                                        if h in ["وقت الحضور","وقت الانصراف","ساعات العمل",
-                                                 "الساعات الإضافية","التاريخ","اليوم"]:
-                                            cell.alignment = center_align
-                                        else:
-                                            cell.alignment = right_align
-                                        # الرقم الشخصي نصي دائماً
-                                        if h == "الرقم الشخصي" and cell.value:
-                                            cell.value     = str(cell.value)
-                                            cell.number_format = "@"
-
-                                # تجميد الهيدر
-                                ws.freeze_panes = "A2"
-
-                                # إعدادات الطباعة
-                                ws.page_setup.orientation      = "landscape"
-                                ws.page_setup.fitToPage        = True
-                                ws.page_setup.fitToWidth        = 1
-                                ws.page_setup.fitToHeight       = 0
-                                ws.page_setup.paperSize         = 9  # A4
-                                ws.print_title_rows             = "1:1"
-                                ws.page_margins.left            = 0.5
-                                ws.page_margins.right           = 0.5
-                                ws.page_margins.top             = 0.75
-                                ws.page_margins.bottom          = 0.75
-                                ws.sheet_properties.pageSetUpPr.fitToPage = True
-                                ws.oddHeader.center.text = f"مركز جدحفص الثانوية للتصحيح المركزي\nنظام الحضور والانصراف — {date_from} إلى {date_to}"
-                                ws.oddHeader.center.font = "Arial,Bold"
-                                ws.oddHeader.right.text  = "تصميم وبرمجة: أ. عفاف حسين"
-                                ws.oddHeader.right.font  = "Arial"
-                                ws.oddFooter.right.text  = "صفحة &P من &N"
-                                ws.oddFooter.left.text   = "رئيسة المركز: أ. خلود يعقوب بدو"
-                                ws.oddFooter.left.font   = "Arial,Bold"
-
-                            buf2 = BytesIO()
-                            wb.save(buf2)
-                            buf2.seek(0)
-                            fname = f"تقرير_الحضور_{date_from}_{date_to}.xlsx"
-                            st.download_button(
-                                "📥 تحميل Excel — منسق وجاهز للطباعة",
-                                data=buf2,
-                                file_name=fname,
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True,
-                            )
-                        except Exception as e:
-                            st.warning(f"⚠️ تعذّر إنشاء ملف Excel: {e}")
-
-                        # ── ملخص لكل موظفة (عرض في الصفحة) ──
-                        st.markdown("---")
-                        st.markdown("##### ملخص لكل موظفة")
-                        emp_summary = {}
-                        for r in rows_sorted:
-                            eid  = str(r.get("الرقم الشخصي","")).strip()
-                            name = str(r.get("الاسم الثلاثي","")).strip()
-                            if not eid: continue
-                            if eid not in emp_summary:
-                                emp_summary[eid] = {"الاسم": name, "المهمة": str(r.get("المهمة","")).strip(), "أيام": 0, "تأخير": 0, "إغلاق تلقائي": 0}
-                            emp_summary[eid]["أيام"] += 1
-                            if is_late_for_statistics(r): emp_summary[eid]["تأخير"] += 1
-                            if str(r.get("إغلاق تلقائي","")).strip(): emp_summary[eid]["إغلاق تلقائي"] += 1
-                        df_emp = pd.DataFrame([{"الرقم": k, **v} for k,v in emp_summary.items()])
-                        if not df_emp.empty:
-                            st.dataframe(df_emp, use_container_width=True, hide_index=True)
-
-                except Exception as e:
-                    st.error(f"❌ خطأ في إنشاء التقرير: {e}")
-
-        # ── إصلاح شامل ────────────────────────────────────────────
-        elif admin_tab=="🛠️ إصلاح شامل":
-            st.markdown("#### 🛠️ إصلاح شامل")
-            st.warning("⚠️ هذه الأدوات تعدّل البيانات مباشرة. استخدميها بحذر.")
-
-            # ── إعادة حساب الساعات ──
-            with st.container(border=True):
-                st.markdown("##### 🔄 إعادة حساب ساعات العمل")
-                st.caption("يعيد احتساب ساعات العمل والساعات الإضافية وحالة الدوام لجميع السجلات أو لتاريخ محدد.")
-                recalc_mode = st.radio("النطاق", ["تاريخ محدد", "كل السجلات"], horizontal=True, key="recalc_mode")
-                if recalc_mode == "تاريخ محدد":
-                    recalc_date = st.date_input("التاريخ", value=now_bh().date(), key="recalc_date")
-                    recalc_date_str = recalc_date.strftime("%Y-%m-%d")
-                else:
-                    recalc_date_str = None
-
-                if st.button("🔄 بدء إعادة الحساب", use_container_width=True, type="primary", key="btn_recalc"):
-                    try:
-                        data = get_sheet_data()
-                        updated = 0
-                        errors  = 0
-                        progress = st.progress(0)
-                        total_r = len(data)
-                        for i, row in enumerate(data):
-                            progress.progress((i+1)/max(total_r,1))
-                            if recalc_date_str and str(row.get("التاريخ","")).strip() != recalc_date_str:
-                                continue
-                            if not row.get("وقت الحضور",""):
-                                continue
-                            try:
-                                if update_work_calculation(i+2, row):
-                                    updated += 1
-                            except Exception:
-                                errors += 1
-                        clear_caches()
-                        st.success(f"✅ تم إعادة حساب {updated} سجل. أخطاء: {errors}")
-                        log_audit("—","أدمن","إعادة حساب شاملة",f"نطاق:{recalc_date_str or 'الكل'}|محدّث:{updated}|أخطاء:{errors}")
-                    except Exception as e:
-                        st.error(f"❌ خطأ: {e}")
-
-            st.markdown("---")
-
-            # ── تنظيف التكرارات لكل التواريخ ──
-            with st.container(border=True):
-                st.markdown("##### 🧹 تنظيف تكرارات كل التواريخ")
-                st.caption("يفحص جميع التواريخ ويحذف السجلات المكررة تلقائياً — يحتفظ بالأكمل.")
-                if st.button("🔍 فحص وتنظيف كل التكرارات", use_container_width=True, type="primary", key="btn_clean_all_dups"):
-                    try:
-                        groups = find_duplicate_attendance_groups()
-                        if not groups:
-                            st.success("✅ لا توجد تكرارات في أي تاريخ.")
-                        else:
-                            total_deleted = 0
-                            for (date_val, emp_id_val), _ in groups.items():
-                                deleted = auto_cleanup_duplicate_attendance_for_emp(date_val, emp_id_val, "إصلاح شامل")
-                                total_deleted += deleted
-                            clear_caches()
-                            st.success(f"✅ تم حذف {total_deleted} سجل مكرر.")
-                            log_audit("—","أدمن","تنظيف شامل للتكرارات",f"سجلات محذوفة:{total_deleted}")
-                    except Exception as e:
-                        st.error(f"❌ خطأ: {e}")
-
-            st.markdown("---")
-
-            # ── إغلاق السجلات المفتوحة ──
-            with st.container(border=True):
-                st.markdown("##### 🔒 إغلاق السجلات المفتوحة من أيام سابقة")
-                st.caption("يغلق تلقائياً أي سجل من أيام سابقة لم يُسجَّل له انصراف.")
-                if st.button("🔒 تنفيذ الإغلاق التلقائي الآن", use_container_width=True, key="btn_force_autoclose"):
-                    try:
-                        auto_close_previous_open_records()
-                        clear_caches()
-                        st.success("✅ تم تنفيذ الإغلاق التلقائي لجميع السجلات المفتوحة.")
-                        log_audit("—","أدمن","إغلاق تلقائي يدوي","تنفيذ من لوحة الإصلاح الشامل")
-                    except Exception as e:
-                        st.error(f"❌ خطأ: {e}")
+        # ── إعدادات التسجيل اليدوي ───────────────────────────────
+        elif admin_tab=="⚙️ إعدادات التسجيل اليدوي":
             st.markdown("#### ⚙️ إعدادات التسجيل اليدوي للموظفات")
             current_enabled = manual_requests_enabled()
             if current_enabled:
@@ -2818,27 +2153,10 @@ else:
         # ── طلبات التسجيل اليدوي ─────────────────────────────────
         elif admin_tab=="🆘 طلبات التسجيل اليدوي":
             st.markdown("#### 🆘 طلبات التسجيل اليدوي / مشاكل الموقع والمتصفح")
-
-            # تهيئة قائمة الطلبات المعتمدة/المرفوضة محلياً لتجنب اختفائها بعد rerun
-            if "approved_req_rows" not in st.session_state:
-                st.session_state.approved_req_rows = set()
-
             reqs = get_manual_requests()
-            pending = [(i+2, r) for i, r in enumerate(reqs)
-                       if str(r.get("الحالة", "")).strip() in ["", "بانتظار الاعتماد"]
-                       and (i+2) not in st.session_state.approved_req_rows]
-            done = [(i+2, r) for i, r in enumerate(reqs)
-                    if str(r.get("الحالة", "")).strip() not in ["", "بانتظار الاعتماد"]
-                    or (i+2) in st.session_state.approved_req_rows]
-
+            pending = [(i+2, r) for i, r in enumerate(reqs) if str(r.get("الحالة", "")).strip() in ["", "بانتظار الاعتماد"]]
+            done = [(i+2, r) for i, r in enumerate(reqs) if str(r.get("الحالة", "")).strip() not in ["", "بانتظار الاعتماد"]]
             st.metric("طلبات بانتظار الاعتماد", len(pending))
-
-            # زر تحديث يدوي
-            if st.button("🔄 تحديث القائمة", key="btn_refresh_reqs"):
-                st.session_state.approved_req_rows = set()
-                get_manual_requests.clear()
-                st.rerun()
-
             if not pending:
                 st.success("✅ لا توجد طلبات معلقة حالياً.")
             else:
@@ -2851,13 +2169,11 @@ else:
                         with c1:
                             if st.button("✅ اعتماد حضور", key=f"approve_att_{row_num}", use_container_width=True, type="primary"):
                                 if approve_manual_request(row_num, r, "حضور", False):
-                                    st.session_state.approved_req_rows.add(row_num)
                                     st.success("✅ تم اعتماد الحضور اليدوي")
                                     st.rerun()
                         with c2:
                             if st.button("🔵 اعتماد انصراف", key=f"approve_dep_{row_num}", use_container_width=True):
                                 if approve_manual_request(row_num, r, "انصراف", False):
-                                    st.session_state.approved_req_rows.add(row_num)
                                     st.success("✅ تم اعتماد الانصراف اليدوي")
                                     st.rerun()
                         with c3:
@@ -2867,7 +2183,6 @@ else:
                                     manual_requests_sheet.update_cell(row_num, 14, now_bh().strftime("%Y-%m-%d %H:%M:%S"))
                                     manual_requests_sheet.update_cell(row_num, 15, "أدمن")
                                     log_audit(eid, r.get("الاسم", ""), "رفض طلب تسجيل يدوي", f"نوع المشكلة:{r.get('نوع المشكلة','')}|وقت الطلب:{r.get('وقت الطلب','')}")
-                                    st.session_state.approved_req_rows.add(row_num)
                                     clear_caches()
                                     st.success("تم رفض الطلب")
                                     st.rerun()
@@ -3648,6 +2963,51 @@ else:
             st.session_state.admin_logged_in=False; st.session_state.admin_last_active=None; st.rerun()
 
 
+# ─── دعم واتساب للموظفة ───────────────────────────────────────
+if mode == "👤 موظفة" and st.session_state.get("emp_data"):
+    try:
+        emp = st.session_state.get("emp_data") or {}
+        emp_id_support = str(emp.get("الرقم الشخصي", "") or "").strip()
+        data_support = get_sheet_data()
+        _, support_row = find_today_row(data_support, today_str, emp_id_support) if emp_id_support else (None, None)
+
+        name_support = emp.get("الاسم", "") or (support_row.get("الاسم الثلاثي", "") if support_row else "")
+        school_support = emp.get("المدرسة", "") or (support_row.get("اسم المدرسة", "") if support_row else "")
+        task_support = emp.get("المهمة", "") or (support_row.get("المهمة", "") if support_row else "")
+        attend_support = support_row.get("وقت الحضور", "—") if support_row else "—"
+        depart_support = support_row.get("وقت الانصراف", "—") if support_row else "—"
+        exit_support = support_row.get("خروج استئذان", "—") if support_row else "—"
+        return_support = support_row.get("عودة", "—") if support_row else "—"
+
+        support_msg = f"""مرحباً 👋
+
+لدي مشكلة في نظام الحضور والانصراف:
+
+الاسم: {name_support}
+الرقم الشخصي: {emp_id_support}
+المدرسة: {school_support}
+المهمة: {task_support}
+التاريخ: {today_str}
+الوقت الحالي: {now_bh().strftime('%H:%M:%S')}
+
+بيانات اليوم:
+وقت الحضور: {attend_support or '—'}
+وقت الانصراف: {depart_support or '—'}
+خروج استئذان: {exit_support or '—'}
+عودة من استئذان: {return_support or '—'}
+
+تفاصيل المشكلة:
+"""
+        wa_link = "https://wa.me/97333738668?text=" + urllib.parse.quote(support_msg)
+
+        st.markdown("---")
+        with st.container(border=True):
+            st.markdown('<div class="card-title">🆘 الدعم الفني</div>', unsafe_allow_html=True)
+            st.caption("إذا واجهتك مشكلة، اضغطي الزر وسيُفتح واتساب برسالة جاهزة تحتوي بياناتك. اكتبي تفاصيل المشكلة فقط ثم أرسليها.")
+            st.link_button("📞 تواصل مع الأدمن عبر واتساب", wa_link, use_container_width=True)
+    except Exception:
+        pass
+
 # ─── Footer ─────────────────────────────────────────────────────
 st.markdown("""
 <div class="footer-bar">
@@ -3655,3 +3015,9 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
+
+
+
+
+
+
