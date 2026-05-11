@@ -1747,68 +1747,7 @@ if mode=="👤 موظفة":
                 else:
                     st.session_state.no_gps_option_available = True
 
-            # ── تسجيل بدون موقع — يظهر دائماً ──
-            st.markdown("---")
-            st.markdown('<div style="font-size:13px;font-weight:700;color:#633806;margin-bottom:6px;">📋 تسجيل بدون موقع — يرجى انتظار اعتماد الأدمن، سيُعتمد وقت الإرسال</div>', unsafe_allow_html=True)
-
-            _emp_nogps = st.session_state.get("emp_data") or {}
-            _id_nogps  = str(_emp_nogps.get("الرقم الشخصي","")).strip()
-            _nm_nogps  = str(_emp_nogps.get("الاسم","")).strip()
-            _sc_nogps  = str(_emp_nogps.get("المدرسة","")).strip()
-            _tk_nogps  = str(_emp_nogps.get("المهمة","")).strip()
-
-            if not _id_nogps:
-                _nogps_raw = st.text_input("الرقم الشخصي (للتسجيل بدون موقع)", placeholder="أدخلي رقمك", key="nogps_id")
-                _id_nogps  = ar_to_en_digits(_nogps_raw).strip()
-                if _id_nogps:
-                    _found = validate_employee(_id_nogps)
-                    if _found:
-                        _nm_nogps = str(_found.get("الاسم","")).strip()
-                        _sc_nogps = str(_found.get("المدرسة","")).strip()
-                        _tk_nogps = str(_found.get("المهمة","")).strip()
-
-            ex_att,_ = manual_request_exists_today(_id_nogps,"حضور")  if _id_nogps else (False,None)
-            ex_dep,_ = manual_request_exists_today(_id_nogps,"انصراف") if _id_nogps else (False,None)
-
-            col_a, col_b = st.columns(2)
-            with col_a:
-                if st.button(
-                    "✅ تم إرسال طلب الحضور" if ex_att else "📋 تسجيل حضور بدون موقع",
-                    use_container_width=True, key="btn_nogps_att", disabled=ex_att or st.session_state.get("nogps_saving"),
-                ):
-                    if not _id_nogps:
-                        st.error("❌ أدخلي رقمك الشخصي أولاً.")
-                    else:
-                        st.session_state.nogps_saving = True
-                        ok = submit_manual_request(_id_nogps,_nm_nogps,_sc_nogps,_tk_nogps,"حضور","","","تعذر تحديد الموقع — GPS",f"تسجيل بدون GPS | {today_str}")
-                        st.session_state.nogps_saving = False
-                        if ok and ok != "duplicate":
-                            log_audit(_id_nogps,_nm_nogps,"تسجيل بدون GPS",f"حضور | {today_str}")
-                            st.success("✅ تم إرسال طلب الحضور — بانتظار اعتماد الأدمن.")
-                            st.rerun()
-                        elif ok == "duplicate":
-                            st.warning("⚠️ تم إرسال طلب سابق لهذا اليوم.")
-                        else:
-                            st.error("❌ تعذّر الإرسال.")
-            with col_b:
-                if st.button(
-                    "✅ تم إرسال طلب الانصراف" if ex_dep else "📋 تسجيل انصراف بدون موقع",
-                    use_container_width=True, key="btn_nogps_dep", disabled=ex_dep or st.session_state.get("nogps_saving"),
-                ):
-                    if not _id_nogps:
-                        st.error("❌ أدخلي رقمك الشخصي أولاً.")
-                    else:
-                        st.session_state.nogps_saving = True
-                        ok = submit_manual_request(_id_nogps,_nm_nogps,_sc_nogps,_tk_nogps,"انصراف","","","تعذر تحديد الموقع — GPS",f"تسجيل بدون GPS | {today_str}")
-                        st.session_state.nogps_saving = False
-                        if ok and ok != "duplicate":
-                            log_audit(_id_nogps,_nm_nogps,"تسجيل بدون GPS",f"انصراف | {today_str}")
-                            st.success("✅ تم إرسال طلب الانصراف — بانتظار اعتماد الأدمن.")
-                            st.rerun()
-                        elif ok == "duplicate":
-                            st.warning("⚠️ تم إرسال طلب سابق لهذا اليوم.")
-                        else:
-                            st.error("❌ تعذّر الإرسال.")
+            # ── نهاية كرت الموقع ──
 
     # ══════════════════════════════════
     # كرت 3: تصريح الوقت اليدوي
@@ -2066,31 +2005,99 @@ if mode=="👤 موظفة":
                             st.rerun()
 
     # ══════════════════════════════════
-    # كرت 5: تواصل مع الأدمن
     # ══════════════════════════════════
-    with st.container(border=True):
-        st.markdown('<div class="card-title">💬 مشكلة في التسجيل؟ تواصل مع الأدمن</div>', unsafe_allow_html=True)
+    # كرت 5: مشكلة في التسجيل
+    # ══════════════════════════════════
+    with st.expander("🆘 مشكلة في التسجيل؟ اضغطي هنا", expanded=False):
+
+        # ── بيانات الموظفة ──
+        _sup_emp  = st.session_state.get("emp_data") or {}
+        _sup_id   = str(_sup_emp.get("الرقم الشخصي","")).strip()
+        _sup_name = str(_sup_emp.get("الاسم","")).strip()
+        _sup_sch  = str(_sup_emp.get("المدرسة","")).strip()
+        _sup_task = str(_sup_emp.get("المهمة","")).strip()
+
+        if not _sup_id:
+            _sup_raw = st.text_input("الرقم الشخصي", placeholder="أدخلي رقمك الشخصي", key="sup_emp_id")
+            _sup_id  = ar_to_en_digits(_sup_raw).strip()
+            if _sup_id:
+                _sup_found = validate_employee(_sup_id)
+                if _sup_found:
+                    _sup_name = str(_sup_found.get("الاسم","")).strip()
+                    _sup_sch  = str(_sup_found.get("المدرسة","")).strip()
+                    _sup_task = str(_sup_found.get("المهمة","")).strip()
+
+        # ── القسم 1: تسجيل بدون موقع ──
+        st.markdown("#### 📋 تسجيل بدون موقع")
+        st.caption("سيُعتمد وقت الإرسال حضوراً أو انصرافاً بعد موافقة الأدمن.")
+
+        ex_att,_ = manual_request_exists_today(_sup_id,"حضور")  if _sup_id else (False,None)
+        ex_dep,_ = manual_request_exists_today(_sup_id,"انصراف") if _sup_id else (False,None)
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button(
+                "✅ تم إرسال طلب الحضور" if ex_att else "📋 تسجيل حضور بدون موقع",
+                use_container_width=True, key="btn_nogps_att",
+                disabled=ex_att or st.session_state.get("nogps_saving"),
+            ):
+                if not _sup_id:
+                    st.error("❌ أدخلي رقمك الشخصي أولاً.")
+                else:
+                    st.session_state.nogps_saving = True
+                    ok = submit_manual_request(_sup_id,_sup_name,_sup_sch,_sup_task,"حضور","","","تعذر تحديد الموقع — GPS",f"تسجيل بدون GPS | {today_str}")
+                    st.session_state.nogps_saving = False
+                    if ok and ok != "duplicate":
+                        log_audit(_sup_id,_sup_name,"تسجيل بدون GPS",f"حضور | {today_str}")
+                        st.success("✅ تم إرسال طلب الحضور — بانتظار اعتماد الأدمن.")
+                        st.rerun()
+                    elif ok == "duplicate":
+                        st.warning("⚠️ تم إرسال طلب سابق لهذا اليوم.")
+                    else:
+                        st.error("❌ تعذّر الإرسال.")
+        with col_b:
+            if st.button(
+                "✅ تم إرسال طلب الانصراف" if ex_dep else "📋 تسجيل انصراف بدون موقع",
+                use_container_width=True, key="btn_nogps_dep",
+                disabled=ex_dep or st.session_state.get("nogps_saving"),
+            ):
+                if not _sup_id:
+                    st.error("❌ أدخلي رقمك الشخصي أولاً.")
+                else:
+                    st.session_state.nogps_saving = True
+                    ok = submit_manual_request(_sup_id,_sup_name,_sup_sch,_sup_task,"انصراف","","","تعذر تحديد الموقع — GPS",f"تسجيل بدون GPS | {today_str}")
+                    st.session_state.nogps_saving = False
+                    if ok and ok != "duplicate":
+                        log_audit(_sup_id,_sup_name,"تسجيل بدون GPS",f"انصراف | {today_str}")
+                        st.success("✅ تم إرسال طلب الانصراف — بانتظار اعتماد الأدمن.")
+                        st.rerun()
+                    elif ok == "duplicate":
+                        st.warning("⚠️ تم إرسال طلب سابق لهذا اليوم.")
+                    else:
+                        st.error("❌ تعذّر الإرسال.")
+
+        # ── القسم 2: تواصل مع الأدمن للتعديل ──
+        st.markdown("---")
+        st.markdown("#### 💬 تواصل مع الأدمن للتعديل")
         st.caption("لتصحيح وقت الحضور أو الانصراف أو أي تعديل.")
 
-        emp_wa      = st.session_state.get("emp_data") or {}
-        emp_id_wa   = str(emp_wa.get("الرقم الشخصي","")).strip()
-        name_wa     = emp_wa.get("الاسم","")
-        school_wa   = emp_wa.get("المدرسة","")
-        task_wa     = emp_wa.get("المهمة","")
-        data_wa     = get_sheet_data()
-        _,row_wa    = find_today_row(data_wa,today_str,emp_id_wa) if emp_id_wa else (None,None)
-        att_wa      = row_wa.get("وقت الحضور","—")   if row_wa else "—"
-        dep_wa      = row_wa.get("وقت الانصراف","—") if row_wa else "—"
+        data_wa  = get_sheet_data()
+        _,row_wa = find_today_row(data_wa,today_str,_sup_id) if _sup_id else (None,None)
+        att_wa   = row_wa.get("وقت الحضور","—")   if row_wa else "—"
+        dep_wa   = row_wa.get("وقت الانصراف","—") if row_wa else "—"
 
-        issue_choice = st.selectbox("نوع المشكلة",["تصحيح وقت الحضور","تصحيح وقت الانصراف","تعديل سبب التأخير أو الانصراف","مشكلة تقنية","تعديل بيانات شخصية","أخرى"],key="wa_issue")
-        issue_notes  = st.text_input("تفاصيل إضافية (اختياري)", key="wa_notes")
+        issue_choice = st.selectbox("نوع المشكلة",[
+            "تصحيح وقت الحضور","تصحيح وقت الانصراف",
+            "تعديل سبب التأخير أو الانصراف","مشكلة تقنية",
+            "تعديل بيانات شخصية","أخرى"],key="wa_issue")
+        issue_notes = st.text_input("تفاصيل إضافية (اختياري)", key="wa_notes")
 
         wa_msg = f"""مرحباً 👋
 لدي طلب في نظام الحضور:
-الاسم: {name_wa}
-الرقم الشخصي: {emp_id_wa}
-المدرسة: {school_wa}
-المهمة: {task_wa}
+الاسم: {_sup_name}
+الرقم الشخصي: {_sup_id}
+المدرسة: {_sup_sch}
+المهمة: {_sup_task}
 التاريخ: {today_str} | الوقت: {now_bh().strftime('%H:%M:%S')}
 وقت الحضور: {att_wa} | وقت الانصراف: {dep_wa}
 نوع الطلب: {issue_choice}
