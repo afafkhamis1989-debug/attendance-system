@@ -1992,15 +1992,7 @@ if mode=="👤 موظفة":
     if trusted and st.session_state.emp_verified and st.session_state.emp_data:
         st.markdown("---")
         if st.button("🚪 تسجيل موظفة أخرى", use_container_width=True, key="btn_next_emp"):
-            # مسح كل بيانات الموظفة الحالية
-            for key in ["emp_data","emp_verified","pending_operation","_queued_op",
-                        "_queued_note","operation_saving","_emp_session_active",
-                        "nogps_saving","location_check_requested","no_gps_option_available"]:
-                if key in st.session_state:
-                    del st.session_state[key]
-            # الموقع يبقى مسموح للجهاز الموثوق
-            st.session_state.location_allowed = True
-            st.rerun()
+            st.markdown('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
     # ══════════════════════════════════
     with st.expander("🆘 مشكلة في التسجيل؟ اضغطي هنا", expanded=False):
 
