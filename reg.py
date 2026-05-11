@@ -1503,18 +1503,21 @@ mode=st.radio("",["👤 موظفة","🛡️ أدمن"],horizontal=True,label_vi
 # ══════════════════════════════════════════════════════════════════
 if mode=="👤 موظفة":
 
-    # ── إذا كانت البيانات محفوظة من اليوم نتخطى خطوة الدخول مباشرة ──
-    if _data_locked and st.session_state.get("emp_step","login") == "login":
+    # ── تهيئة الخطوة الأولى: الموقع دائماً ──
+    if st.session_state.get("emp_step","location") not in ["location","login","profile","action"]:
         st.session_state.emp_step = "location"
 
-    emp_step = st.session_state.get("emp_step", "login")
+    # ── لو بيانات اليوم محفوظة وتجاوزنا الموقع مسبقاً، نتخطى للبيانات ──
+    if _data_locked and st.session_state.get("emp_step","location") == "login":
+        st.session_state.emp_step = "profile"
 
-    # ── مؤشر الخطوات (من اليمين لليسار) ─────────────────────────
-    steps_map = {"login": 1, "profile": 2, "location": 3, "action": 4}
+    emp_step = st.session_state.get("emp_step", "location")
+
+    # ── مؤشر الخطوات (من اليمين لليسار: الموقع → البيانات → التسجيل) ──
+    steps_map     = {"location": 1, "login": 2, "profile": 2, "action": 3}
     current_step_num = steps_map.get(emp_step, 1)
-    # الترتيب من اليمين: التسجيل — الموقع — البيانات — الدخول
-    step_labels_rtl = ["التسجيل", "الموقع", "البيانات", "الدخول"]
-    step_nums_rtl   = [4, 3, 2, 1]
+    step_labels_rtl  = ["التسجيل", "البيانات", "الموقع"]
+    step_nums_rtl    = [3, 2, 1]
     steps_html = '<div style="display:flex;justify-content:center;gap:0;margin:0 0 18px 0;direction:rtl;">'
     for lbl, num in zip(step_labels_rtl, step_nums_rtl):
         if num < current_step_num:
@@ -1528,9 +1531,179 @@ if mode=="👤 موظفة":
     st.markdown(steps_html, unsafe_allow_html=True)
 
     # ════════════════════════════════════════════════════
-    # الخطوة 1: الدخول برقم شخصي
+    # الخطوة 1: التحقق من الموقع (أولاً دائماً)
     # ════════════════════════════════════════════════════
-    if emp_step == "login":
+    if emp_step == "location":
+        emp_id_loc     = str((st.session_state.get("emp_data") or {}).get("الرقم الشخصي","")).strip()
+        emp_name_loc   = str((st.session_state.get("emp_data") or {}).get("الاسم","")).strip()
+        emp_school_loc = str((st.session_state.get("emp_data") or {}).get("المدرسة","")).strip()
+        emp_task_loc   = str((st.session_state.get("emp_data") or {}).get("المهمة","")).strip()
+
+        # تجاوز الموقع من الأدمن
+        ov_active, ov_end = get_location_override()
+        if ov_active and ov_end:
+            remaining = max(0, int((ov_end - now_bh()).total_seconds() // 60))
+            st.warning(f"⚠️ وضع تجاوز الموقع مفعّل — ينتهي بعد {remaining} دقيقة.")
+            st.session_state.location_allowed = True
+
+        with st.container(border=True):
+            st.markdown('<div class="card-title">📍 التحقق من الموقع</div>', unsafe_allow_html=True)
+
+            # ── GPS نجح ──
+            if st.session_state.get("location_allowed", False):
+                st.success("✅ تم التحقق من الموقع بنجاح.")
+                if st.button("التالي ← (إدخال الرقم الشخصي)", use_container_width=True, type="primary", key="btn_loc_next"):
+                    st.session_state.emp_step = "login"
+                    st.rerun()
+
+            # ── أرسلت طلب بدون GPS مسبقاً ──
+            elif st.session_state.get("allow_no_gps_today", False):
+                st.warning("⚠️ تم إرسال طلبك — بانتظار اعتماد الأدمن.")
+                if st.button("التالي ← (إدخال الرقم الشخصي)", use_container_width=True, type="primary", key="btn_loc_next_nogps"):
+                    st.session_state.emp_step = "login"
+                    st.rerun()
+
+            # ── شاشة التحقق ──
+            else:
+                st.markdown('''
+                <div class="gps-steps-box">
+                    <div class="gps-steps-title">📋 خطوات التحقق من الموقع</div>
+                    <div class="gps-step"><span class="gps-step-num">1</span><span>اضغطي زر <b>ابدئي التحقق من الموقع</b>.</span></div>
+                    <div class="gps-step"><span class="gps-step-num">2</span><span>اضغطي أيقونة الموقع الصغيرة التي تظهر بالأسفل.</span></div>
+                    <div class="gps-step"><span class="gps-step-num">3</span><span>إذا ظهر طلب السماح اختاري <b>سماح / Allow</b>.</span></div>
+                    <div class="gps-step"><span class="gps-step-num" style="background:#BA7517;">!</span><span>لو ضغطتِ ولم يحدث شيء: افتحي <b>إعدادات الهاتف ← الخصوصية ← الموقع</b> وفعّليه.</span></div>
+                </div>
+                ''', unsafe_allow_html=True)
+
+                if st.button("1️⃣ ابدئي التحقق من الموقع", use_container_width=True, type="primary", key="btn_check_location"):
+                    st.session_state.location_check_requested = True
+                    st.session_state.no_gps_option_available  = False
+                    st.session_state.location_allowed          = False
+
+                if st.session_state.get("location_check_requested", False) and not st.session_state.get("location_allowed", False):
+                    st.info("⏳ جارٍ محاولة التحقق…")
+                    st.markdown('<div class="gps-click-hint">2️⃣ اضغطي أيقونة الموقع الصغيرة بالأسفل، ثم اختاري سماح / Allow</div>', unsafe_allow_html=True)
+                    try:
+                        location = streamlit_geolocation()
+                    except Exception:
+                        location = None
+                        st.session_state.no_gps_option_available = True
+
+                    if location:
+                        lat   = location.get("latitude")
+                        lon   = location.get("longitude")
+                        error = location.get("error", "")
+                        if error:
+                            st.session_state.location_allowed        = False
+                            st.session_state.no_gps_option_available = True
+                            st.warning("⚠️ الموقع غير مفعّل أو تم رفض السماح.")
+                        elif lat is not None and lon is not None:
+                            try:
+                                dist_val = distance_m(float(lat), float(lon), SCHOOL_LAT, SCHOOL_LON)
+                                if dist_val <= ALLOWED_RADIUS:
+                                    st.session_state.location_allowed        = True
+                                    st.session_state.no_gps_option_available = False
+                                    st.success(f"✅ داخل نطاق المدرسة — المسافة: {int(dist_val)} م")
+                                    st.rerun()
+                                else:
+                                    st.session_state.location_allowed        = False
+                                    st.session_state.no_gps_option_available = True
+                                    st.error(f"❌ خارج النطاق — المسافة: {int(dist_val)} م")
+                            except Exception:
+                                st.session_state.location_allowed        = False
+                                st.session_state.no_gps_option_available = True
+                                st.error("❌ خطأ في قراءة الموقع.")
+                        else:
+                            st.session_state.location_allowed        = False
+                            st.session_state.no_gps_option_available = True
+                            st.warning("⚠️ لم يتم استلام إحداثيات. راجعي إعدادات الموقع في هاتفك.")
+                    else:
+                        st.session_state.no_gps_option_available = True
+
+                # ── تسجيل بدون موقع ──
+                st.markdown("---")
+                st.markdown('<div style="font-size:13px;font-weight:700;color:#633806;margin-bottom:6px;">📋 سجّلي بدون تحديد موقع — سيُعتمد وقت الإرسال حضوراً أو انصرافاً من الأدمن</div>', unsafe_allow_html=True)
+
+                # نحتاج الرقم الشخصي لإرسال الطلب — لو ما أدخلته بعد نطلبه هنا
+                if not emp_id_loc:
+                    nogps_id_raw = st.text_input("الرقم الشخصي (مطلوب للتسجيل بدون موقع)",
+                                                  placeholder="أدخلي رقمك الشخصي", key="nogps_id_input")
+                    emp_id_loc = ar_to_en_digits(nogps_id_raw).strip()
+                    if emp_id_loc:
+                        found_emp = validate_employee(emp_id_loc)
+                        if found_emp:
+                            emp_name_loc   = str(found_emp.get("الاسم","")).strip()
+                            emp_school_loc = str(found_emp.get("المدرسة","")).strip()
+                            emp_task_loc   = str(found_emp.get("المهمة","")).strip()
+
+                exists_att_req, _ = manual_request_exists_today(emp_id_loc, "حضور")  if emp_id_loc else (False, None)
+                exists_dep_req, _ = manual_request_exists_today(emp_id_loc, "انصراف") if emp_id_loc else (False, None)
+                nogps_used_key    = f"nogps_used_{emp_id_loc}_{today_str}"
+
+                col_ng1, col_ng2 = st.columns(2)
+                with col_ng1:
+                    _att_done = exists_att_req or st.session_state.get("nogps_saving", False)
+                    if st.button(
+                        "✅ تم إرسال طلب الحضور" if exists_att_req else "📋 تسجيل حضور بدون موقع",
+                        use_container_width=True, key="btn_nogps_att", disabled=_att_done,
+                    ):
+                        if not emp_id_loc:
+                            st.error("❌ أدخلي رقمك الشخصي أولاً.")
+                        else:
+                            st.session_state.nogps_saving = True
+                            ok = submit_manual_request(emp_id_loc, emp_name_loc, emp_school_loc,
+                                                       emp_task_loc, "حضور", "", "",
+                                                       "تعذر تحديد الموقع — GPS",
+                                                       f"تسجيل بدون GPS | {today_str}")
+                            st.session_state.nogps_saving = False
+                            if ok and ok != "duplicate":
+                                ls_set(nogps_used_key, "done", f"set_{nogps_used_key}")
+                                log_audit(emp_id_loc, emp_name_loc, "تسجيل بدون GPS", f"نوع: حضور | {today_str}")
+                                st.session_state.allow_no_gps_today = True
+                                st.session_state.emp_data = st.session_state.get("emp_data") or {
+                                    "الرقم الشخصي": emp_id_loc, "الاسم": emp_name_loc,
+                                    "المدرسة": emp_school_loc, "المهمة": emp_task_loc, "_existing": True
+                                }
+                                st.success("✅ تم إرسال طلب الحضور — بانتظار اعتماد الأدمن.")
+                                st.rerun()
+                            elif ok == "duplicate":
+                                st.warning("⚠️ تم إرسال طلب سابق لهذا اليوم.")
+                            else:
+                                st.error("❌ تعذّر الإرسال. تواصلي مع الأدمن.")
+                with col_ng2:
+                    _dep_done = exists_dep_req or st.session_state.get("nogps_saving", False)
+                    if st.button(
+                        "✅ تم إرسال طلب الانصراف" if exists_dep_req else "📋 تسجيل انصراف بدون موقع",
+                        use_container_width=True, key="btn_nogps_dep", disabled=_dep_done,
+                    ):
+                        if not emp_id_loc:
+                            st.error("❌ أدخلي رقمك الشخصي أولاً.")
+                        else:
+                            st.session_state.nogps_saving = True
+                            ok = submit_manual_request(emp_id_loc, emp_name_loc, emp_school_loc,
+                                                       emp_task_loc, "انصراف", "", "",
+                                                       "تعذر تحديد الموقع — GPS",
+                                                       f"تسجيل بدون GPS | {today_str}")
+                            st.session_state.nogps_saving = False
+                            if ok and ok != "duplicate":
+                                ls_set(nogps_used_key, "done", f"set_{nogps_used_key}")
+                                log_audit(emp_id_loc, emp_name_loc, "تسجيل بدون GPS", f"نوع: انصراف | {today_str}")
+                                st.session_state.allow_no_gps_today = True
+                                st.session_state.emp_data = st.session_state.get("emp_data") or {
+                                    "الرقم الشخصي": emp_id_loc, "الاسم": emp_name_loc,
+                                    "المدرسة": emp_school_loc, "المهمة": emp_task_loc, "_existing": True
+                                }
+                                st.success("✅ تم إرسال طلب الانصراف — بانتظار اعتماد الأدمن.")
+                                st.rerun()
+                            elif ok == "duplicate":
+                                st.warning("⚠️ تم إرسال طلب سابق لهذا اليوم.")
+                            else:
+                                st.error("❌ تعذّر الإرسال. تواصلي مع الأدمن.")
+
+    # ════════════════════════════════════════════════════
+    # الخطوة 2: إدخال الرقم الشخصي
+    # ════════════════════════════════════════════════════
+    elif emp_step == "login":
         with st.container(border=True):
             st.markdown('<div class="card-title">🪪 أدخلي رقمك الشخصي</div>', unsafe_allow_html=True)
             emp_id_raw = st.text_input("الرقم الشخصي", placeholder="مثال: 12345", max_chars=20, key="login_emp_id")
@@ -1614,7 +1787,7 @@ if mode=="👤 موظفة":
                                 get_whitelist.clear()
                                 st.session_state.emp_data.update({"المهمة": emp_task_new, "دعم": False})
                                 st.session_state.emp_verified = True
-                                st.session_state.emp_step = "location"
+                                st.session_state.emp_step = "action"
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"خطأ: {e}")
@@ -1628,8 +1801,8 @@ if mode=="👤 موظفة":
                     <div style="font-size:12px;color:#3B6D11;font-weight:700;margin-bottom:8px;">🔒 بياناتك محفوظة</div>
                     """, unsafe_allow_html=True)
                     show_previous_auto_close_notice(emp_id)
-                    if st.button("التالي ← (تحقق من الموقع)", use_container_width=True, type="primary", key="btn_profile_next_existing"):
-                        st.session_state.emp_step = "location"
+                    if st.button("التالي ← (تسجيل الحضور)", use_container_width=True, type="primary", key="btn_profile_next_existing"):
+                        st.session_state.emp_step = "action"
                         st.rerun()
 
             # ── موظفة جديدة ────────────────────────────────
@@ -1677,12 +1850,12 @@ if mode=="👤 موظفة":
                                 st.warning(f"⚠️ تعذّر الحفظ في القائمة: {e}")
                         st.session_state.emp_data = new_emp_data
                         st.session_state.emp_verified = True
-                        st.session_state.emp_step = "location"
+                        st.session_state.emp_step = "action"
                         st.rerun()
 
-        # زر الرجوع
+        # زر الرجوع للموقع
         if st.button("← رجوع", key="btn_profile_back"):
-            st.session_state.emp_step = "login"
+            st.session_state.emp_step = "location"
             st.session_state.emp_data = None
             st.session_state.emp_verified = False
             st.rerun()
@@ -1856,17 +2029,8 @@ if mode=="👤 موظفة":
                             else:
                                 st.error("❌ تعذّر الإرسال. تواصلي مع الأدمن عبر واتساب.")
 
-        if st.button("← رجوع", key="btn_loc_back"):
-            if _data_locked:
-                st.session_state.emp_step = "login"
-            else:
-                st.session_state.emp_step = "profile"
-            st.session_state.location_allowed = False
-            st.session_state.location_check_requested = False
-            st.rerun()
-
     # ════════════════════════════════════════════════════
-    # الخطوة 4: تسجيل الحضور / الانصراف
+    # الخطوة 3: تسجيل الحضور / الانصراف
     # ════════════════════════════════════════════════════
     elif emp_step == "action":
         emp = st.session_state.emp_data
