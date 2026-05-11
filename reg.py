@@ -1695,42 +1695,55 @@ if mode=="👤 موظفة":
         st.success("✅ تم التحقق من الموقع بنجاح.")
 
     else:
-        _gps_label = "📍 التحقق من الموقع — اضغطي للتحقق"
-        with st.expander(_gps_label, expanded=st.session_state.get("location_check_requested", False)):
-            st.info("⏳ جارٍ محاولة التحقق من موقعك… اضغطي أيقونة الموقع الصغيرة التي تظهر بالأسفل ثم اختاري **سماح / Allow**")
-            st.session_state.location_check_requested = True
-            try:
-                location = streamlit_geolocation()
-            except Exception:
-                location = None
-                st.session_state.no_gps_option_available = True
+        with st.expander("📍 التحقق من الموقع — اضغطي للفتح", expanded=False):
+            st.markdown('''
+            <div style="font-size:13px;color:#444;margin-bottom:12px;direction:rtl;">
+            اضغطي الزر ثم اضغطي أيقونة الموقع الصغيرة التي تظهر بالأسفل واختاري <b>سماح / Allow</b>
+            </div>
+            ''', unsafe_allow_html=True)
 
-            if location:
-                lat   = location.get("latitude")
-                lon   = location.get("longitude")
-                error = location.get("error","")
-                if error:
+            if st.button("📍 ابدئي التحقق من موقعي", use_container_width=True, type="primary", key="btn_gps"):
+                st.session_state.location_check_requested = True
+                st.session_state.no_gps_option_available  = False
+                st.session_state.location_allowed          = False
+                st.rerun()
+
+            if st.session_state.get("location_check_requested") and not st.session_state.get("location_allowed"):
+                st.info("⏳ جارٍ محاولة التحقق… اضغطي أيقونة الموقع بالأسفل")
+                try:
+                    location = streamlit_geolocation()
+                except Exception:
+                    location = None
                     st.session_state.no_gps_option_available = True
-                    st.warning("⚠️ الموقع غير مفعّل أو تم رفض السماح.")
-                elif lat is not None and lon is not None:
-                    try:
-                        dist_val = distance_m(float(lat),float(lon),SCHOOL_LAT,SCHOOL_LON)
-                        if dist_val <= ALLOWED_RADIUS:
-                            st.session_state.location_allowed = True
-                            st.session_state.no_gps_option_available = False
-                            st.success(f"✅ داخل نطاق المدرسة — {int(dist_val)} م")
-                            st.rerun()
-                        else:
-                            st.session_state.no_gps_option_available = True
-                            st.error(f"❌ خارج النطاق — {int(dist_val)} م")
-                    except Exception:
+
+                if location:
+                    lat   = location.get("latitude")
+                    lon   = location.get("longitude")
+                    error = location.get("error","")
+                    if error:
                         st.session_state.no_gps_option_available = True
-                        st.error("❌ خطأ في قراءة الموقع.")
+                        st.warning("⚠️ الموقع غير مفعّل أو تم رفض السماح.")
+                    elif lat is not None and lon is not None:
+                        try:
+                            dist_val = distance_m(float(lat),float(lon),SCHOOL_LAT,SCHOOL_LON)
+                            if dist_val <= ALLOWED_RADIUS:
+                                st.session_state.location_allowed = True
+                                st.session_state.no_gps_option_available = False
+                                st.success(f"✅ داخل نطاق المدرسة — {int(dist_val)} م")
+                                st.info("⏳ تم التحقق من الموقع، جارٍ تحميل بياناتك… يرجى الانتظار")
+                                import time as _time; _time.sleep(1.5)
+                                st.rerun()
+                            else:
+                                st.session_state.no_gps_option_available = True
+                                st.error(f"❌ خارج النطاق — {int(dist_val)} م")
+                        except Exception:
+                            st.session_state.no_gps_option_available = True
+                            st.error("❌ خطأ في قراءة الموقع.")
+                    else:
+                        st.session_state.no_gps_option_available = True
+                        st.warning("⚠️ لم يتم استلام إحداثيات.")
                 else:
                     st.session_state.no_gps_option_available = True
-                    st.warning("⚠️ لم يتم استلام إحداثيات.")
-            else:
-                st.session_state.no_gps_option_available = True
 
     # ══════════════════════════════════
     # كرت 3: تصريح الوقت اليدوي
