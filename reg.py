@@ -1562,6 +1562,47 @@ mode=st.radio("",["👤 موظفة","🛡️ أدمن"],horizontal=True,label_vi
 # ══════════════════════════════════════════════════════════════════
 if mode=="👤 موظفة":
 
+    # ── شاشة تحميل تمنع الضغط المزدوج ──
+    st.markdown("""
+    <style>
+    .loading-overlay {
+        display: none;
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: rgba(255,255,255,0.88);
+        z-index: 9999;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        font-size: 18px;
+        font-weight: 700;
+        color: #0c3460;
+        direction: rtl;
+        cursor: not-allowed;
+        pointer-events: all;
+    }
+    .loading-overlay.show { display: flex; }
+    </style>
+    <div class="loading-overlay" id="loadingOverlay">
+        <div>⏳ جارٍ التحميل… يرجى الانتظار</div>
+        <div style="font-size:13px;font-weight:400;margin-top:8px;color:#666;">لا تضغطي مرة أخرى</div>
+    </div>
+    <script>
+    document.addEventListener('click', function(e) {
+        var btn = e.target.tagName === 'BUTTON' || e.target.closest('button');
+        if (btn) {
+            var overlay = document.getElementById('loadingOverlay');
+            overlay.classList.add('show');
+            // يختفي تلقائياً بعد 5 ثواني كحماية
+            setTimeout(function() {
+                overlay.classList.remove('show');
+            }, 5000);
+        }
+    }, true);
+    </script>
+    """, unsafe_allow_html=True)
+
     # ── تهيئة الـ session state ──
     if "emp_verified" not in st.session_state:
         st.session_state.emp_verified = False
