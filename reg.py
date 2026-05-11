@@ -1985,9 +1985,18 @@ if mode=="👤 موظفة":
                             st.session_state.operation_saving = True
                             st.rerun()
 
-    # ══════════════════════════════════
-    # ══════════════════════════════════
-    # كرت 5: مشكلة في التسجيل
+    # ── زر "موظفة أخرى" للأجهزة الموثوقة ──
+    if trusted and st.session_state.emp_verified and st.session_state.emp_data:
+        st.markdown("---")
+        if st.button("🚪 تسجيل موظفة أخرى", use_container_width=True, key="btn_next_emp"):
+            st.session_state.emp_data            = None
+            st.session_state.emp_verified        = False
+            st.session_state.location_allowed    = True  # الجهاز موثوق — لا نعيد التحقق
+            st.session_state.pending_operation   = None
+            st.session_state._queued_op          = ""
+            st.session_state._queued_note        = ""
+            st.session_state._emp_session_active = False
+            st.rerun()
     # ══════════════════════════════════
     with st.expander("🆘 مشكلة في التسجيل؟ اضغطي هنا", expanded=False):
 
