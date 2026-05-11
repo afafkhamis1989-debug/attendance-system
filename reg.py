@@ -160,6 +160,7 @@ def get_all_sheets():
         "audit":       _get_or_create("سجل_التدقيق",              ["التاريخ","الوقت","المستخدم","الرقم الشخصي","نوع العملية","التفاصيل","بصمة الجهاز"]),
         "absence":     _get_or_create("سجل_الغياب",               ["التاريخ","اليوم","الرقم الشخصي","الاسم","المدرسة","المهمة","سبب الغياب","ملاحظات","سجّله"]),
         "manual_requests": _get_or_create("طلبات_التسجيل_اليدوي", ["تاريخ الطلب","وقت الطلب","الرقم الشخصي","الاسم","المدرسة","المهمة","نوع الطلب","وقت الحضور الفعلي","وقت الانصراف الفعلي","نوع المشكلة","ملاحظات","الحالة","بصمة الجهاز","وقت الاعتماد","اعتمده"]),
+        "time_permits":    _get_or_create("تصاريح_الوقت_اليدوي",   ["تاريخ الإضافة","الرقم الشخصي","نوع التصريح","تاريخ البداية","تاريخ النهاية","وقت الفتح","وقت الإغلاق","نشط","ملاحظات","أضافه"]),
     }
 
 _sheets         = get_all_sheets()
@@ -174,6 +175,59 @@ settings_sheet  = _sheets["settings"]
 audit_sheet     = _sheets["audit"]
 absence_sheet   = _sheets["absence"]
 manual_requests_sheet = _sheets["manual_requests"]
+time_permits_sheet    = _sheets["time_permits"]
+
+@st.cache_data(ttl=60)
+def get_time_permits():
+    try: return time_permits_sheet.get_all_records()
+    except: return []
+
+def get_active_permit(emp_id):
+    """يرجع التصريح النشط للموظفة إذا وجد، مع مراعاة نطاق التاريخ ونافذة الوقت."""
+    now     = now_bh()
+    today   = now.strftime("%Y-%m-%d")
+    now_t   = now.strftime("%H:%M")
+    permits = get_time_permits()
+    for p in permits:
+        if str(p.get("نشط","")).strip() not in ["نعم","yes","1","TRUE","true"]:
+            continue
+        p_id    = str(p.get("الرقم الشخصي","")).strip()
+        # يطابق الموظفة أو كل الموظفات
+        if p_id not in ["","الكل","*"] and p_id != str(emp_id).strip():
+            continue
+        # نطاق التاريخ
+        d_from  = str(p.get("تاريخ البداية","")).strip()
+        d_to    = str(p.get("تاريخ النهاية","")).strip()
+        if d_from and today < d_from: continue
+        if d_to   and today > d_to:   continue
+        # نافذة الوقت (اختيارية)
+        t_open  = str(p.get("وقت الفتح","")).strip()
+        t_close = str(p.get("وقت الإغلاق","")).strip()
+        if t_open  and now_t < t_open:  continue
+        if t_close and now_t > t_close: continue
+        return p
+    return None
+
+def has_time_permit(emp_id, permit_type="كليهما"):
+    p = get_active_permit(emp_id)
+    if not p: return False
+    p_type = str(p.get("نوع التصريح","")).strip()
+    return p_type in ["كليهما", permit_type] or permit_type == "كليهما"
+
+def get_permit_dates(emp_id):
+    """يرجع (تاريخ البداية, تاريخ النهاية) للتصريح النشط."""
+    p = get_active_permit(emp_id)
+    if not p: return None, None
+    return str(p.get("تاريخ البداية","")).strip(), str(p.get("تاريخ النهاية","")).strip()
+
+def add_time_permit(emp_id, permit_type, date_from, date_to, time_open="", time_close="", note=""):
+    today = now_bh().strftime("%Y-%m-%d")
+    time_permits_sheet.append_row([today, emp_id, permit_type, date_from, date_to, time_open, time_close, "نعم", note, "أدمن"])
+    get_time_permits.clear()
+
+def revoke_time_permit_row(row_num):
+    time_permits_sheet.update_cell(row_num, 8, "لا")
+    get_time_permits.clear()
 schedule_sheet  = _sheets["schedule"]
 daily_schedule_sheet = _sheets["daily_schedule"]
 
@@ -368,7 +422,7 @@ def get_daily_schedule_records():
     except: return []
 
 def clear_caches():
-    get_sheet_data.clear(); get_device_locks.clear(); get_device_exceptions.clear(); get_trusted_devices.clear(); get_settings_records.clear(); get_schedule_records.clear(); get_daily_schedule_records.clear(); get_manual_requests.clear()
+    get_sheet_data.clear(); get_device_locks.clear(); get_device_exceptions.clear(); get_trusted_devices.clear(); get_settings_records.clear(); get_schedule_records.clear(); get_daily_schedule_records.clear(); get_manual_requests.clear(); get_time_permits.clear()
 
 
 # ─── دوال احتساب الدوام والساعات والإغلاق التلقائي ───────────────
@@ -1513,7 +1567,7 @@ if mode=="👤 موظفة":
     if "emp_data" not in st.session_state:
         st.session_state.emp_data = None
 
-    trusted = is_current_device_trusted()
+    trusted, _trusted_rec = is_current_device_trusted()
 
     # ══════════════════════════════════
     # كرت 1: البيانات الشخصية
@@ -1750,7 +1804,113 @@ if mode=="👤 موظفة":
                             st.error("❌ تعذّر الإرسال.")
 
     # ══════════════════════════════════
-    # كرت 3: العمليات (حضور/انصراف)
+    # كرت 3: تصريح الوقت اليدوي
+    # ══════════════════════════════════
+    if st.session_state.emp_verified and st.session_state.emp_data:
+        _emp_permit = st.session_state.emp_data
+        _permit_id  = str(_emp_permit.get("الرقم الشخصي","")).strip()
+        _active_p   = get_active_permit(_permit_id) if _permit_id else None
+
+        if _active_p:
+            p_type  = str(_active_p.get("نوع التصريح","")).strip()
+            d_from  = str(_active_p.get("تاريخ البداية","")).strip()
+            d_to    = str(_active_p.get("تاريخ النهاية","")).strip()
+            t_open  = str(_active_p.get("وقت الفتح","")).strip()
+            t_close = str(_active_p.get("وقت الإغلاق","")).strip()
+            time_w  = f"من {t_open} إلى {t_close}" if t_open else "يوم كامل"
+
+            with st.container(border=True):
+                st.markdown('<div class="card-title">⏰ تعديل وقت يدوي — مصرّح من الأدمن</div>', unsafe_allow_html=True)
+                st.markdown(f"""
+                <div style="font-size:12px;color:#3B6D11;margin-bottom:10px;">
+                صالح من {d_from} إلى {d_to} — {time_w}
+                </div>
+                """, unsafe_allow_html=True)
+
+                # اختيار التاريخ ضمن نطاق التصريح
+                try:
+                    min_d = datetime.strptime(d_from, "%Y-%m-%d").date() if d_from else now_bh().date()
+                    max_d = datetime.strptime(d_to,   "%Y-%m-%d").date() if d_to   else now_bh().date()
+                except:
+                    min_d = max_d = now_bh().date()
+
+                sel_date = st.date_input("اختاري التاريخ", value=max_d,
+                                          min_value=min_d, max_value=max_d, key="permit_sel_date")
+                sel_date_str = sel_date.strftime("%Y-%m-%d")
+
+                # جلب السجل الموجود لهذا التاريخ
+                _data_p = get_sheet_data()
+                _idx_p, _row_p = find_today_row(_data_p, sel_date_str, _permit_id)
+
+                if _row_p:
+                    st.markdown(f"""
+                    <div style="background:#f0f4f8;border-radius:10px;padding:8px 12px;font-size:13px;margin-bottom:10px;">
+                    السجل الحالي — حضور: <b>{_row_p.get("وقت الحضور","—")}</b> |
+                    انصراف: <b>{_row_p.get("وقت الانصراف","—")}</b>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.info("لا يوجد سجل لهذا التاريخ — سيتم إنشاء سجل جديد.")
+
+                col_p1, col_p2 = st.columns(2)
+
+                with col_p1:
+                    if p_type in ["حضور","كليهما"]:
+                        st.markdown("**وقت الحضور الجديد**")
+                        try:
+                            curr_att = datetime.strptime(_row_p.get("وقت الحضور","07:00:00"),"%H:%M:%S").time() if _row_p and _row_p.get("وقت الحضور") else time(7,0)
+                        except: curr_att = time(7,0)
+                        p_att = st.time_input("الوقت", value=curr_att, key="permit_att_time")
+                        p_att_str = p_att.strftime("%H:%M:%S")
+                        if st.button("✅ حفظ الحضور", use_container_width=True, type="primary", key="btn_permit_att"):
+                            try:
+                                emp_d = validate_employee(_permit_id) or _emp_permit
+                                if _idx_p:
+                                    safe_update(sheet, _idx_p, COL_ATTEND, p_att_str)
+                                    safe_update(sheet, _idx_p, COL_LATE_REASON, "تعديل يدوي بتصريح الأدمن")
+                                    update_work_calculation(_idx_p, {**_row_p, "وقت الحضور": p_att_str})
+                                else:
+                                    day_n = datetime.strptime(sel_date_str,"%Y-%m-%d").strftime("%A")
+                                    safe_append(sheet,[sel_date_str,day_n,
+                                        emp_d.get("المدرسة",""),emp_d.get("المهمة",""),
+                                        "نعم" if is_yes(emp_d.get("دعم","")) else "لا",
+                                        emp_d.get("الاسم",""),_permit_id,
+                                        p_att_str,"تعديل يدوي بتصريح الأدمن",
+                                        "","","","","","","","","","","","","",""])
+                                    _idx2,_row2 = find_today_row_fresh(sel_date_str,_permit_id)
+                                    if _idx2: update_work_calculation(_idx2,_row2)
+                                log_audit(_permit_id,_emp_permit.get("الاسم",""),"تعديل وقت يدوي بتصريح",f"تاريخ:{sel_date_str}|حضور:{p_att_str}")
+                                clear_caches()
+                                st.success(f"✅ تم حفظ الحضور: {p_att_str}")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ خطأ: {e}")
+
+                with col_p2:
+                    if p_type in ["انصراف","كليهما"]:
+                        st.markdown("**وقت الانصراف الجديد**")
+                        try:
+                            curr_dep = datetime.strptime(_row_p.get("وقت الانصراف","14:00:00"),"%H:%M:%S").time() if _row_p and _row_p.get("وقت الانصراف") else time(14,0)
+                        except: curr_dep = time(14,0)
+                        p_dep = st.time_input("الوقت", value=curr_dep, key="permit_dep_time")
+                        p_dep_str = p_dep.strftime("%H:%M:%S")
+                        if st.button("🔵 حفظ الانصراف", use_container_width=True, key="btn_permit_dep"):
+                            try:
+                                if not _idx_p:
+                                    st.error("❌ يجب تسجيل الحضور أولاً.")
+                                else:
+                                    safe_update(sheet, _idx_p, COL_DEPART, p_dep_str)
+                                    safe_update(sheet, _idx_p, COL_DEPART_REASON, "تعديل يدوي بتصريح الأدمن")
+                                    update_work_calculation(_idx_p,{**_row_p,"وقت الانصراف":p_dep_str})
+                                    log_audit(_permit_id,_emp_permit.get("الاسم",""),"تعديل وقت يدوي بتصريح",f"تاريخ:{sel_date_str}|انصراف:{p_dep_str}")
+                                    clear_caches()
+                                    st.success(f"✅ تم حفظ الانصراف: {p_dep_str}")
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ خطأ: {e}")
+
+    # ══════════════════════════════════
+    # كرت 4: العمليات (حضور/انصراف)
     # ══════════════════════════════════
     if st.session_state.emp_verified and st.session_state.emp_data and (st.session_state.get("location_allowed") or trusted):
         emp    = st.session_state.emp_data
@@ -1905,7 +2065,7 @@ if mode=="👤 موظفة":
                             st.rerun()
 
     # ══════════════════════════════════
-    # كرت 4: تواصل مع الأدمن
+    # كرت 5: تواصل مع الأدمن
     # ══════════════════════════════════
     with st.container(border=True):
         st.markdown('<div class="card-title">💬 مشكلة في التسجيل؟ تواصل مع الأدمن</div>', unsafe_allow_html=True)
@@ -1972,6 +2132,7 @@ else:
             "🔓 فتح قفل جهاز",
             "🔍 سجل التدقيق",
             "⚠️ تقرير الأجهزة",
+            "⏰ تصاريح الوقت اليدوي",
         ])
 
         # ── إحصائيات اليوم ──────────────────────────────────────
@@ -3289,6 +3450,107 @@ else:
                         st.markdown(f'<div class="warn-row">⚠️ جهاز واحد سجّل لـ {len(names)} موظفات: {"، ".join(names)}</div>',unsafe_allow_html=True)
                 if not found: st.success("✅ لا يوجد تسجيل مشبوه اليوم")
             except Exception as e: st.error(f"خطأ: {e}")
+
+        # ── تصاريح الوقت اليدوي ──────────────────────────────────
+        elif admin_tab=="⏰ تصاريح الوقت اليدوي":
+            st.markdown("#### ⏰ تصاريح الوقت اليدوي")
+            st.info("تسمح للموظفة بتعديل وقت الحضور أو الانصراف يدوياً لتواريخ محددة، بدون GPS وبدون انتظار اعتماد.")
+
+            # ── إضافة تصريح جديد ──
+            with st.container(border=True):
+                st.markdown("##### ➕ إضافة تصريح جديد")
+
+                permit_scope = st.radio("التصريح لـ", ["موظفة محددة","كل الموظفات"], horizontal=True, key="permit_scope")
+                if permit_scope == "موظفة محددة":
+                    permit_id_raw = st.text_input("الرقم الشخصي", key="permit_emp_id")
+                    permit_id = ar_to_en_digits(permit_id_raw).strip()
+                    if permit_id:
+                        found_emp = validate_employee(permit_id)
+                        if found_emp:
+                            st.success(f"✅ {found_emp.get('الاسم','')} — {found_emp.get('المدرسة','')}")
+                        else:
+                            st.warning("⚠️ الرقم غير موجود في القائمة البيضاء")
+                else:
+                    permit_id = "الكل"
+                    st.warning("⚠️ سيُفعَّل التصريح لجميع الموظفات")
+
+                permit_type = st.selectbox("نوع التصريح", ["كليهما","حضور","انصراف"], key="permit_type")
+
+                st.markdown("**نطاق التاريخ**")
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    permit_date_from = st.date_input("من تاريخ", value=now_bh().date(), key="permit_from")
+                with col_d2:
+                    permit_date_to   = st.date_input("إلى تاريخ", value=now_bh().date(), key="permit_to")
+
+                st.markdown("**نافذة الوقت** (اتركيها فارغة ليكون مفتوحاً طول اليوم)")
+                col_t1, col_t2 = st.columns(2)
+                with col_t1:
+                    all_day = st.checkbox("يوم كامل (بدون قيد وقت)", value=True, key="permit_allday")
+                with col_t2:
+                    permit_note = st.text_input("ملاحظة", key="permit_note")
+
+                if not all_day:
+                    col_t3, col_t4 = st.columns(2)
+                    with col_t3:
+                        permit_open  = st.time_input("وقت الفتح",  value=time(6,0),  key="permit_open")
+                    with col_t4:
+                        permit_close = st.time_input("وقت الإغلاق", value=time(15,0), key="permit_close")
+                    t_open  = permit_open.strftime("%H:%M")
+                    t_close = permit_close.strftime("%H:%M")
+                else:
+                    t_open = t_close = ""
+
+                if permit_date_from > permit_date_to:
+                    st.error("❌ تاريخ البداية يجب أن يكون قبل تاريخ النهاية.")
+                elif st.button("✅ تفعيل التصريح", use_container_width=True, type="primary", key="btn_add_permit"):
+                    if not permit_id:
+                        st.error("❌ أدخل الرقم الشخصي أولاً.")
+                    else:
+                        add_time_permit(
+                            permit_id, permit_type,
+                            permit_date_from.strftime("%Y-%m-%d"),
+                            permit_date_to.strftime("%Y-%m-%d"),
+                            t_open, t_close, permit_note
+                        )
+                        log_audit("—","أدمن","تفعيل تصريح وقت يدوي",
+                                  f"رقم:{permit_id}|نوع:{permit_type}|من:{permit_date_from}|إلى:{permit_date_to}|وقت:{t_open or 'يوم كامل'}")
+                        scope_lbl = "كل الموظفات" if permit_id=="الكل" else permit_id
+                        time_lbl  = "يوم كامل" if all_day else f"{t_open}–{t_close}"
+                        st.success(f"✅ تم التفعيل — {scope_lbl} — {permit_type} — {permit_date_from} إلى {permit_date_to} — {time_lbl}")
+                        st.rerun()
+
+            # ── التصاريح النشطة ──
+            st.markdown("---")
+            st.markdown("##### 📋 التصاريح الحالية")
+            permits = get_time_permits()
+            today_s = now_bh().strftime("%Y-%m-%d")
+            for i, p in enumerate(permits):
+                is_active = str(p.get("نشط","")).strip() in ["نعم","yes","1","TRUE","true"]
+                if not is_active: continue
+                p_id    = str(p.get("الرقم الشخصي","")).strip() or "الكل"
+                p_type  = str(p.get("نوع التصريح","")).strip()
+                d_from  = str(p.get("تاريخ البداية","")).strip()
+                d_to    = str(p.get("تاريخ النهاية","")).strip()
+                t_open  = str(p.get("وقت الفتح","")).strip()
+                t_close = str(p.get("وقت الإغلاق","")).strip()
+                p_note  = str(p.get("ملاحظات","")).strip()
+                expired = d_to and d_to < today_s
+                color   = "#F8D7DA" if expired else "#D4EDDA"
+                status  = "منتهي ❌" if expired else "نشط ✅"
+                time_w  = f"{t_open}–{t_close}" if t_open else "يوم كامل"
+                st.markdown(f"""
+                <div style="background:{color};border-radius:10px;padding:10px 14px;margin-bottom:8px;direction:rtl;">
+                <b>{'كل الموظفات' if p_id in ['الكل','','*'] else f'#{p_id}'}</b> —
+                {p_type} — {d_from} إلى {d_to} — {time_w} — {status}
+                {f'<br><small>ملاحظة: {p_note}</small>' if p_note else ''}
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button("🚫 إلغاء", key=f"revoke_{i+2}"):
+                    revoke_time_permit_row(i+2)
+                    log_audit("—","أدمن","إلغاء تصريح وقت يدوي",f"رقم:{p_id}|نوع:{p_type}")
+                    st.success("✅ تم إلغاء التصريح.")
+                    st.rerun()
 
         if st.button("🚪 تسجيل خروج الأدمن",use_container_width=True):
             st.session_state.admin_logged_in=False; st.session_state.admin_last_active=None; st.rerun()
