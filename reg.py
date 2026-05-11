@@ -1845,9 +1845,8 @@ if mode=="👤 موظفة":
                                           min_value=min_d, max_value=max_d, key="permit_sel_date")
                 sel_date_str = sel_date.strftime("%Y-%m-%d")
 
-                # جلب السجل الموجود لهذا التاريخ
-                _data_p = get_sheet_data()
-                _idx_p, _row_p = find_today_row(_data_p, sel_date_str, _permit_id)
+                # جلب السجل الموجود لهذا التاريخ — قراءة مباشرة بدون كاش
+                _idx_p, _row_p = find_today_row_fresh(sel_date_str, _permit_id)
 
                 if _row_p:
                     st.markdown(f"""
