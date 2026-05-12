@@ -2075,7 +2075,8 @@ if mode=="👤 موظفة":
             import streamlit.components.v1 as components
             components.html("<script>window.parent.location.reload();</script>", height=0)
     # ══════════════════════════════════
-    with st.expander("🆘 مشكلة في التسجيل؟ اضغطي هنا", expanded=False):
+    _show_support = manual_requests_enabled()
+    with st.expander("💬 الدعم الفني" if _show_support else "💬 الدعم الفني", expanded=False) if _show_support else st.empty():
 
         # ── بيانات الموظفة ──
         _sup_emp  = st.session_state.get("emp_data") or {}
