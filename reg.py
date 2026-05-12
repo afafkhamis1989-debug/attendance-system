@@ -2716,6 +2716,8 @@ else:
                         log_audit("—","أدمن","إغلاق تلقائي يدوي","تنفيذ من لوحة الإصلاح الشامل")
                     except Exception as e:
                         st.error(f"❌ خطأ: {e}")
+        # ── إعدادات التسجيل اليدوي ───────────────────────────────
+        elif admin_tab=="⚙️ إعدادات التسجيل اليدوي":
             st.markdown("#### ⚙️ إعدادات التسجيل اليدوي للموظفات")
             current_enabled = manual_requests_enabled()
             if current_enabled:
