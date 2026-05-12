@@ -291,6 +291,8 @@ def ls_clear_emp_data():
     """يمسح بيانات الموظفة المحفوظة في LocalStorage."""
     for key in ["saved_id","saved_name","saved_school","saved_section","saved_support","saved_date"]:
         ls_set(key, "", f"clear_{key}")
+
+def get_device_fingerprint():
     if LOCAL_STORAGE_OK:
         try:
             fp=localS.getItem("device_fp")
