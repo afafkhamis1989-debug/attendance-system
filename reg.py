@@ -290,7 +290,7 @@ def ls_set(key, value, ls_key=None):
 def ls_clear_emp_data():
     """يمسح بيانات الموظفة المحفوظة في LocalStorage."""
     for key in ["saved_id","saved_name","saved_school","saved_section","saved_support","saved_date"]:
-        ls_set(key, "", f"clear_{key}")
+        ls_set(key, "0", f"clear_{key}")
 
 def get_device_fingerprint():
     if LOCAL_STORAGE_OK:
@@ -1527,16 +1527,20 @@ _saved_date=ls_get("saved_date"); _saved_id=ls_get("saved_id")
 _saved_name=ls_get("saved_name"); _saved_school=ls_get("saved_school")
 _saved_section=ls_get("saved_section"); _saved_support=ls_get("saved_support")
 
+# نظّف القيم الفارغة
+_saved_id   = str(_saved_id   or "").strip()
+_saved_date = str(_saved_date or "").strip()
+
 _data_locked=(
     (st.session_state.get("data_locked_today",False) and st.session_state.get("locked_date")==today_str)
-    or (_saved_date==today_str and _saved_id and str(_saved_id).strip()!="")
+    or (_saved_date==today_str and len(_saved_id) > 3)
 )
 
 if _data_locked and not st.session_state.emp_verified and not st.session_state.get("_trusted_cleared"):
     st.session_state.emp_verified=True
     st.session_state.emp_data=st.session_state.get("locked_emp") or {
-        "الرقم الشخصي":_saved_id,"الاسم":_saved_name or "","المدرسة":_saved_school or "",
-        "المهمة":_saved_section or "","دعم":_saved_support=="نعم","نشط":"نعم"
+        "الرقم الشخصي":_saved_id,"الاسم":str(_saved_name or "").strip(),"المدرسة":str(_saved_school or "").strip(),
+        "المهمة":str(_saved_section or "").strip(),"دعم":_saved_support=="نعم","نشط":"نعم"
     }
 
 if st.session_state.admin_logged_in and st.session_state.admin_last_active:
