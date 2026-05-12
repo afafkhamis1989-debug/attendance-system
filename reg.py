@@ -579,25 +579,39 @@ def update_work_calculation(row_index, row_data=None):
 
 def auto_close_previous_open_records():
     try:
-        today = now_bh().strftime("%Y-%m-%d")
+        today      = now_bh().strftime("%Y-%m-%d")
+        now_t      = now_bh().time()
+        # وقت الإغلاق التلقائي لليوم الحالي — قابل للتغيير من الإعدادات
+        close_time_str = get_system_setting("auto_close_time", "22:00")
+        try:
+            ch, cm    = map(int, close_time_str.split(":"))
+            close_time = time(ch, cm)
+        except Exception:
+            close_time = time(22, 0)
+
         records = get_sheet_data()
         changed = 0
         for i, row in enumerate(records):
-            row_num = i + 2
+            row_num  = i + 2
             date_str = str(row.get("التاريخ", "")).strip()
-            if not date_str or date_str >= today:
+            if not date_str:
+                continue
+            # أيام سابقة دائماً، أو اليوم بعد وقت الإغلاق
+            is_prev_day  = date_str < today
+            is_today_late = (date_str == today and now_t >= close_time)
+            if not (is_prev_day or is_today_late):
                 continue
             if not row.get("وقت الحضور") or row.get("وقت الانصراف"):
                 continue
             if row.get("خروج استئذان") and not row.get("عودة"):
-                dep_time = str(row.get("خروج استئذان", "")).strip()
+                dep_time   = str(row.get("خروج استئذان", "")).strip()
                 dep_reason = "إغلاق تلقائي — استئذان مفتوح احتُسب انصرافًا"
-                auto_note = "نعم — استئذان مفتوح"
+                auto_note  = "نعم — استئذان مفتوح"
             else:
-                vals = calculate_work_values(row)
-                dep_time = vals["expected_end"] if vals else ""
+                vals       = calculate_work_values(row)
+                dep_time   = vals["expected_end"] if vals else close_time_str + ":00"
                 dep_reason = "إغلاق تلقائي — نسيان تسجيل الانصراف"
-                auto_note = "نعم — نسيان انصراف"
+                auto_note  = "نعم — نسيان انصراف"
             if dep_time:
                 safe_update(sheet, row_num, COL_DEPART, dep_time)
                 safe_update(sheet, row_num, COL_DEPART_REASON, dep_reason)
@@ -2376,9 +2390,71 @@ else:
                     st.markdown(f'<div class="audit-row">🟣 {r.get("الاسم الثلاثي","")} — #{r.get("الرقم الشخصي","")} — {r.get("اسم المدرسة",r.get("المدرسة",""))} — {r.get("المهمة","")} — حضور: {r.get("وقت الحضور","")} — انصراف: {r.get("وقت الانصراف","") or "لم يسجل"}</div>',unsafe_allow_html=True)
 
             if missing_depart:
-                st.markdown("#### 🚨 لم يسجلن الانصراف حتى الآن — من الأقسام المطلوبة")
+                # تنبيه قبل الساعة 2 بـ 30 دقيقة
+                now_t = now_bh().time()
+                if time(13, 30) <= now_t <= time(14, 30):
+                    st.markdown("#### ⏰ تذكير الانصراف — الوقت يقترب من الساعة 2")
+                    st.warning(f"⚠️ {len(missing_depart)} موظفة لم تسجّل انصرافها — يرجى التذكير قبل انتهاء الدوام.")
+
+                    # نسخ الكل
+                    dep_reminder_msg = f"""السلام عليكم 🌷
+تذكير: يرجى تسجيل الانصراف قبل مغادرة المركز.
+
+رابط النظام:
+{APP_URL}"""
+                    dep_phones = []
+                    for r in missing_depart:
+                        eid = str(r.get("الرقم الشخصي","")).strip()
+                        emp_wl = get_whitelist().get(eid, {})
+                        ph = str(emp_wl.get("رقم التواصل","") or "").strip().replace(" ","")
+                        if ph:
+                            if not ph.startswith("973"):
+                                ph = "973" + ph.lstrip("0")
+                            dep_phones.append(f"{r.get('الاسم الثلاثي','')} — {ph}")
+
+                    col_dep1, col_dep2 = st.columns(2)
+                    with col_dep1:
+                        if dep_phones:
+                            st.code("\n".join(dep_phones), language=None)
+                            st.caption(f"📋 {len(dep_phones)} رقم")
+                    with col_dep2:
+                        st.code(dep_reminder_msg, language=None)
+                        st.caption("📋 الرسالة")
+
+                    st.markdown("---")
+
+                st.markdown("#### 🚨 لم يسجلن الانصراف — تذكير فردي")
                 for r in missing_depart:
-                    st.markdown(f'<div class="warn-row">🚨 {r.get("الاسم الثلاثي","")} — {r.get("اسم المدرسة",r.get("المدرسة",""))} — {r.get("المهمة","")} — حضور: {r.get("وقت الحضور","")}</div>',unsafe_allow_html=True)
+                    eid = str(r.get("الرقم الشخصي","")).strip()
+                    emp_wl = get_whitelist().get(eid, {})
+                    ph = str(emp_wl.get("رقم التواصل","") or "").strip().replace(" ","")
+                    reminded_dep_key = f"reminded_dep_{eid}_{today_str}"
+                    already_reminded_dep = st.session_state.get(reminded_dep_key, False)
+
+                    if already_reminded_dep:
+                        st.markdown(f'<div style="background:#d4edda;border-radius:10px;padding:8px 14px;margin-bottom:6px;font-size:12px;color:#155724;font-weight:700;">✅ تم التذكير — {r.get("الاسم الثلاثي","")} — حضور: {r.get("وقت الحضور","")}</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="warn-row">🚨 {r.get("الاسم الثلاثي","")} — {r.get("اسم المدرسة",r.get("المدرسة",""))} — {r.get("المهمة","")} — حضور: {r.get("وقت الحضور","")}</div>', unsafe_allow_html=True)
+                        c_dep1, c_dep2 = st.columns(2)
+                        if ph:
+                            if not ph.startswith("973"):
+                                ph = "973" + ph.lstrip("0")
+                            dep_wa_msg = f"""السلام عليكم 🌷
+تذكير: يرجى تسجيل الانصراف في نظام الحضور قبل مغادرة المركز.
+
+رابط النظام:
+{APP_URL}"""
+                            dep_wa_url = "https://wa.me/" + ph + "?text=" + urllib.parse.quote(dep_wa_msg)
+                            with c_dep1:
+                                st.link_button("📩 تذكير واتساب", dep_wa_url, use_container_width=True)
+                        else:
+                            with c_dep1:
+                                st.caption("لا يوجد رقم تواصل")
+                        with c_dep2:
+                            if st.button("✅ تم التذكير", key=f"reminded_dep_{eid}", use_container_width=True):
+                                st.session_state[reminded_dep_key] = True
+                                log_audit(eid, r.get("الاسم الثلاثي",""), "تذكير انصراف", "تم التذكير من الداشبورد")
+                                st.rerun()
             if on_leave:
                 st.markdown("#### 📤 استئذان مفتوح — من الأقسام المطلوبة")
                 for r in on_leave:
@@ -2720,6 +2796,28 @@ else:
         # ── إعدادات التسجيل اليدوي ───────────────────────────────
         elif admin_tab=="⚙️ إعدادات التسجيل اليدوي":
             st.markdown("#### ⚙️ إعدادات التسجيل اليدوي للموظفات")
+
+            # ── وقت الإغلاق التلقائي ──
+            with st.container(border=True):
+                st.markdown("##### 🕙 وقت الإغلاق التلقائي لسجلات اليوم")
+                st.caption("عند فتح البرنامج بعد هذا الوقت، تُغلق سجلات اليوم المفتوحة تلقائياً.")
+                cur_close_time = get_system_setting("auto_close_time", "22:00")
+                try:
+                    _ch, _cm = map(int, cur_close_time.split(":"))
+                except:
+                    _ch, _cm = 22, 0
+                new_close_h = st.number_input("الساعة", 18, 23, _ch, key="close_hour")
+                new_close_m = st.number_input("الدقيقة", 0, 59, _cm, step=15, key="close_min")
+                new_close_str = f"{int(new_close_h):02d}:{int(new_close_m):02d}"
+                st.info(f"الوقت الحالي المحدد: **{cur_close_time}** — الجديد: **{new_close_str}**")
+                if st.button("💾 حفظ وقت الإغلاق", use_container_width=True, key="btn_save_close_time"):
+                    if set_system_setting("auto_close_time", new_close_str, f"تغيير وقت الإغلاق التلقائي إلى {new_close_str}"):
+                        log_audit("—","أدمن","تغيير وقت الإغلاق التلقائي",f"الجديد: {new_close_str}")
+                        clear_caches()
+                        st.success(f"✅ تم حفظ وقت الإغلاق: {new_close_str}")
+                        st.rerun()
+
+            st.markdown("---")
             current_enabled = manual_requests_enabled()
             if current_enabled:
                 st.success("✅ طلبات التسجيل اليدوي من واجهة الموظفة مفعّلة حاليًا.")
