@@ -1510,6 +1510,7 @@ default_state={
     "_queued_note":"",
     "_loc_step_initialized": False,
     "_emp_session_active": False,
+    "_trusted_cleared": False,
 }
 for k,v in default_state.items():
     if k not in st.session_state: st.session_state[k]=v
@@ -1526,7 +1527,7 @@ _data_locked=(
     or (_saved_date==today_str and _saved_id and str(_saved_id).strip()!="")
 )
 
-if _data_locked and not st.session_state.emp_verified:
+if _data_locked and not st.session_state.emp_verified and not st.session_state.get("_trusted_cleared"):
     st.session_state.emp_verified=True
     st.session_state.emp_data=st.session_state.get("locked_emp") or {
         "الرقم الشخصي":_saved_id,"الاسم":_saved_name or "","المدرسة":_saved_school or "",
@@ -2046,10 +2047,10 @@ if mode=="👤 موظفة":
     if trusted and st.session_state.emp_verified and st.session_state.emp_data:
         st.markdown("---")
         if st.button("🚪 تسجيل موظفة أخرى", use_container_width=True, key="btn_next_emp"):
-            # احفظ إن الجهاز موثوق قبل المسح
             _loc = st.session_state.get("location_allowed", True)
             st.session_state.clear()
-            st.session_state.location_allowed = _loc
+            st.session_state.location_allowed  = _loc
+            st.session_state._trusted_cleared  = True
             st.rerun()
     # ══════════════════════════════════
     with st.expander("🆘 مشكلة في التسجيل؟ اضغطي هنا", expanded=False):
