@@ -3190,6 +3190,66 @@ else:
 
         # ── القائمة البيضاء ──────────────────────────────────────
         elif admin_tab=="📋 القائمة البيضاء":
+
+            # ── تنظيف تكرارات القائمة البيضاء ──
+            with st.container(border=True):
+                st.markdown("##### 🧹 تنظيف تكرارات القائمة البيضاء")
+                st.caption("يبحث عن الأرقام الشخصية المكررة ويحذف النسخ الزائدة — يبقي آخر صف لكل رقم.")
+
+                try:
+                    all_wl = whitelist_sheet.get_all_records()
+                    dup_ids = {}
+                    for i, r in enumerate(all_wl):
+                        eid = str(r.get("الرقم الشخصي","")).strip()
+                        if eid:
+                            dup_ids.setdefault(eid, []).append(i+2)
+                    dups = {k:v for k,v in dup_ids.items() if len(v)>1}
+
+                    if not dups:
+                        st.success("✅ لا توجد تكرارات في القائمة البيضاء.")
+                    else:
+                        total_dup = sum(len(v)-1 for v in dups.values())
+                        st.warning(f"⚠️ وجد {len(dups)} رقم مكرر — إجمالي الصفوف الزائدة: {total_dup}")
+                        for eid, rows in list(dups.items())[:5]:
+                            name = str(all_wl[rows[0]-2].get("الاسم","")).strip()
+                            st.markdown(f"- **{name}** (#{eid}) — {len(rows)} مرة")
+                        if len(dups) > 5:
+                            st.markdown(f"- ... و{len(dups)-5} آخرين")
+
+                        if st.button("🗑️ حذف التكرارات — إبقاء الصف الأكمل بياناتً لكل رقم",
+                                     use_container_width=True, type="primary", key="btn_clean_wl_dups"):
+                            rows_to_delete = []
+                            for eid, rows in dups.items():
+                                # احسب اكتمال كل صف (عدد الخلايا غير الفارغة)
+                                scored = []
+                                for rn in rows:
+                                    r = all_wl[rn-2]
+                                    score = sum(1 for v in r.values() if str(v).strip())
+                                    scored.append((score, rn))
+                                # ابقي الصف الأكمل، احذف الباقي
+                                best_rn = max(scored, key=lambda x: x[0])[1]
+                                rows_to_delete.extend([rn for rn in rows if rn != best_rn])
+                            # نحذف من الأكبر للأصغر عشان ما تتأثر الأرقام
+                            rows_to_delete = sorted(set(rows_to_delete), reverse=True)
+                            deleted = 0
+                            errors  = 0
+                            prog = st.progress(0)
+                            for j, rn in enumerate(rows_to_delete):
+                                prog.progress((j+1)/len(rows_to_delete))
+                                try:
+                                    whitelist_sheet.delete_rows(rn)
+                                    deleted += 1
+                                except Exception:
+                                    errors += 1
+                            get_whitelist.clear()
+                            log_audit("—","أدمن","تنظيف تكرارات القائمة البيضاء",
+                                      f"محذوف:{deleted}|أخطاء:{errors}")
+                            st.success(f"✅ تم حذف {deleted} صف مكرر. أخطاء: {errors}")
+                            st.rerun()
+                except Exception as e:
+                    st.error(f"❌ خطأ: {e}")
+
+            st.markdown("---")
             st.markdown("#### إضافة موظفة")
             wl_id=ar_to_en_digits(st.text_input("الرقم الشخصي",key="wlid")).strip()
             wl_name=st.text_input("الاسم",key="wlname")
