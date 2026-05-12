@@ -287,7 +287,10 @@ def ls_set(key, value, ls_key=None):
         except: pass
     st.session_state[f"ls_{key}"] = value
 
-def get_device_fingerprint():
+def ls_clear_emp_data():
+    """يمسح بيانات الموظفة المحفوظة في LocalStorage."""
+    for key in ["saved_id","saved_name","saved_school","saved_section","saved_support","saved_date"]:
+        ls_set(key, "", f"clear_{key}")
     if LOCAL_STORAGE_OK:
         try:
             fp=localS.getItem("device_fp")
@@ -2048,9 +2051,10 @@ if mode=="👤 موظفة":
         st.markdown("---")
         if st.button("🚪 تسجيل موظفة أخرى", use_container_width=True, key="btn_next_emp"):
             _loc = st.session_state.get("location_allowed", True)
+            ls_clear_emp_data()  # مسح LocalStorage
             st.session_state.clear()
-            st.session_state.location_allowed  = _loc
-            st.session_state._trusted_cleared  = True
+            st.session_state.location_allowed = _loc
+            st.session_state._trusted_cleared = True
             st.rerun()
     # ══════════════════════════════════
     with st.expander("🆘 مشكلة في التسجيل؟ اضغطي هنا", expanded=False):
