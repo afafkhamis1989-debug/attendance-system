@@ -2066,12 +2066,14 @@ if mode=="👤 موظفة":
         st.markdown("---")
         if st.button("🚪 تسجيل موظفة أخرى", use_container_width=True, key="btn_next_emp"):
             _loc = st.session_state.get("location_allowed", True)
+            _fp  = get_device_fingerprint()
             ls_clear_emp_data()
             st.session_state.clear()
             st.session_state.location_allowed = _loc
+            st.session_state.device_fp        = _fp
             st.session_state._trusted_cleared = True
-            st.markdown('<script>window.location.reload();</script>', unsafe_allow_html=True)
-            st.rerun()
+            import streamlit.components.v1 as components
+            components.html("<script>window.parent.location.reload();</script>", height=0)
     # ══════════════════════════════════
     with st.expander("🆘 مشكلة في التسجيل؟ اضغطي هنا", expanded=False):
 
