@@ -2277,42 +2277,87 @@ else:
 
             st.info("✅ الإحصائيات الأساسية أعلاه تعتمد على دوام الأقسام المحدد لهذا اليوم، مع فصل الدعم الخارجي غير الموجود في القائمة البيضاء.")
 
-            # تنبيه بعد الساعة 10:00 للموظفات المطلوب دوامهن ولم يسجلن حضور ولم يسجل لهن غياب
-            if now_bh().time() >= time(10, 0):
+            # تنبيه بعد الساعة 8:00 للموظفات المطلوب دوامهن ولم يسجلن حضور (باستثناء الدعم)
+            if now_bh().time() >= time(8, 0):
                 attended_ids = set(str(r.get("الرقم الشخصي", "")).strip() for r in today_required_rows if r.get("وقت الحضور"))
-                absent_ids = set(str(r.get("الرقم الشخصي", "")).strip() for r in abs_today)
-                not_checked_in = {eid: emp for eid, emp in required_wl.items() if str(eid).strip() not in attended_ids and str(eid).strip() not in absent_ids}
+                absent_ids   = set(str(r.get("الرقم الشخصي", "")).strip() for r in abs_today)
+                # استثناء الدعم من القائمة
+                not_checked_in = {
+                    eid: emp for eid, emp in required_wl.items()
+                    if str(eid).strip() not in attended_ids
+                    and str(eid).strip() not in absent_ids
+                    and not is_yes(str(emp.get("دعم","")).strip())
+                    and "دعم" not in str(emp.get("المهمة","")).strip()
+                }
+
                 if not_checked_in:
-                    st.markdown("#### 🚨 لم يسجلن حضور حتى الآن بعد الساعة 10:00")
-                    st.caption("هذه القائمة تساعدك للتواصل معهن قبل اعتماد الغياب. تستثني من حضرن أو تم تسجيل غيابهن يدويًا.")
-                    for eid, emp in not_checked_in.items():
-                        st.markdown(f'<div class="warn-row">🚨 {emp.get("الاسم", "")} — #{eid} — {emp.get("المدرسة", "")} — {emp.get("المهمة", "")}</div>', unsafe_allow_html=True)
-                        phone_raw = str(emp.get("رقم التواصل", "") or "").strip().replace(" ", "")
-                        msg = f"""السلام عليكم 🌷
+                    st.markdown(f"#### 🚨 لم يسجلن حضور حتى الآن — {len(not_checked_in)} موظفة")
+                    st.caption("باستثناء الدعم. تستثني من حضرن أو تم تسجيل غيابهن.")
+
+                    # ── زر نسخ الكل ──────────────────────────────
+                    bulk_msg = f"""السلام عليكم 🌷
 نلاحظ عدم تسجيل حضوركِ في نظام الحضور والانصراف لهذا اليوم.
 
-يرجى الدخول للنظام الآن. إذا كنتِ في المركز ولم يعمل معكِ التسجيل، اختاري: 🆘 عندي مشكلة في التسجيل. سيتم إرسال وقت الطلب تلقائيًا للأدمن لاعتماده.
+يرجى الدخول للنظام الآن. إذا كنتِ في المركز ولم يعمل معكِ التسجيل، اختاري: 🆘 مشكلة في التسجيل.
+
+رابط النظام:
+{APP_URL}"""
+                    phones_list = []
+                    for eid, emp in not_checked_in.items():
+                        ph = str(emp.get("رقم التواصل","") or "").strip().replace(" ","")
+                        if ph:
+                            if not ph.startswith("973"):
+                                ph = "973" + ph.lstrip("0")
+                            phones_list.append(f"{emp.get('الاسم','')} — {ph}")
+
+                    col_bulk1, col_bulk2 = st.columns(2)
+                    with col_bulk1:
+                        if phones_list:
+                            st.code("\n".join(phones_list), language=None)
+                            st.caption(f"📋 {len(phones_list)} رقم — انسخيهم وأرسلي الرسالة يدوياً")
+                    with col_bulk2:
+                        st.code(bulk_msg, language=None)
+                        st.caption("📋 انسخي الرسالة")
+
+                    st.markdown("---")
+
+                    # ── قائمة الموظفات الفردية ──────────────────
+                    for eid, emp in not_checked_in.items():
+                        # هل تم تذكيرها مسبقاً؟
+                        reminded_key = f"reminded_{eid}_{today_str}"
+                        already_reminded = st.session_state.get(reminded_key, False)
+
+                        if already_reminded:
+                            st.markdown(f'<div style="background:#d4edda;border-radius:10px;padding:8px 14px;margin-bottom:6px;font-size:12px;color:#155724;font-weight:700;">✅ تم التذكير — {emp.get("الاسم", "")} — #{eid} — {emp.get("المدرسة", "")} — {emp.get("المهمة", "")}</div>', unsafe_allow_html=True)
+                        else:
+                            st.markdown(f'<div class="warn-row">🚨 {emp.get("الاسم", "")} — #{eid} — {emp.get("المدرسة", "")} — {emp.get("المهمة", "")}</div>', unsafe_allow_html=True)
+                            phone_raw = str(emp.get("رقم التواصل", "") or "").strip().replace(" ", "")
+                            msg = f"""السلام عليكم 🌷
+نلاحظ عدم تسجيل حضوركِ في نظام الحضور والانصراف لهذا اليوم.
+
+يرجى الدخول للنظام الآن. إذا كنتِ في المركز ولم يعمل معكِ التسجيل، اختاري: 🆘 مشكلة في التسجيل. سيتم إرسال وقت الطلب تلقائيًا للأدمن لاعتماده.
 
 أما إذا لم تحضري بعد، يرجى تسجيل الحضور عند الوصول للمركز فقط.
 
 رابط النظام:
 {APP_URL}"""
-                        cwa1, cwa2 = st.columns(2)
-                        if phone_raw:
-                            if not phone_raw.startswith("973"):
-                                phone_raw = "973" + phone_raw.lstrip("0")
-                            wa_url = "https://wa.me/" + phone_raw + "?text=" + urllib.parse.quote(msg)
-                            with cwa1:
-                                st.link_button("📩 إرسال تذكير واتساب", wa_url, use_container_width=True)
-                        else:
-                            with cwa1:
-                                st.caption("لا يوجد رقم تواصل في القائمة البيضاء")
-                        with cwa2:
-                            if st.button("✅ تسجيل أنه تم إرسال تذكير", key=f"reminder_sent_{eid}", use_container_width=True):
-                                log_audit(eid, emp.get("الاسم", ""), "إرسال تذكير عدم تسجيل", "تم فتح/تجهيز رسالة واتساب من الداشبورد")
-                                st.success("تم تسجيل التذكير في سجل التدقيق")
+                            cwa1, cwa2 = st.columns(2)
+                            if phone_raw:
+                                if not phone_raw.startswith("973"):
+                                    phone_raw = "973" + phone_raw.lstrip("0")
+                                wa_url = "https://wa.me/" + phone_raw + "?text=" + urllib.parse.quote(msg)
+                                with cwa1:
+                                    st.link_button("📩 إرسال تذكير واتساب", wa_url, use_container_width=True)
+                            else:
+                                with cwa1:
+                                    st.caption("لا يوجد رقم تواصل")
+                            with cwa2:
+                                if st.button("✅ تم التذكير", key=f"reminder_sent_{eid}", use_container_width=True):
+                                    st.session_state[reminded_key] = True
+                                    log_audit(eid, emp.get("الاسم", ""), "إرسال تذكير عدم تسجيل", "تم التذكير من الداشبورد")
+                                    st.rerun()
                 else:
-                    st.success("✅ بعد الساعة 10:00: لا توجد أسماء مطلوبة لم تسجل حضور أو غياب.")
+                    st.success("✅ جميع الموظفات المطلوبات سجّلن حضورهن أو تم تسجيل غيابهن.")
 
             if no_gps_rows:
                 st.markdown("#### ⚠️ عمليات بدون تحقق GPS")
