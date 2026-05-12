@@ -2046,7 +2046,11 @@ if mode=="👤 موظفة":
     if trusted and st.session_state.emp_verified and st.session_state.emp_data:
         st.markdown("---")
         if st.button("🚪 تسجيل موظفة أخرى", use_container_width=True, key="btn_next_emp"):
-            st.markdown('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
+            # احفظ إن الجهاز موثوق قبل المسح
+            _loc = st.session_state.get("location_allowed", True)
+            st.session_state.clear()
+            st.session_state.location_allowed = _loc
+            st.rerun()
     # ══════════════════════════════════
     with st.expander("🆘 مشكلة في التسجيل؟ اضغطي هنا", expanded=False):
 
