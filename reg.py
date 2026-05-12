@@ -2871,15 +2871,23 @@ else:
                     st.error("❌ اختاري مهمة واحدة على الأقل.")
                 else:
                     try:
-                        # تعطيل السجلات القديمة لنفس التاريخ، ثم إضافة الاختيارات الجديدة
                         records = daily_schedule_sheet.get_all_records()
+                        # نجمع كل التحديثات في batch واحد
+                        batch_updates = []
                         for i, r in enumerate(records):
                             if str(r.get("التاريخ","")).strip() == daily_date_str:
-                                daily_schedule_sheet.update_cell(i+2, 3, "لا")
+                                batch_updates.append({
+                                    "range": f"C{i+2}",
+                                    "values": [["لا"]]
+                                })
+                        if batch_updates:
+                            daily_schedule_sheet.batch_update(batch_updates)
+                        import time as _t; _t.sleep(1)
                         for t in daily_tasks_selected:
                             daily_schedule_sheet.append_row([daily_date_str, t, "نعم", daily_note], value_input_option="USER_ENTERED")
+                            _t.sleep(0.3)
                         get_daily_schedule_records.clear()
-                        st.success("✅ تم حفظ دوام التاريخ المحدد. سيعتمد عليه حصر الغياب والإحصائيات لهذا اليوم.")
+                        st.success("✅ تم حفظ دوام التاريخ المحدد.")
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ خطأ أثناء حفظ دوام اليوم: {e}")
@@ -2892,11 +2900,14 @@ else:
                     if st.button("🗑️ تعطيل دوام هذا التاريخ", use_container_width=True, key="disable_daily_schedule"):
                         try:
                             records = daily_schedule_sheet.get_all_records()
+                            batch_updates = []
                             for i, r in enumerate(records):
                                 if str(r.get("التاريخ","")).strip() == daily_date_str:
-                                    daily_schedule_sheet.update_cell(i+2, 3, "لا")
+                                    batch_updates.append({"range": f"C{i+2}", "values": [["لا"]]})
+                            if batch_updates:
+                                daily_schedule_sheet.batch_update(batch_updates)
                             get_daily_schedule_records.clear()
-                            st.success("✅ تم تعطيل دوام هذا التاريخ، وسيعود النظام للجدول الأسبوعي.")
+                            st.success("✅ تم تعطيل دوام هذا التاريخ.")
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ تعذر التعطيل: {e}")
