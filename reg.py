@@ -1531,8 +1531,12 @@ _trusted_cleared_ls = str(ls_get("trusted_cleared") or "").strip() == "yes"
 _saved_id   = str(_saved_id   or "").strip()
 _saved_date = str(_saved_date or "").strip()
 
+# الجهاز الموثوق لا يستخدم التثبيت التلقائي — كل موظفة تدخل رقمها من جديد
+_is_trusted_device = is_current_device_trusted()[0]
+
 _data_locked=(
-    not _trusted_cleared_ls
+    not _is_trusted_device
+    and not _trusted_cleared_ls
     and (
         (st.session_state.get("data_locked_today",False) and st.session_state.get("locked_date")==today_str)
         or (_saved_date==today_str and len(_saved_id) > 3)
@@ -1631,7 +1635,8 @@ if mode=="👤 موظفة":
         st.session_state._queued_note        = ""
         st.session_state._emp_session_active = True
 
-    trusted, _trusted_rec = is_current_device_trusted()
+    trusted = _is_trusted_device
+    _trusted_rec = None
 
     # ══════════════════════════════════
     # كرت 1: البيانات الشخصية
