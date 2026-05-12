@@ -161,6 +161,7 @@ def get_all_sheets():
         "absence":     _get_or_create("سجل_الغياب",               ["التاريخ","اليوم","الرقم الشخصي","الاسم","المدرسة","المهمة","سبب الغياب","ملاحظات","سجّله"]),
         "manual_requests": _get_or_create("طلبات_التسجيل_اليدوي", ["تاريخ الطلب","وقت الطلب","الرقم الشخصي","الاسم","المدرسة","المهمة","نوع الطلب","وقت الحضور الفعلي","وقت الانصراف الفعلي","نوع المشكلة","ملاحظات","الحالة","بصمة الجهاز","وقت الاعتماد","اعتمده"]),
         "time_permits":    _get_or_create("تصاريح_الوقت_اليدوي",   ["تاريخ الإضافة","الرقم الشخصي","نوع التصريح","تاريخ البداية","تاريخ النهاية","وقت الفتح","وقت الإغلاق","نشط","ملاحظات","أضافه"]),
+        "custom_schedules":_get_or_create("إعدادات_الدوام_المخصص",  ["تاريخ الإضافة","نوع النطاق","قيمة النطاق","نوع الدوام","تاريخ البداية","تاريخ النهاية","نشط","ملاحظات"]),
     }
 
 _sheets         = get_all_sheets()
@@ -175,7 +176,50 @@ settings_sheet  = _sheets["settings"]
 audit_sheet     = _sheets["audit"]
 absence_sheet   = _sheets["absence"]
 manual_requests_sheet = _sheets["manual_requests"]
-time_permits_sheet    = _sheets["time_permits"]
+time_permits_sheet     = _sheets["time_permits"]
+custom_schedules_sheet = _sheets["custom_schedules"]
+
+@st.cache_data(ttl=120)
+def get_custom_schedules():
+    try: return custom_schedules_sheet.get_all_records()
+    except: return []
+
+def get_custom_schedule_for_row(row, date_str):
+    """يبحث عن إعداد دوام مخصص ينطبق على هذه الموظفة في هذا التاريخ."""
+    schedules = get_custom_schedules()
+    emp_id   = str(row.get("الرقم الشخصي","")).strip()
+    school   = str(row.get("اسم المدرسة", row.get("المدرسة",""))).strip()
+    task     = str(row.get("المهمة","")).strip()
+    name     = str(row.get("الاسم الثلاثي","")).strip()
+
+    for s in schedules:
+        if str(s.get("نشط","")).strip() not in ["نعم","yes","1","TRUE","true"]:
+            continue
+        d_from = str(s.get("تاريخ البداية","")).strip()
+        d_to   = str(s.get("تاريخ النهاية","")).strip()
+        if d_from and date_str < d_from: continue
+        if d_to   and date_str > d_to:   continue
+
+        scope_type = str(s.get("نوع النطاق","")).strip()
+        scope_val  = str(s.get("قيمة النطاق","")).strip()
+
+        match = False
+        if scope_type == "مدرسة"   and scope_val == school: match = True
+        elif scope_type == "مهمة"  and scope_val == task:   match = True
+        elif scope_type == "رقم شخصي" and scope_val == emp_id: match = True
+        elif scope_type == "اسم"   and scope_val == name:   match = True
+        elif scope_type == "الكل":                           match = True
+        # متعدد — فصل بفاصلة
+        elif scope_type in ["مدارس","مهام","أرقام","أسماء"]:
+            vals = [v.strip() for v in scope_val.split("،")]
+            if scope_type == "مدارس"  and school  in vals: match = True
+            elif scope_type == "مهام" and task    in vals: match = True
+            elif scope_type == "أرقام" and emp_id in vals: match = True
+            elif scope_type == "أسماء" and name   in vals: match = True
+
+        if match:
+            return str(s.get("نوع الدوام","")).strip()
+    return None
 
 @st.cache_data(ttl=60)
 def get_time_permits():
@@ -426,7 +470,7 @@ def get_daily_schedule_records():
     except: return []
 
 def clear_caches():
-    get_sheet_data.clear(); get_device_locks.clear(); get_device_exceptions.clear(); get_trusted_devices.clear(); get_settings_records.clear(); get_schedule_records.clear(); get_daily_schedule_records.clear(); get_manual_requests.clear(); get_time_permits.clear()
+    get_sheet_data.clear(); get_device_locks.clear(); get_device_exceptions.clear(); get_trusted_devices.clear(); get_settings_records.clear(); get_schedule_records.clear(); get_daily_schedule_records.clear(); get_manual_requests.clear(); get_time_permits.clear(); get_custom_schedules.clear()
 
 
 # ─── دوال احتساب الدوام والساعات والإغلاق التلقائي ───────────────
@@ -517,6 +561,18 @@ def calculate_work_values(row):
     official_mission = is_official_mission_day(row)
     correction_done = is_correction_done_day(row)
     implicit_leave = is_implicit_leave_late(row)
+
+    # ── إعداد دوام مخصص من الأدمن ──
+    custom_type = get_custom_schedule_for_row(row, date_str)
+    if custom_type and not care and not correction_done:
+        if custom_type == "دوام مرن":
+            flexible = True
+        elif custom_type == "رعاية":
+            care = True
+        elif custom_type == "دوام عادي":
+            flexible = False
+            care = False
+
     if correction_done:
         daily_type = "انتهاء التصحيح"
         required_hours = 0
@@ -528,7 +584,7 @@ def calculate_work_values(row):
     elif flexible:
         daily_type = "دوام مرن"
         required_hours = 7
-        calc_start = att_dt
+        calc_start = official_start  # يحسب دائماً من 7:00 حتى لو جاءت متأخرة
     elif official_mission:
         daily_type = "مهمة رسمية"
         required_hours = 7
@@ -2223,6 +2279,7 @@ else:
             "🔍 سجل التدقيق",
             "⚠️ تقرير الأجهزة",
             "⏰ تصاريح الوقت اليدوي",
+            "📅 إعدادات الدوام المخصص",
         ])
 
         # ── إحصائيات اليوم ──────────────────────────────────────
@@ -3843,6 +3900,152 @@ else:
                     log_audit("—","أدمن","إلغاء تصريح وقت يدوي",f"رقم:{p_id}|نوع:{p_type}")
                     st.success("✅ تم إلغاء التصريح.")
                     st.rerun()
+
+        # ── إعدادات الدوام المخصص ──────────────────────────────
+        elif admin_tab=="📅 إعدادات الدوام المخصص":
+            st.markdown("#### 📅 إعدادات الدوام المخصص")
+            st.info("حدّدي نوع الدوام لمدرسة أو مهمة أو أشخاص محددين خلال فترة زمنية معينة. يُطبَّق تلقائياً على حساب ساعاتهم.")
+
+            with st.container(border=True):
+                st.markdown("##### ➕ إضافة إعداد جديد")
+
+                scope_type = st.selectbox("نوع النطاق", [
+                    "مدرسة","مدارس (أكثر من واحدة)",
+                    "مهمة","مهام (أكثر من واحدة)",
+                    "رقم شخصي","أرقام (أكثر من واحد)",
+                    "اسم","أسماء (أكثر من واحد)",
+                    "الكل"
+                ], key="cs_scope_type")
+
+                # قيمة النطاق
+                if scope_type == "مدرسة":
+                    cs_val = st.selectbox("المدرسة", schools, key="cs_val_school")
+                    scope_key = "مدرسة"
+                elif scope_type == "مدارس (أكثر من واحدة)":
+                    cs_vals = st.multiselect("المدارس", schools, key="cs_val_schools")
+                    cs_val  = "،".join(cs_vals)
+                    scope_key = "مدارس"
+                elif scope_type == "مهمة":
+                    cs_val = st.selectbox("المهمة", TASKS_ALL, key="cs_val_task")
+                    scope_key = "مهمة"
+                elif scope_type == "مهام (أكثر من واحدة)":
+                    cs_vals = st.multiselect("المهام", TASKS_ALL, key="cs_val_tasks")
+                    cs_val  = "،".join(cs_vals)
+                    scope_key = "مهام"
+                elif scope_type == "رقم شخصي":
+                    cs_raw = st.text_input("الرقم الشخصي", key="cs_val_id")
+                    cs_val = ar_to_en_digits(cs_raw).strip()
+                    scope_key = "رقم شخصي"
+                    if cs_val:
+                        found = validate_employee(cs_val)
+                        if found: st.success(f"✅ {found.get('الاسم','')} — {found.get('المدرسة','')}")
+                elif scope_type == "أرقام (أكثر من واحد)":
+                    cs_raw = st.text_area("الأرقام الشخصية (كل رقم في سطر)", key="cs_val_ids")
+                    cs_val = "،".join([ar_to_en_digits(x).strip() for x in cs_raw.splitlines() if x.strip()])
+                    scope_key = "أرقام"
+                elif scope_type == "اسم":
+                    cs_val = st.text_input("الاسم", key="cs_val_name")
+                    scope_key = "اسم"
+                elif scope_type == "أسماء (أكثر من واحد)":
+                    cs_raw = st.text_area("الأسماء (كل اسم في سطر)", key="cs_val_names")
+                    cs_val = "،".join([x.strip() for x in cs_raw.splitlines() if x.strip()])
+                    scope_key = "أسماء"
+                else:
+                    cs_val = "الكل"
+                    scope_key = "الكل"
+                    st.warning("⚠️ سيُطبَّق على جميع الموظفات")
+
+                cs_work_type = st.selectbox("نوع الدوام", [
+                    "دوام عادي (7→14 مع احتساب التأخير)",
+                    "دوام مرن (7→14 بدون تأخير)",
+                    "رعاية (7→12)",
+                ], key="cs_work_type")
+                work_type_map = {
+                    "دوام عادي (7→14 مع احتساب التأخير)": "دوام عادي",
+                    "دوام مرن (7→14 بدون تأخير)": "دوام مرن",
+                    "رعاية (7→12)": "رعاية",
+                }
+                cs_work_type_val = work_type_map[cs_work_type]
+
+                col_cs1, col_cs2 = st.columns(2)
+                with col_cs1:
+                    cs_date_from = st.date_input("من تاريخ", value=now_bh().date(), key="cs_from")
+                with col_cs2:
+                    cs_date_to   = st.date_input("إلى تاريخ", value=now_bh().date(), key="cs_to")
+                cs_note = st.text_input("ملاحظة (اختياري)", key="cs_note")
+
+                if st.button("✅ حفظ الإعداد", use_container_width=True, type="primary", key="btn_save_cs"):
+                    if not cs_val:
+                        st.error("❌ يرجى تحديد النطاق أولاً.")
+                    elif cs_date_from > cs_date_to:
+                        st.error("❌ تاريخ البداية يجب أن يكون قبل النهاية.")
+                    else:
+                        custom_schedules_sheet.append_row([
+                            now_bh().strftime("%Y-%m-%d"),
+                            scope_key, cs_val, cs_work_type_val,
+                            cs_date_from.strftime("%Y-%m-%d"),
+                            cs_date_to.strftime("%Y-%m-%d"),
+                            "نعم", cs_note
+                        ])
+                        get_custom_schedules.clear()
+                        log_audit("—","أدمن","إضافة إعداد دوام مخصص",
+                                  f"نطاق:{scope_key}={cs_val}|نوع:{cs_work_type_val}|من:{cs_date_from}|إلى:{cs_date_to}")
+                        st.success(f"✅ تم حفظ الإعداد: {cs_work_type_val} — {cs_date_from} إلى {cs_date_to}")
+                        st.rerun()
+
+            # ── الإعدادات الحالية ──
+            st.markdown("---")
+            st.markdown("##### 📋 الإعدادات الحالية")
+            cs_all = get_custom_schedules()
+            cs_active = [s for s in cs_all if str(s.get("نشط","")).strip() in ["نعم","yes","1","TRUE","true"]]
+            if not cs_active:
+                st.success("✅ لا توجد إعدادات مخصصة نشطة.")
+            else:
+                today_s = now_bh().strftime("%Y-%m-%d")
+                for i, s in enumerate(cs_active):
+                    d_from = str(s.get("تاريخ البداية","")).strip()
+                    d_to   = str(s.get("تاريخ النهاية","")).strip()
+                    expired = d_to and d_to < today_s
+                    color  = "#F8D7DA" if expired else "#D4EDDA"
+                    status = "منتهي ❌" if expired else "نشط ✅"
+                    st.markdown(f"""
+                    <div style="background:{color};border-radius:10px;padding:10px 14px;margin-bottom:8px;direction:rtl;">
+                    <b>{s.get('نوع النطاق','')}</b>: {s.get('قيمة النطاق','')} —
+                    <b>{s.get('نوع الدوام','')}</b> —
+                    {d_from} إلى {d_to} — {status}
+                    {f'<br><small>{s.get("ملاحظات","")}</small>' if s.get("ملاحظات") else ''}
+                    </div>
+                    """, unsafe_allow_html=True)
+                    row_num = cs_all.index(s) + 2
+                    if st.button("🚫 إلغاء", key=f"cs_revoke_{row_num}"):
+                        custom_schedules_sheet.update_cell(row_num, 7, "لا")
+                        get_custom_schedules.clear()
+                        log_audit("—","أدمن","إلغاء إعداد دوام مخصص",f"{s.get('نوع النطاق','')}:{s.get('قيمة النطاق','')}")
+                        st.success("✅ تم إلغاء الإعداد.")
+                        st.rerun()
+
+            # ── إعادة حساب للمتأثرين ──
+            st.markdown("---")
+            with st.container(border=True):
+                st.markdown("##### 🔄 إعادة حساب ساعات المتأثرين")
+                st.caption("بعد إضافة إعداد جديد، اضغطي هنا لإعادة حساب ساعات السجلات المتأثرة.")
+                cs_recalc_date = st.date_input("التاريخ", value=now_bh().date(), key="cs_recalc_date")
+                if st.button("🔄 إعادة الحساب لهذا التاريخ", use_container_width=True, key="btn_cs_recalc"):
+                    try:
+                        data = get_sheet_data()
+                        updated = 0
+                        for i, row in enumerate(data):
+                            if str(row.get("التاريخ","")).strip().replace("/","-") != cs_recalc_date.strftime("%Y-%m-%d"):
+                                continue
+                            if not row.get("وقت الحضور",""):
+                                continue
+                            if get_custom_schedule_for_row(row, cs_recalc_date.strftime("%Y-%m-%d")):
+                                update_work_calculation(i+2, row)
+                                updated += 1
+                        clear_caches()
+                        st.success(f"✅ تم إعادة حساب {updated} سجل.")
+                    except Exception as e:
+                        st.error(f"❌ خطأ: {e}")
 
         if st.button("🚪 تسجيل خروج الأدمن",use_container_width=True):
             st.session_state.admin_logged_in=False; st.session_state.admin_last_active=None; st.rerun()
