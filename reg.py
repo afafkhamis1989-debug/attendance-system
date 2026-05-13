@@ -2321,6 +2321,7 @@ else:
             "📑 التقارير",
             "🛠️ إصلاح شامل",
             "🆘 طلبات التسجيل اليدوي",
+            "📞 التواصل والمتابعة",
             "⚙️ إعدادات التسجيل اليدوي",
             "🔴 تسجيل الغياب",
             "📅 دوام الأقسام",
@@ -3483,6 +3484,185 @@ else:
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"❌ خطأ: {e}")
+
+        # ── التواصل والمتابعة ─────────────────────────────────────
+        elif admin_tab=="📞 التواصل والمتابعة":
+            st.markdown("#### 📞 التواصل مع الموظفة / متابعة السجلات المضافة")
+            st.info("ابحثي بالاسم أو الرقم الشخصي لفتح واتساب برسالة جاهزة، أو راجعي السجلات التي أُضيفت يدوياً.")
+
+            wl_all = get_whitelist()
+
+            def _phone_to_wa(phone):
+                ph = str(phone or "").strip().replace(" ", "").replace("-", "")
+                if not ph:
+                    return ""
+                ph = ar_to_en_digits(ph)
+                if ph.startswith("00"):
+                    ph = ph[2:]
+                if ph.startswith("+"):
+                    ph = ph[1:]
+                if not ph.startswith("973"):
+                    ph = "973" + ph.lstrip("0")
+                return ph
+
+            def _wa_button_for_emp(phone, msg):
+                ph = _phone_to_wa(phone)
+                if ph:
+                    wa_url = "https://wa.me/" + ph + "?text=" + urllib.parse.quote(msg)
+                    st.link_button("📩 فتح واتساب", wa_url, use_container_width=True)
+                else:
+                    st.warning("⚠️ لا يوجد رقم تواصل محفوظ لهذه الموظفة في القائمة البيضاء.")
+
+            contact_tab = st.radio("اختاري القسم", ["🔍 بحث سريع", "📝 السجلات المضافة يدويًا"], horizontal=True, key="contact_main_tab")
+
+            if contact_tab == "🔍 بحث سريع":
+                with st.container(border=True):
+                    st.markdown("##### 🔍 بحث بالاسم أو الرقم الشخصي")
+                    search_txt = st.text_input("اكتبي الاسم أو الرقم الشخصي", key="contact_search_txt", placeholder="مثال: 123456789 أو عفاف")
+
+                    matches = []
+                    if search_txt.strip():
+                        sv_raw = search_txt.strip()
+                        sv_num = ar_to_en_digits(sv_raw)
+                        sv_name = normalize_name(sv_raw)
+                        for eid, emp in wl_all.items():
+                            emp_name0 = str(emp.get("الاسم", "")).strip()
+                            emp_name_norm = normalize_name(emp_name0)
+                            if sv_num in str(eid).strip() or sv_name in emp_name_norm or sv_raw in emp_name0:
+                                matches.append((eid, emp))
+
+                    if search_txt.strip() and not matches:
+                        st.warning("⚠️ لا توجد نتيجة مطابقة في القائمة البيضاء.")
+
+                    if matches:
+                        labels = []
+                        label_map = {}
+                        for eid, emp in matches[:50]:
+                            label = f"{emp.get('الاسم','')} — #{eid} — {emp.get('المدرسة','')} — {emp.get('المهمة','')}"
+                            labels.append(label)
+                            label_map[label] = (eid, emp)
+                        selected = st.selectbox("اختاري الموظفة", labels, key="contact_selected_emp")
+                        eid, emp = label_map[selected]
+                        emp_name = str(emp.get("الاسم", "")).strip()
+                        school = str(emp.get("المدرسة", "")).strip()
+                        task = str(emp.get("المهمة", "")).strip()
+                        phone = str(emp.get("رقم التواصل", "")).strip()
+
+                        st.markdown(f'''
+                        <div class="audit-row">
+                            <b>{emp_name}</b><br>
+                            الرقم الشخصي: {eid}<br>
+                            المدرسة: {school}<br>
+                            المهمة: {task}<br>
+                            رقم التواصل: {phone or 'غير موجود'}
+                        </div>
+                        ''', unsafe_allow_html=True)
+
+                        msg_type = st.selectbox("نوع الرسالة", [
+                            "تمت إضافة سجل يدوي",
+                            "لم يظهر تسجيلك لهذا اليوم",
+                            "تذكير بتسجيل الانصراف",
+                            "رسالة مخصصة"
+                        ], key="contact_msg_type")
+
+                        default_msg = f"""السلام عليكم أ. {emp_name.split()[0] if emp_name else ''} 🌷
+(الرقم الشخصي: {eid})
+
+تمت إضافة سجل حضور/انصراف لكِ يدويًا في نظام الحضور لهذا اليوم، لأن التسجيل لم يظهر من طرفك في النظام.
+
+يرجى التأكد لاحقًا من تسجيل الحضور والانصراف من جهازك مباشرة.
+"""
+                        if msg_type == "لم يظهر تسجيلك لهذا اليوم":
+                            default_msg = f"""السلام عليكم أ. {emp_name.split()[0] if emp_name else ''} 🌷
+(الرقم الشخصي: {eid})
+
+لم يظهر تسجيلكِ في نظام الحضور لهذا اليوم.
+يرجى التأكد من التسجيل أو التواصل مع الأدمن في حال وجود مشكلة تقنية.
+
+🔗 {APP_URL}
+"""
+                        elif msg_type == "تذكير بتسجيل الانصراف":
+                            default_msg = f"""السلام عليكم أ. {emp_name.split()[0] if emp_name else ''} 🌷
+(الرقم الشخصي: {eid})
+
+يُرجى تسجيل الانصراف في نظام الحضور قبل مغادرة المركز.
+
+🔗 {APP_URL}
+"""
+                        elif msg_type == "رسالة مخصصة":
+                            default_msg = ""
+
+                        final_msg = st.text_area("نص الرسالة", value=default_msg, height=180, key="contact_final_msg")
+                        _wa_button_for_emp(phone, final_msg)
+
+            else:
+                with st.container(border=True):
+                    st.markdown("##### 📝 السجلات المضافة يدويًا")
+                    col_m1, col_m2 = st.columns(2)
+                    with col_m1:
+                        manual_from = st.date_input("من تاريخ", value=now_bh().date(), key="manual_added_from")
+                    with col_m2:
+                        manual_to = st.date_input("إلى تاريخ", value=now_bh().date(), key="manual_added_to")
+                    mf = manual_from.strftime("%Y-%m-%d")
+                    mt = manual_to.strftime("%Y-%m-%d")
+
+                    data = get_sheet_data_fresh()
+                    manual_rows = []
+                    for r in data:
+                        d = str(r.get("التاريخ", "")).strip().replace("/", "-")
+                        if not (mf <= d <= mt):
+                            continue
+                        combined_txt = " ".join([
+                            str(r.get("نوع التسجيل", "")),
+                            str(r.get("محاولة", "")),
+                            str(r.get("سبب التأخير", "")),
+                            str(r.get("سبب الانصراف", "")),
+                        ])
+                        if any(x in combined_txt for x in ["يدوي", "طلب", "تعديل", "بدون تحقق GPS", "تحويل غياب"]):
+                            manual_rows.append(r)
+
+                    st.metric("عدد السجلات المضافة/المعدلة يدويًا", len(manual_rows))
+
+                    if not manual_rows:
+                        st.success("✅ لا توجد سجلات يدوية في هذا النطاق.")
+                    else:
+                        st.caption("يعرض الاسم والرقم الشخصي مع زر واتساب إذا كان رقم التواصل موجودًا في القائمة البيضاء.")
+                        for idx, r in enumerate(reversed(manual_rows[-150:])):
+                            eid = str(r.get("الرقم الشخصي", "")).strip()
+                            emp_wl = wl_all.get(eid, {})
+                            name = str(r.get("الاسم الثلاثي", "") or emp_wl.get("الاسم", "")).strip()
+                            school = str(r.get("اسم المدرسة", "") or r.get("المدرسة", "") or emp_wl.get("المدرسة", "")).strip()
+                            task = str(r.get("المهمة", "") or emp_wl.get("المهمة", "")).strip()
+                            phone = str(emp_wl.get("رقم التواصل", "")).strip()
+                            reg_type = str(r.get("نوع التسجيل", "") or r.get("محاولة", "") or "سجل يدوي/معدل").strip()
+                            d = str(r.get("التاريخ", "")).strip()
+
+                            with st.expander(f"📝 {name} — #{eid} — {d}", expanded=False):
+                                st.markdown(f'''
+                                <div class="audit-row">
+                                    <b>{name}</b><br>
+                                    الرقم الشخصي: {eid}<br>
+                                    التاريخ: {d}<br>
+                                    المدرسة: {school}<br>
+                                    المهمة: {task}<br>
+                                    حضور: {r.get('وقت الحضور','') or '—'} | انصراف: {r.get('وقت الانصراف','') or '—'}<br>
+                                    نوع/ملاحظة السجل: {reg_type}<br>
+                                    رقم التواصل: {phone or 'غير موجود'}
+                                </div>
+                                ''', unsafe_allow_html=True)
+
+                                msg = f"""السلام عليكم أ. {name.split()[0] if name else ''} 🌷
+(الرقم الشخصي: {eid})
+
+تمت إضافة/تعديل سجل لكِ في نظام الحضور بتاريخ {d}.
+حضور: {r.get('وقت الحضور','') or '—'}
+انصراف: {r.get('وقت الانصراف','') or '—'}
+
+يرجى التأكد لاحقًا من تسجيل الحضور والانصراف من جهازك مباشرة، وفي حال وجود أي ملاحظة تواصلي مع الأدمن.
+"""
+                                msg_edit = st.text_area("نص رسالة واتساب", value=msg, height=150, key=f"manual_msg_{idx}_{eid}_{d}")
+                                _wa_button_for_emp(phone, msg_edit)
+
 
         elif admin_tab=="🛠️ إصلاح شامل":
             st.markdown("#### 🛠️ إصلاح شامل")
