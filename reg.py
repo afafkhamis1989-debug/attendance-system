@@ -2293,10 +2293,11 @@ else:
                     get_whitelist.clear()
                     st.rerun()
             with col_ref1:
-                st.caption("⏱️ البيانات تتحدث تلقائياً كل 5 دقائق — اضغطي تحديث للحصول على أحدث البيانات فوراً.")
+                st.caption("⏱️ اضغطي تحديث للحصول على أحدث البيانات من الشيت فوراً.")
 
-            data=get_sheet_data()
-            today_rows=[r for r in data if r.get("التاريخ")==today_str]
+            # قراءة مباشرة بدون كاش لضمان دقة البيانات
+            data = get_sheet_data_fresh()
+            today_rows=[r for r in data if str(r.get("التاريخ","")).strip().replace("/","-")==today_str]
 
             # ربط إحصائيات اليوم بجدول دوام الأقسام الأسبوعي أو اليومي
             today_day_ar = day_arabic
@@ -2430,6 +2431,7 @@ else:
                             st.markdown(f'<div class="warn-row">🚨 {emp.get("الاسم", "")} — #{eid} — {emp.get("المدرسة", "")} — {emp.get("المهمة", "")}</div>', unsafe_allow_html=True)
                             phone_raw = str(emp.get("رقم التواصل", "") or "").strip().replace(" ", "")
                             msg = f"""السلام عليكم أ. {emp.get("الاسم","").split()[0]} 🌷
+(الرقم الشخصي: {eid})
 
 لم يُسجَّل حضوركِ في نظام الحضور الإلكتروني لهذا اليوم.
 يُرجى التسجيل فوراً — النظام الإلكتروني هو المرجع الرسمي المعتمد.
@@ -2538,6 +2540,7 @@ else:
                             if not ph.startswith("973"):
                                 ph = "973" + ph.lstrip("0")
                             dep_wa_msg = f"""السلام عليكم أ. {str(r.get('الاسم الثلاثي','')).split()[0]} 🌷
+(الرقم الشخصي: {eid})
 
 يُرجى تسجيل الانصراف في النظام الإلكتروني قبل مغادرة المركز.
 ⚠️ في حال عدم التسجيل سيتم إغلاق سجلك تلقائياً بوقت الانصراف الرسمي.
@@ -2584,7 +2587,8 @@ else:
                         if ph:
                             if not ph.startswith("973"):
                                 ph = "973" + ph.lstrip("0")
-                            repeat_msg = f"""السلام عليكم 🌷
+                            repeat_msg = f"""السلام عليكم أ. {info["الاسم"].split()[0]} 🌷
+(الرقم الشخصي: {eid})
 
 نود إعلامكِ بأنه تم إغلاق سجل انصرافكِ تلقائياً {info["عدد"]} مرات نظراً لعدم تسجيل الانصراف يدوياً في نظام الحضور.
 
