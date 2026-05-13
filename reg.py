@@ -2953,7 +2953,7 @@ else:
                     rpt_school = "الكل"
                     rpt_emp_id = None
 
-            if st.button("📊 إنشاء التقرير", use_container_width=True, type="primary", key="btn_gen_report"):
+            if st.button("📊 إنشاء التقرير", use_container_width=True, type="primary", key="btn_gen_report_legacy"):
                 try:
                     data = get_sheet_data()
                     def norm_date(d): return str(d).strip().replace("/","-")
