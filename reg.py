@@ -2628,6 +2628,14 @@ else:
 
             # ══════════════════════════════════════════════
             if rpt_main_tab == "📊 التقارير":
+                col_rref1, col_rref2 = st.columns([3,1])
+                with col_rref2:
+                    if st.button("🔄 تحديث", key="btn_refresh_rpt", use_container_width=True):
+                        get_sheet_data.clear()
+                        st.rerun()
+                with col_rref1:
+                    st.caption("⏱️ اضغطي تحديث للحصول على أحدث البيانات من الشيت.")
+
                 with st.container(border=True):
                     st.markdown("##### 🔍 تحديد نطاق التقرير")
 
