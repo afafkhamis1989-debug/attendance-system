@@ -800,6 +800,92 @@ def show_previous_auto_close_notice(emp_id):
     except Exception:
         pass
 
+
+def show_previous_absence_notice(emp_id):
+    """تنبيه الموظفة إذا احتُسب عليها غياب ليوم سابق لأنها لم تسجل حضوراً إلكترونياً.
+    إذا لم يوجد سجل حضور ليوم أمس، وكان مطلوباً دوامها حسب جدول الأقسام، يسجل النظام الغياب مرة واحدة.
+    """
+    try:
+        emp_id = str(emp_id or "").strip()
+        if not emp_id:
+            return
+
+        today = now_bh().date()
+        yesterday_date = today - timedelta(days=1)
+        yesterday = yesterday_date.strftime("%Y-%m-%d")
+        today_key = today.strftime("%Y-%m-%d")
+        dismissed_key = f"absence_notice_{emp_id}_{today_key}"
+
+        if str(ls_get(dismissed_key) or "").strip() == "done":
+            return
+
+        emp = validate_employee(emp_id) or st.session_state.get("emp_data") or {}
+        if not emp:
+            return
+
+        # لا نحتسب الدعم تلقائياً كغياب لأن الدعم قد لا يكون مطلوباً يومياً
+        task_txt = str(emp.get("المهمة", "")).strip()
+        if is_yes(emp.get("دعم", "")) or "دعم" in task_txt:
+            return
+
+        scheduled_tasks, _schedule_source = scheduled_tasks_for_date(yesterday)
+        if not emp_required_on_day(emp, scheduled_tasks):
+            return
+
+        # إذا يوجد حضور إلكتروني ليوم أمس، لا نسجل غياب
+        data = get_sheet_data_fresh()
+        had_attendance = any(
+            str(r.get("التاريخ", "")).strip().replace("/", "-") == yesterday
+            and str(r.get("الرقم الشخصي", "")).strip() == emp_id
+            and str(r.get("وقت الحضور", "")).strip()
+            for r in data
+        )
+        if had_attendance:
+            return
+
+        reason_txt = "عدم تسجيل الحضور والانصراف إلكترونيًا"
+        abs_records = absence_sheet.get_all_records()
+        existing_abs = None
+        for r in abs_records:
+            if str(r.get("التاريخ", "")).strip().replace("/", "-") == yesterday and str(r.get("الرقم الشخصي", "")).strip() == emp_id:
+                existing_abs = r
+                break
+
+        full_name = normalize_name(emp.get("الاسم", ""))
+        school = str(emp.get("المدرسة", "")).strip()
+        task = str(emp.get("المهمة", "")).strip()
+        yesterday_day = day_ar_from_date(yesterday_date)
+
+        # يسجل الغياب مرة واحدة فقط إذا لم يكن مسجلاً سابقاً
+        if not existing_abs:
+            absence_sheet.append_row([
+                yesterday, yesterday_day, emp_id, full_name, school, task,
+                reason_txt, "احتساب تلقائي عند فتح النظام في اليوم التالي", "النظام"
+            ], value_input_option="USER_ENTERED")
+            log_audit(emp_id, full_name, "احتساب غياب تلقائي", f"التاريخ:{yesterday}|السبب:{reason_txt}")
+            clear_caches()
+            existing_abs = {"التاريخ": yesterday, "سبب الغياب": reason_txt}
+
+        st.error(
+            "⚠️ تنبيه: تم احتساب غياب ليوم أمس لعدم وجود تسجيل إلكتروني للحضور والانصراف. "
+            "التسجيل الورقي وحده لا يُعتمد في النظام."
+        )
+        st.markdown(f"""
+        <div class="absent-row">
+            <b>تفاصيل الغياب المحتسب:</b><br>
+            التاريخ: {yesterday}<br>
+            السبب: {existing_abs.get('سبب الغياب', reason_txt) or reason_txt}<br>
+            ملاحظة: يجب تسجيل الحضور والانصراف إلكترونيًا يوميًا حتى يتم احتساب الحضور.
+        </div>
+        """, unsafe_allow_html=True)
+
+        if st.button("✅ تم الاطلاع على تنبيه الغياب", use_container_width=True, key=f"dismiss_absence_notice_{emp_id}_{today_key}"):
+            ls_set(dismissed_key, "done", f"set_{dismissed_key}")
+            st.success("✅ تم إخفاء تنبيه الغياب لهذا اليوم.")
+            st.rerun()
+    except Exception:
+        pass
+
 def mark_care_for_today(emp_id):
     data = get_sheet_data()
     idx, row = find_today_row(data, today_str, str(emp_id).strip())
@@ -1844,6 +1930,7 @@ if mode=="👤 موظفة":
             <div style="font-size:12px;color:#3B6D11;font-weight:700;">🔒 بياناتك محفوظة</div>
             """, unsafe_allow_html=True)
             show_previous_auto_close_notice(emp.get("الرقم الشخصي",""))
+            show_previous_absence_notice(emp.get("الرقم الشخصي",""))
         else:
             emp_id_raw = st.text_input("الرقم الشخصي", placeholder="أدخلي رقمك الشخصي", max_chars=20, key="main_emp_id")
             emp_id_input = ar_to_en_digits(emp_id_raw).strip()
@@ -1901,6 +1988,7 @@ if mode=="👤 موظفة":
                         <div class="field-lbl">المهمة</div><div class="field-val blue">{existing.get("المهمة","")}</div>
                         """, unsafe_allow_html=True)
                         show_previous_auto_close_notice(emp_id_input)
+                        show_previous_absence_notice(emp_id_input)
                 else:
                     # موظفة جديدة
                     emp_type = st.radio("نوع التسجيل",["🏫 عضوة في المركز","🔄 دعم"],horizontal=True,key="emp_type")
