@@ -2401,10 +2401,14 @@ else:
                     # ── قائمة الموظفات الفردية ──────────────────
                     for eid, emp in not_checked_in.items():
                         # هل تم تذكيرها مسبقاً؟
-                        reminded_key = f"reminded_{eid}_{today_str}"
+                        reminded_key   = f"reminded_{eid}_{today_str}"
+                        not_req_key    = f"not_required_{eid}_{today_str}"
                         already_reminded = st.session_state.get(reminded_key, False)
+                        not_required     = st.session_state.get(not_req_key, False)
 
-                        if already_reminded:
+                        if not_required:
+                            st.markdown(f'<div style="background:#e2e3e5;border-radius:10px;padding:8px 14px;margin-bottom:6px;font-size:12px;color:#555;font-weight:700;">🚫 غير مطلوبة اليوم — {emp.get("الاسم", "")} — #{eid}</div>', unsafe_allow_html=True)
+                        elif already_reminded:
                             st.markdown(f'<div style="background:#d4edda;border-radius:10px;padding:8px 14px;margin-bottom:6px;font-size:12px;color:#155724;font-weight:700;">✅ تم التذكير — {emp.get("الاسم", "")} — #{eid} — {emp.get("المدرسة", "")} — {emp.get("المهمة", "")}</div>', unsafe_allow_html=True)
                         else:
                             st.markdown(f'<div class="warn-row">🚨 {emp.get("الاسم", "")} — #{eid} — {emp.get("المدرسة", "")} — {emp.get("المهمة", "")}</div>', unsafe_allow_html=True)
@@ -2420,20 +2424,25 @@ else:
 - لابتوب في الصالة الرياضية
 - لابتوب في مقر الكنترول الخارجي
 """
-                            cwa1, cwa2 = st.columns(2)
+                            cwa1, cwa2, cwa3 = st.columns(3)
                             if phone_raw:
                                 if not phone_raw.startswith("973"):
                                     phone_raw = "973" + phone_raw.lstrip("0")
                                 wa_url = "https://wa.me/" + phone_raw + "?text=" + urllib.parse.quote(msg)
                                 with cwa1:
-                                    st.link_button("📩 إرسال تذكير واتساب", wa_url, use_container_width=True)
+                                    st.link_button("📩 واتساب", wa_url, use_container_width=True)
                             else:
                                 with cwa1:
-                                    st.caption("لا يوجد رقم تواصل")
+                                    st.caption("لا يوجد رقم")
                             with cwa2:
                                 if st.button("✅ تم التذكير", key=f"reminder_sent_{eid}_{today_str}", use_container_width=True):
                                     st.session_state[reminded_key] = True
                                     log_audit(eid, emp.get("الاسم", ""), "إرسال تذكير عدم تسجيل", "تم التذكير من الداشبورد")
+                                    st.rerun()
+                            with cwa3:
+                                if st.button("🚫 غير مطلوبة اليوم", key=f"not_req_{eid}_{today_str}", use_container_width=True):
+                                    st.session_state[not_req_key] = True
+                                    log_audit(eid, emp.get("الاسم", ""), "غير مطلوبة اليوم", "تم التحديد من الداشبورد")
                                     st.rerun()
                 else:
                     st.success("✅ جميع الموظفات المطلوبات سجّلن حضورهن أو تم تسجيل غيابهن.")
@@ -2462,13 +2471,15 @@ else:
 
                     # نسخ الكل
                     dep_reminder_msg = f"""السلام عليكم 🌷
-تذكير: يرجى تسجيل الانصراف قبل مغادرة المركز.
 
-رابط النظام:
-{APP_URL}
-📍 في حال عدم عمل التطبيق على هاتفك:
-- يوجد جهاز لابتوب في الصالة الرياضية
-- يوجد جهاز في مقر الكنترول الخارجي"""
+يُرجى تسجيل الانصراف في النظام الإلكتروني قبل مغادرة المركز.
+⚠️ في حال عدم التسجيل سيتم إغلاق سجلك تلقائياً بوقت الانصراف الرسمي.
+
+🔗 {APP_URL}
+
+📍 في حال عدم عمل التطبيق:
+- لابتوب في الصالة الرياضية
+- لابتوب في مقر الكنترول الخارجي"""
                     dep_phones = []
                     for r in missing_depart:
                         eid = str(r.get("الرقم الشخصي","")).strip()
@@ -2496,19 +2507,24 @@ else:
                     emp_wl = get_whitelist().get(eid, {})
                     ph = str(emp_wl.get("رقم التواصل","") or "").strip().replace(" ","")
                     reminded_dep_key = f"reminded_dep_{eid}_{today_str}"
+                    not_req_dep_key  = f"not_req_dep_{eid}_{today_str}"
                     already_reminded_dep = st.session_state.get(reminded_dep_key, False)
+                    not_required_dep     = st.session_state.get(not_req_dep_key, False)
 
-                    if already_reminded_dep:
+                    if not_required_dep:
+                        st.markdown(f'<div style="background:#e2e3e5;border-radius:10px;padding:8px 14px;margin-bottom:6px;font-size:12px;color:#555;font-weight:700;">🚫 غير مطلوبة اليوم — {r.get("الاسم الثلاثي","")} — حضور: {r.get("وقت الحضور","")}</div>', unsafe_allow_html=True)
+                    elif already_reminded_dep:
                         st.markdown(f'<div style="background:#d4edda;border-radius:10px;padding:8px 14px;margin-bottom:6px;font-size:12px;color:#155724;font-weight:700;">✅ تم التذكير — {r.get("الاسم الثلاثي","")} — حضور: {r.get("وقت الحضور","")}</div>', unsafe_allow_html=True)
                     else:
                         st.markdown(f'<div class="warn-row">🚨 {r.get("الاسم الثلاثي","")} — {r.get("اسم المدرسة",r.get("المدرسة",""))} — {r.get("المهمة","")} — حضور: {r.get("وقت الحضور","")}</div>', unsafe_allow_html=True)
-                        c_dep1, c_dep2 = st.columns(2)
+                        c_dep1, c_dep2, c_dep3 = st.columns(3)
                         if ph:
                             if not ph.startswith("973"):
                                 ph = "973" + ph.lstrip("0")
                             dep_wa_msg = f"""السلام عليكم 🌷
 
-لم يُسجَّل انصرافكِ بعد — يُرجى تسجيل الانصراف قبل المغادرة.
+يُرجى تسجيل الانصراف في النظام الإلكتروني قبل مغادرة المركز.
+⚠️ في حال عدم التسجيل سيتم إغلاق سجلك تلقائياً بوقت الانصراف الرسمي.
 
 🔗 {APP_URL}
 
@@ -2517,15 +2533,53 @@ else:
 - لابتوب في مقر الكنترول الخارجي"""
                             dep_wa_url = "https://wa.me/" + ph + "?text=" + urllib.parse.quote(dep_wa_msg)
                             with c_dep1:
-                                st.link_button("📩 تذكير واتساب", dep_wa_url, use_container_width=True)
+                                st.link_button("📩 واتساب", dep_wa_url, use_container_width=True)
                         else:
                             with c_dep1:
-                                st.caption("لا يوجد رقم تواصل")
+                                st.caption("لا يوجد رقم")
                         with c_dep2:
                             if st.button("✅ تم التذكير", key=f"reminded_dep_btn_{eid}_{today_str}", use_container_width=True):
                                 st.session_state[reminded_dep_key] = True
                                 log_audit(eid, r.get("الاسم الثلاثي",""), "تذكير انصراف", "تم التذكير من الداشبورد")
                                 st.rerun()
+            # ── موظفات تكرر إغلاق سجلهن تلقائياً مرتين أو أكثر ──
+            with st.container(border=True):
+                st.markdown("##### 🔁 تكرار الإغلاق التلقائي")
+                all_data = get_sheet_data()
+                auto_close_count = {}
+                for r in all_data:
+                    if str(r.get("إغلاق تلقائي","")).strip():
+                        eid  = str(r.get("الرقم الشخصي","")).strip()
+                        name = str(r.get("الاسم الثلاثي","")).strip()
+                        sch  = str(r.get("اسم المدرسة","")).strip()
+                        if eid:
+                            auto_close_count.setdefault(eid, {"الاسم": name, "المدرسة": sch, "عدد": 0})
+                            auto_close_count[eid]["عدد"] += 1
+
+                repeated = {k:v for k,v in auto_close_count.items() if v["عدد"] >= 2}
+                if not repeated:
+                    st.success("✅ لا يوجد تكرار في الإغلاق التلقائي.")
+                else:
+                    st.warning(f"⚠️ {len(repeated)} موظفة تكرر إغلاق سجلها تلقائياً مرتين أو أكثر.")
+                    for eid, info in sorted(repeated.items(), key=lambda x: -x[1]["عدد"]):
+                        emp_wl = get_whitelist().get(eid, {})
+                        ph = str(emp_wl.get("رقم التواصل","") or "").strip().replace(" ","")
+                        st.markdown(f'<div class="warn-row">🔁 {info["الاسم"]} — #{eid} — {info["المدرسة"]} — تكرر: <b>{info["عدد"]}</b> مرة</div>', unsafe_allow_html=True)
+                        if ph:
+                            if not ph.startswith("973"):
+                                ph = "973" + ph.lstrip("0")
+                            repeat_msg = f"""السلام عليكم 🌷
+
+نود إعلامكِ بأنه تم إغلاق سجل انصرافكِ تلقائياً {info["عدد"]} مرات نظراً لعدم تسجيل الانصراف يدوياً في نظام الحضور.
+
+يُرجى الحرص على تسجيل الانصراف قبل مغادرة المركز يومياً لتجنب احتساب وقت الانصراف الرسمي تلقائياً.
+
+🔗 {APP_URL}"""
+                            repeat_url = "https://wa.me/" + ph + "?text=" + urllib.parse.quote(repeat_msg)
+                            st.link_button(f"📩 إرسال تنبيه لـ {info['الاسم']}", repeat_url, use_container_width=True)
+                        else:
+                            st.caption("لا يوجد رقم تواصل")
+
             if on_leave:
                 st.markdown("#### 📤 استئذان مفتوح — من الأقسام المطلوبة")
                 for r in on_leave:
