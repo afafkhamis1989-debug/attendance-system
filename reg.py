@@ -2285,6 +2285,16 @@ else:
 
         # ── إحصائيات اليوم ──────────────────────────────────────
         if admin_tab=="📊 إحصائيات اليوم":
+            # زر تحديث يدوي
+            col_ref1, col_ref2 = st.columns([3,1])
+            with col_ref2:
+                if st.button("🔄 تحديث البيانات", key="btn_refresh_stats", use_container_width=True):
+                    get_sheet_data.clear()
+                    get_whitelist.clear()
+                    st.rerun()
+            with col_ref1:
+                st.caption("⏱️ البيانات تتحدث تلقائياً كل 5 دقائق — اضغطي تحديث للحصول على أحدث البيانات فوراً.")
+
             data=get_sheet_data()
             today_rows=[r for r in data if r.get("التاريخ")==today_str]
 
