@@ -760,6 +760,60 @@ def mark_care_for_today(emp_id):
 def validate_employee(emp_id):
     return get_whitelist().get(str(emp_id).strip())
 
+
+def is_support_employee_record(emp):
+    """تحديد هل السجل دعم أو عضوة."""
+    try:
+        support_raw = str(emp.get("دعم", "")).strip()
+        task_txt = str(emp.get("المهمة", "")).strip()
+        reg_type = str(emp.get("نوع التسجيل", "")).strip()
+        return is_yes(support_raw) or "دعم" in task_txt or "دعم" in reg_type
+    except Exception:
+        return False
+
+
+def employee_category_label(emp):
+    return "دعم" if is_support_employee_record(emp) else "عضوة"
+
+
+def filter_rows_by_category(rows, category_choice):
+    """فلترة التقارير حسب الأعضاء/الدعم."""
+    if category_choice == "الأعضاء فقط":
+        return [r for r in rows if not is_support_employee_record(r)]
+    if category_choice == "الدعم فقط":
+        return [r for r in rows if is_support_employee_record(r)]
+    return rows
+
+
+def whitelist_options_by_filters(school_filter="الكل", task_filter="الكل"):
+    """إرجاع خيارات أسماء من القائمة البيضاء حسب المدرسة والمهمة."""
+    opts = []
+    for eid, emp in get_whitelist().items():
+        school = str(emp.get("المدرسة", "")).strip()
+        task = str(emp.get("المهمة", "")).strip()
+        name = str(emp.get("الاسم", "")).strip()
+        if school_filter and school_filter != "الكل" and school != school_filter:
+            continue
+        if task_filter and task_filter != "الكل" and task != task_filter:
+            continue
+        if eid and name:
+            opts.append((eid, emp, f"{name} — #{eid} — {school} — {task}"))
+    return sorted(opts, key=lambda x: x[2])
+
+
+def find_whitelist_matches(term, limit=30):
+    """بحث ذكي بالاسم أو الرقم الشخصي من القائمة البيضاء."""
+    term = ar_to_en_digits(str(term or "")).strip()
+    if not term:
+        return []
+    norm_term = normalize_name(term)
+    matches = []
+    for eid, emp in get_whitelist().items():
+        name = str(emp.get("الاسم", "")).strip()
+        if term in str(eid) or norm_term in normalize_name(name):
+            matches.append((eid, emp, f"{name} — #{eid} — {emp.get('المدرسة','')} — {emp.get('المهمة','')}"))
+    return matches[:limit]
+
 def day_ar_from_date(date_obj):
     return {"Saturday":"السبت","Sunday":"الأحد","Monday":"الاثنين","Tuesday":"الثلاثاء","Wednesday":"الأربعاء","Thursday":"الخميس","Friday":"الجمعة"}.get(date_obj.strftime("%A"), date_obj.strftime("%A"))
 
@@ -2717,6 +2771,7 @@ else:
 
                     rpt_school_filter = st.multiselect("فلترة بالمدرسة (اتركي فارغاً للكل)", schools, key="rpt_sch_filter")
                     rpt_task_filter   = st.multiselect("فلترة بالمهمة (اتركي فارغاً للكل)", TASKS_ALL, key="rpt_task_filter")
+                    rpt_category_filter = st.selectbox("نوع الفئة", ["الأعضاء فقط", "الدعم فقط", "الأعضاء + الدعم"], key="rpt_category_filter")
 
                 if st.button("📊 إنشاء التقرير", use_container_width=True, type="primary", key="btn_gen_report"):
                     try:
@@ -2740,6 +2795,7 @@ else:
                             rows = [r for r in rows if str(r.get("اسم المدرسة","")).strip() in rpt_school_filter]
                         if rpt_task_filter:
                             rows = [r for r in rows if str(r.get("المهمة","")).strip() in rpt_task_filter]
+                        rows = filter_rows_by_category(rows, rpt_category_filter)
 
                         if not rows:
                             st.warning("⚠️ لا توجد بيانات للنطاق المحدد.")
@@ -2790,17 +2846,21 @@ else:
                                                 "انصراف":     r.get("وقت الانصراف","—"),
                                                 "ساعات":      r.get("ساعات العمل","—"),
                                                 "إضافي":      r.get("الساعات الإضافية","—") or "—",
+                                                "الفئة":      employee_category_label(r),
+                                                "رعاية":      "نعم" if is_care_day(r) else "لا",
                                                 "نوع الدوام": r.get("نوع الدوام اليومي",""),
                                             })
                                             excel_rows.append({
                                                 "المدرسة": sch, "المهمة": task,
                                                 "الاسم": emp_data["الاسم"], "الرقم الشخصي": eid,
+                                                "الفئة": employee_category_label(r),
                                                 "التاريخ": norm_d(r.get("التاريخ","")),
                                                 "اليوم": r.get("اليوم",""),
                                                 "وقت الحضور": r.get("وقت الحضور",""),
                                                 "وقت الانصراف": r.get("وقت الانصراف",""),
                                                 "ساعات العمل": r.get("ساعات العمل",""),
                                                 "الساعات الإضافية": r.get("الساعات الإضافية","") or "",
+                                                "رعاية": "نعم" if is_care_day(r) else "لا",
                                                 "نوع الدوام": r.get("نوع الدوام اليومي",""),
                                             })
 
@@ -2859,7 +2919,7 @@ else:
 
                                 col_widths = {"المدرسة":28,"المهمة":30,"الاسم":22,"الرقم الشخصي":16,
                                               "التاريخ":14,"اليوم":10,"وقت الحضور":13,"وقت الانصراف":13,
-                                              "ساعات العمل":13,"الساعات الإضافية":16,"نوع الدوام":20}
+                                              "ساعات العمل":13,"الساعات الإضافية":16,"رعاية":10,"نوع الدوام":20}
 
                                 for cell in ws[1]:
                                     cell.font=hfont; cell.fill=hf; cell.alignment=ctr; cell.border=brd
@@ -2889,7 +2949,7 @@ else:
                                     for cell in row_cells:
                                         cell.font=bfont; cell.fill=row_fill; cell.border=brd
                                         hv = str(ws.cell(1,cell.column).value or "")
-                                        cell.alignment = ctr if hv in ["التاريخ","اليوم","وقت الحضور","وقت الانصراف","ساعات العمل","الساعات الإضافية"] else rgt
+                                        cell.alignment = ctr if hv in ["التاريخ","اليوم","وقت الحضور","وقت الانصراف","ساعات العمل","الساعات الإضافية","رعاية"] else rgt
                                         if hv == "الرقم الشخصي":
                                             cell.value=str(cell.value or ""); cell.number_format="@"
 
@@ -2928,6 +2988,7 @@ else:
                         value=now_bh().date(), key="rpt_to_legacy")
                 date_from = rpt_date_from.strftime("%Y-%m-%d")
                 date_to   = rpt_date_to.strftime("%Y-%m-%d")
+                rpt_category_filter2 = st.selectbox("نوع الفئة", ["الأعضاء فقط", "الدعم فقط", "الأعضاء + الدعم"], key="rpt_category_filter2")
 
                 if rpt_view == "📊 تقرير مدرسة":
                     rpt_school = st.selectbox("المدرسة", schools, key="rpt_school_sel")
@@ -2967,6 +3028,7 @@ else:
                         rows = [r for r in rows if str(r.get("اسم المدرسة","")).strip() == rpt_school]
                     elif rpt_view == "👤 تقرير معلمة" and rpt_emp_id:
                         rows = [r for r in rows if str(r.get("الرقم الشخصي","")).strip() == rpt_emp_id]
+                    rows = filter_rows_by_category(rows, rpt_category_filter2)
 
                     if not rows:
                         st.warning("⚠️ لا توجد بيانات للنطاق المحدد.")
@@ -3012,6 +3074,7 @@ else:
                                     "وقت الانصراف":     r.get("وقت الانصراف","—"),
                                     "ساعات العمل":      r.get("ساعات العمل","—"),
                                     "الساعات الإضافية": r.get("الساعات الإضافية","—") or "—",
+                                    "رعاية":            "نعم" if is_care_day(r) else "لا",
                                     "نوع الدوام":       r.get("نوع الدوام اليومي",""),
                                     "حالة الدوام":      r.get("حالة الدوام",""),
                                 })
@@ -3133,7 +3196,7 @@ else:
                                     cell.font=body_font; cell.fill=fl; cell.border=brd
                                     cell.alignment=ctr if str(ws.cell(1,cell.column).value or "") in [
                                         "عدد الأيام","إجمالي ساعات العمل","الساعات الإضافية",
-                                        "وقت الحضور","وقت الانصراف","ساعات العمل","التاريخ","اليوم"
+                                        "وقت الحضور","وقت الانصراف","ساعات العمل","التاريخ","اليوم","رعاية"
                                     ] else rgt
                                     if str(ws.cell(1,cell.column).value or "") == "الرقم الشخصي":
                                         cell.value=str(cell.value or ""); cell.number_format="@"
@@ -3164,6 +3227,42 @@ else:
             # ══════════════════════════════════════════════
             elif rpt_main_tab == "✏️ بحث وتعديل سجل":
                 st.markdown("##### 🔍 بحث وتعديل سجل في شيت1")
+
+                with st.container(border=True):
+                    st.markdown("##### اختيار سريع من القائمة البيضاء")
+                    sel_school_edit = st.selectbox("اختاري المدرسة", ["الكل"] + schools, key="edit_sel_school")
+                    edit_tasks_available = sorted(set(str(e.get("المهمة", "")).strip() for e in get_whitelist().values() if str(e.get("المهمة", "")).strip() and (sel_school_edit == "الكل" or str(e.get("المدرسة", "")).strip() == sel_school_edit)))
+                    sel_task_edit = st.selectbox("اختاري المهمة", ["الكل"] + edit_tasks_available, key="edit_sel_task")
+                    edit_options = whitelist_options_by_filters(sel_school_edit, sel_task_edit)
+                    edit_labels = [x[2] for x in edit_options]
+                    selected_edit_label = st.selectbox("اختاري الاسم", ["اختاري"] + edit_labels, key="edit_sel_emp")
+                    edit_search_term = st.text_input("أو ابحثي بالاسم / الرقم الشخصي", key="edit_smart_search")
+                    edit_search_matches = find_whitelist_matches(edit_search_term) if edit_search_term else []
+                    selected_search_label = st.selectbox("نتائج البحث", ["اختاري"] + [x[2] for x in edit_search_matches], key="edit_search_result") if edit_search_matches else "اختاري"
+                    col_q1, col_q2 = st.columns(2)
+                    with col_q1:
+                        quick_from = st.date_input("من تاريخ", value=now_bh().date().replace(day=1), key="edit_quick_from")
+                    with col_q2:
+                        quick_to = st.date_input("إلى تاريخ", value=now_bh().date(), key="edit_quick_to")
+                    if st.button("🔍 عرض سجلات المختارة", use_container_width=True, type="primary", key="btn_edit_quick_search"):
+                        chosen = selected_search_label if selected_search_label != "اختاري" else selected_edit_label
+                        if chosen == "اختاري":
+                            st.error("❌ اختاري اسمًا أو ابحثي بالرقم/الاسم.")
+                        else:
+                            chosen_id = chosen.split("#")[-1].split("—")[0].strip()
+                            ef = quick_from.strftime("%Y-%m-%d")
+                            et = quick_to.strftime("%Y-%m-%d")
+                            data = get_sheet_data_fresh()
+                            results = []
+                            for i, r in enumerate(data):
+                                d = str(r.get("التاريخ", "")).strip().replace("/", "-")
+                                if ef <= d <= et and str(r.get("الرقم الشخصي", "")).strip() == chosen_id:
+                                    results.append((i+2, r))
+                            if results:
+                                st.session_state.edit_results = results
+                                st.success(f"✅ وجد {len(results)} سجل.")
+                            else:
+                                st.warning("⚠️ لا توجد سجلات لهذه الموظفة في النطاق المحدد.")
 
                 with st.container(border=True):
                     search_by = st.radio("البحث بـ", ["رقم شخصي","اسم","مدرسة"], horizontal=True, key="edit_search_by")
@@ -3228,6 +3327,8 @@ else:
                                 new_exit    = st.text_input("خروج استئذان",    value=str(r.get("خروج استئذان","")).strip(),   key=f"ee_{rn}")
                                 new_return  = st.text_input("عودة",            value=str(r.get("عودة","")).strip(),           key=f"er_{rn}")
                                 new_day_type= st.text_input("نوع الدوام اليومي", value=str(r.get("نوع الدوام اليومي","")).strip(), key=f"edy_{rn}")
+                                care_current = "نعم" if is_care_day(r) else "لا"
+                                new_care_conf = st.selectbox("هل لديها رعاية؟", ["لا", "نعم"], index=1 if care_current == "نعم" else 0, key=f"ecare_{rn}")
 
                             col_s1, col_s2 = st.columns(2)
                             with col_s1:
@@ -3243,6 +3344,8 @@ else:
                                             COL_DEPART_REASON: new_dep_rsn,
                                             COL_EXIT:          new_exit,
                                             COL_RETURN:        new_return,
+                                            COL_CARE_CONF:     new_care_conf,
+                                            COL_DAILY_TYPE:    new_day_type,
                                         }
                                         for col, val in updates.items():
                                             safe_update(sheet, rn, col, val)
@@ -3253,7 +3356,13 @@ else:
                                             "اسم المدرسة":   new_school,
                                             "المهمة":        new_task,
                                             "وقت الحضور":   new_att,
+                                            "سبب التأخير":  new_att_rsn,
                                             "وقت الانصراف": new_dep,
+                                            "سبب الانصراف": new_dep_rsn,
+                                            "خروج استئذان": new_exit,
+                                            "عودة":         new_return,
+                                            "تأكيد الرعاية": new_care_conf,
+                                            "نوع الدوام اليومي": new_day_type,
                                         })
                                         update_work_calculation(rn, new_row)
                                         clear_caches()
@@ -3287,24 +3396,48 @@ else:
                 st.caption("لو سجّلت الموظفة ورقياً وما سجّلت إلكترونياً، أضيفي سجلها هنا.")
 
                 with st.container(border=True):
-                    add_id_raw = st.text_input("الرقم الشخصي *", key="add_id")
-                    add_id = ar_to_en_digits(add_id_raw).strip()
-                    add_emp = validate_employee(add_id) if add_id else None
+                    st.markdown("##### اختيار الموظفة")
+                    add_school_filter = st.selectbox("اختاري المدرسة", ["الكل"] + schools, key="add_sel_school")
+                    add_tasks_available = sorted(set(str(e.get("المهمة", "")).strip() for e in get_whitelist().values() if str(e.get("المهمة", "")).strip() and (add_school_filter == "الكل" or str(e.get("المدرسة", "")).strip() == add_school_filter)))
+                    add_task_filter = st.selectbox("اختاري المهمة", ["الكل"] + add_tasks_available, key="add_sel_task")
+                    add_options = whitelist_options_by_filters(add_school_filter, add_task_filter)
+                    add_labels = [x[2] for x in add_options]
+                    selected_add_label = st.selectbox("اختاري الاسم", ["اختاري"] + add_labels, key="add_sel_emp")
+                    add_search_term = st.text_input("أو ابحثي بالاسم / الرقم الشخصي", key="add_smart_search")
+                    add_search_matches = find_whitelist_matches(add_search_term) if add_search_term else []
+                    selected_add_search_label = st.selectbox("نتائج البحث", ["اختاري"] + [x[2] for x in add_search_matches], key="add_search_result") if add_search_matches else "اختاري"
+
+                    chosen_add_label = selected_add_search_label if selected_add_search_label != "اختاري" else selected_add_label
+                    add_id = ""
+                    add_emp = None
+                    if chosen_add_label != "اختاري":
+                        add_id = chosen_add_label.split("#")[-1].split("—")[0].strip()
+                        add_emp = validate_employee(add_id)
 
                     if add_emp:
-                        st.success(f"✅ {add_emp.get('الاسم','')} — {add_emp.get('المدرسة','')} — {add_emp.get('المهمة','')}")
+                        st.success(f"✅ تم اختيار: {add_emp.get('الاسم','')} — {add_emp.get('المدرسة','')} — {add_emp.get('المهمة','')}")
                         add_name   = add_emp.get("الاسم","")
                         add_school = add_emp.get("المدرسة","")
                         add_task   = add_emp.get("المهمة","")
-                        add_sup    = "نعم" if is_yes(str(add_emp.get("دعم",""))) else "لا"
+                        add_sup    = "نعم" if is_support_employee_record(add_emp) else "لا"
                     else:
-                        if add_id: st.warning("⚠️ الرقم غير موجود — أدخلي البيانات يدوياً.")
-                        add_name   = st.text_input("الاسم الثلاثي *", key="add_name")
-                        add_school = st.selectbox("المدرسة *", schools + ["أخرى"], key="add_school")
-                        if add_school == "أخرى":
-                            add_school = st.text_input("اكتبي اسم المدرسة", key="add_school_other").strip()
-                        add_task   = st.selectbox("المهمة *", TASKS_ALL, key="add_task")
-                        add_sup    = "لا"
+                        add_id_raw = st.text_input("الرقم الشخصي *", key="add_id_manual")
+                        add_id = ar_to_en_digits(add_id_raw).strip()
+                        add_emp_manual = validate_employee(add_id) if add_id else None
+                        if add_emp_manual:
+                            st.success(f"✅ {add_emp_manual.get('الاسم','')} — {add_emp_manual.get('المدرسة','')} — {add_emp_manual.get('المهمة','')}")
+                            add_name   = add_emp_manual.get("الاسم","")
+                            add_school = add_emp_manual.get("المدرسة","")
+                            add_task   = add_emp_manual.get("المهمة","")
+                            add_sup    = "نعم" if is_support_employee_record(add_emp_manual) else "لا"
+                        else:
+                            if add_id: st.warning("⚠️ الرقم غير موجود — أدخلي البيانات يدوياً.")
+                            add_name   = st.text_input("الاسم الثلاثي *", key="add_name")
+                            add_school = st.selectbox("المدرسة *", schools + ["أخرى"], key="add_school")
+                            if add_school == "أخرى":
+                                add_school = st.text_input("اكتبي اسم المدرسة", key="add_school_other").strip()
+                            add_task   = st.selectbox("المهمة *", TASKS_ALL, key="add_task")
+                            add_sup    = "لا"
 
                     add_date = st.date_input("التاريخ *", value=now_bh().date(), key="add_date")
                     add_date_str = add_date.strftime("%Y-%m-%d")
@@ -3320,6 +3453,7 @@ else:
                         add_dep_rsn = st.text_input("سبب الانصراف (اختياري)", key="add_dep_rsn")
                         add_return  = st.text_input("عودة من استئذان (اختياري)", key="add_return")
 
+                    add_care = st.selectbox("هل لديها رعاية؟", ["لا", "نعم"], key="add_care")
                     add_note = st.text_input("ملاحظة", value="تسجيل يدوي من التقارير", key="add_note")
 
                     if st.button("➕ إضافة السجل", use_container_width=True, type="primary", key="btn_add_rec"):
@@ -3327,14 +3461,17 @@ else:
                             st.error("❌ الرقم الشخصي والاسم ووقت الحضور مطلوبة.")
                         else:
                             try:
+                                care_reason = "رعاية" if add_care == "نعم" else add_att_rsn
+                                care_confirm = "نعم" if add_care == "نعم" else ""
+                                daily_type_to_save = "رعاية" if add_care == "نعم" else ""
                                 new_row_data = [
                                     add_date_str, add_day,
                                     add_school, add_task, add_sup,
                                     add_name, add_id,
-                                    add_att, add_att_rsn,
+                                    add_att, care_reason,
                                     add_dep, add_dep_rsn,
                                     add_exit, add_return,
-                                    "","","","","","","","","","",add_note
+                                    "", "", "", "", "", "", daily_type_to_save, "", care_confirm, "تسجيل يدوي من التقارير"
                                 ]
                                 safe_append(sheet, new_row_data)
                                 # إعادة حساب الساعات
