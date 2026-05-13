@@ -360,7 +360,7 @@ def safe_update(ws, row, col, value, retries=3):
         except: time_module.sleep(1.5)
     return False
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def get_sheet_data():
     try: return sheet.get_all_records()
     except: return []
@@ -2520,7 +2520,7 @@ else:
                     st.markdown("---")
 
                 st.markdown("#### 🚨 لم يسجلن الانصراف — تذكير فردي")
-                for r in missing_depart:
+                for ri_dep, r in enumerate(missing_depart):
                     eid = str(r.get("الرقم الشخصي","")).strip()
                     emp_wl = get_whitelist().get(eid, {})
                     ph = str(emp_wl.get("رقم التواصل","") or "").strip().replace(" ","")
@@ -2556,7 +2556,7 @@ else:
                             with c_dep1:
                                 st.caption("لا يوجد رقم")
                         with c_dep2:
-                            if st.button("✅ تم التذكير", key=f"reminded_dep_btn_{eid}_{today_str}", use_container_width=True):
+                            if st.button("✅ تم التذكير", key=f"reminded_dep_btn_{ri_dep}_{eid}_{today_str}", use_container_width=True):
                                 st.session_state[reminded_dep_key] = True
                                 log_audit(eid, r.get("الاسم الثلاثي",""), "تذكير انصراف", "تم التذكير من الداشبورد")
                                 st.rerun()
