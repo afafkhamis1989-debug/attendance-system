@@ -52,7 +52,7 @@ ALLOWED_RADIUS = 1000
 ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "Afaf1234")
 DEVICE_COOLDOWN_MINUTES = 10  # لم يعد مستخدماً كمهلة أساسية؛ القفل الآن طوال اليوم إلا إذا عطله الأدمن
 DEVICE_LOCK_STRICT_FULL_DAY = True
-APP_URL = "ضعوا رابط النظام هنا"
+APP_URL = "https://attendance-jsgs.streamlit.app/"
 
 # أعمدة sheet1
 COL_DATE=1; COL_DAY=2; COL_SCHOOL=3; COL_TASK=4; COL_SUPPORT=5
@@ -2369,15 +2369,18 @@ else:
 
                     # ── زر نسخ الكل ──────────────────────────────
                     bulk_msg = f"""السلام عليكم 🌷
-نلاحظ عدم تسجيل حضوركِ في نظام الحضور والانصراف لهذا اليوم.
 
-يرجى الدخول للنظام الآن. إذا كنتِ في المركز ولم يعمل معكِ التسجيل، اختاري: 🆘 مشكلة في التسجيل.
+نود إعلامكِ بأن تسجيل الحضور في نظام الحضور والانصراف الإلكتروني أصبح إلزامياً، وسيكون هو المرجع الرسمي المعتمد.
+الورقي سيكون مرجعاً احتياطياً فقط عند الحاجة وليس أساس الاعتماد.
 
-رابط النظام:
+يرجى تسجيل حضوركِ الآن عبر الرابط:
 {APP_URL}
+
 📍 في حال عدم عمل التطبيق على هاتفك:
-- يوجد جهاز لابتوب في الصالة الرياضية
-- يوجد جهاز في مقر الكنترول الخارجي"""
+- يوجد جهاز لابتوب خاص بالمركز في الصالة الرياضية
+- يوجد جهاز في مقر الكنترول الخارجي
+
+إذا واجهتِ أي مشكلة في التسجيل، اختاري: 💬 الدعم الفني داخل النظام."""
                     phones_list = []
                     for eid, emp in not_checked_in.items():
                         ph = str(emp.get("رقم التواصل","") or "").strip().replace(" ","")
@@ -2409,17 +2412,18 @@ else:
                             st.markdown(f'<div class="warn-row">🚨 {emp.get("الاسم", "")} — #{eid} — {emp.get("المدرسة", "")} — {emp.get("المهمة", "")}</div>', unsafe_allow_html=True)
                             phone_raw = str(emp.get("رقم التواصل", "") or "").strip().replace(" ", "")
                             msg = f"""السلام عليكم 🌷
-نلاحظ عدم تسجيل حضوركِ في نظام الحضور والانصراف لهذا اليوم.
 
-يرجى الدخول للنظام الآن. إذا كنتِ في المركز ولم يعمل معكِ التسجيل، اختاري: 🆘 مشكلة في التسجيل. سيتم إرسال وقت الطلب تلقائيًا للأدمن لاعتماده.
+نود إعلامكِ بأن تسجيل الحضور في نظام الحضور والانصراف الإلكتروني أصبح إلزامياً، وسيكون هو المرجع الرسمي المعتمد.
+الورقي سيكون مرجعاً احتياطياً فقط عند الحاجة وليس أساس الاعتماد.
 
-أما إذا لم تحضري بعد، يرجى تسجيل الحضور عند الوصول للمركز فقط.
-
-رابط النظام:
+يرجى تسجيل حضوركِ الآن عبر الرابط:
 {APP_URL}
+
 📍 في حال عدم عمل التطبيق على هاتفك:
-- يوجد جهاز لابتوب في الصالة الرياضية
-- يوجد جهاز في مقر الكنترول الخارجي"""
+- يوجد جهاز لابتوب خاص بالمركز في الصالة الرياضية
+- يوجد جهاز في مقر الكنترول الخارجي
+
+إذا واجهتِ أي مشكلة في التسجيل، اختاري: 💬 الدعم الفني داخل النظام."""
                             cwa1, cwa2 = st.columns(2)
                             if phone_raw:
                                 if not phone_raw.startswith("973"):
@@ -2431,7 +2435,7 @@ else:
                                 with cwa1:
                                     st.caption("لا يوجد رقم تواصل")
                             with cwa2:
-                                if st.button("✅ تم التذكير", key=f"reminder_sent_{eid}", use_container_width=True):
+                                if st.button("✅ تم التذكير", key=f"reminder_sent_{eid}_{today_str}", use_container_width=True):
                                     st.session_state[reminded_key] = True
                                     log_audit(eid, emp.get("الاسم", ""), "إرسال تذكير عدم تسجيل", "تم التذكير من الداشبورد")
                                     st.rerun()
@@ -2507,12 +2511,14 @@ else:
                             if not ph.startswith("973"):
                                 ph = "973" + ph.lstrip("0")
                             dep_wa_msg = f"""السلام عليكم 🌷
-تذكير: يرجى تسجيل الانصراف في نظام الحضور قبل مغادرة المركز.
+
+تذكير: يرجى تسجيل الانصراف في نظام الحضور والانصراف الإلكتروني قبل مغادرة المركز.
 
 رابط النظام:
 {APP_URL}
+
 📍 في حال عدم عمل التطبيق على هاتفك:
-- يوجد جهاز لابتوب في الصالة الرياضية
+- يوجد جهاز لابتوب خاص بالمركز في الصالة الرياضية
 - يوجد جهاز في مقر الكنترول الخارجي"""
                             dep_wa_url = "https://wa.me/" + ph + "?text=" + urllib.parse.quote(dep_wa_msg)
                             with c_dep1:
@@ -2521,7 +2527,7 @@ else:
                             with c_dep1:
                                 st.caption("لا يوجد رقم تواصل")
                         with c_dep2:
-                            if st.button("✅ تم التذكير", key=f"reminded_dep_{eid}", use_container_width=True):
+                            if st.button("✅ تم التذكير", key=f"reminded_dep_btn_{eid}_{today_str}", use_container_width=True):
                                 st.session_state[reminded_dep_key] = True
                                 log_audit(eid, r.get("الاسم الثلاثي",""), "تذكير انصراف", "تم التذكير من الداشبورد")
                                 st.rerun()
@@ -2555,7 +2561,218 @@ else:
 
             # ══════════════════════════════════════════════
             if rpt_main_tab == "📊 التقارير":
+                with st.container(border=True):
+                    st.markdown("##### 🔍 تحديد نطاق التقرير")
 
+                    col_r1, col_r2 = st.columns(2)
+                    with col_r1:
+                        rpt_date_from = st.date_input("من تاريخ",
+                            value=now_bh().date().replace(day=1), key="rpt_from")
+                    with col_r2:
+                        rpt_date_to = st.date_input("إلى تاريخ",
+                            value=now_bh().date(), key="rpt_to")
+                    date_from = rpt_date_from.strftime("%Y-%m-%d")
+                    date_to   = rpt_date_to.strftime("%Y-%m-%d")
+
+                    rpt_school_filter = st.multiselect("فلترة بالمدرسة (اتركي فارغاً للكل)", schools, key="rpt_sch_filter")
+                    rpt_task_filter   = st.multiselect("فلترة بالمهمة (اتركي فارغاً للكل)", TASKS_ALL, key="rpt_task_filter")
+
+                if st.button("📊 إنشاء التقرير", use_container_width=True, type="primary", key="btn_gen_report"):
+                    try:
+                        data = get_sheet_data()
+                        def norm_d(d): return str(d).strip().replace("/","-")
+                        def parse_mins(val):
+                            try:
+                                if not val or str(val).strip() in ["","0:00","00:00"]: return 0
+                                p = str(val).strip().split(":")
+                                return int(p[0])*60 + int(p[1])
+                            except: return 0
+                        def fmt_m(m):
+                            if m <= 0: return "—"
+                            return f"{m//60}:{m%60:02d}"
+
+                        # فلترة
+                        rows = [r for r in data
+                                if date_from <= norm_d(r.get("التاريخ","")) <= date_to
+                                and r.get("وقت الحضور","")]
+                        if rpt_school_filter:
+                            rows = [r for r in rows if str(r.get("اسم المدرسة","")).strip() in rpt_school_filter]
+                        if rpt_task_filter:
+                            rows = [r for r in rows if str(r.get("المهمة","")).strip() in rpt_task_filter]
+
+                        if not rows:
+                            st.warning("⚠️ لا توجد بيانات للنطاق المحدد.")
+                        else:
+                            # بناء هيكل: مدرسة → مهمة → موظفة → أيام
+                            structure = {}
+                            for r in rows:
+                                sch  = str(r.get("اسم المدرسة","")).strip() or "غير محدد"
+                                task = str(r.get("المهمة","")).strip() or "غير محدد"
+                                eid  = str(r.get("الرقم الشخصي","")).strip()
+                                name = str(r.get("الاسم الثلاثي","")).strip()
+
+                                structure.setdefault(sch, {})
+                                structure[sch].setdefault(task, {})
+                                structure[sch][task].setdefault(eid, {"الاسم": name, "أيام": []})
+                                structure[sch][task][eid]["أيام"].append(r)
+
+                            grand_work = 0; grand_extra = 0
+                            excel_rows = []  # لتصدير Excel
+
+                            for sch in sorted(structure.keys()):
+                                st.markdown(f"""
+                                <div style="background:#0c3460;color:#fff;border-radius:10px;
+                                padding:10px 16px;margin:20px 0 8px 0;direction:rtl;font-size:15px;font-weight:700;">
+                                🏫 {sch}
+                                </div>""", unsafe_allow_html=True)
+
+                                sch_work = 0; sch_extra = 0
+
+                                for task in sorted(structure[sch].keys()):
+                                    st.markdown(f'<div style="background:#185FA5;color:#fff;border-radius:8px;padding:6px 14px;margin:8px 0 4px 0;direction:rtl;font-size:13px;font-weight:700;">📋 {task}</div>', unsafe_allow_html=True)
+
+                                    task_work = 0; task_extra = 0
+
+                                    for eid, emp_data in sorted(structure[sch][task].items(), key=lambda x: x[1]["الاسم"]):
+                                        emp_work = 0; emp_extra = 0
+                                        day_rows = []
+
+                                        for r in sorted(emp_data["أيام"], key=lambda x: norm_d(x.get("التاريخ",""))):
+                                            wm = parse_mins(r.get("ساعات العمل",""))
+                                            em = parse_mins(r.get("الساعات الإضافية",""))
+                                            emp_work  += wm
+                                            emp_extra += em
+                                            day_rows.append({
+                                                "التاريخ":    norm_d(r.get("التاريخ","")),
+                                                "اليوم":      r.get("اليوم",""),
+                                                "حضور":       r.get("وقت الحضور","—"),
+                                                "انصراف":     r.get("وقت الانصراف","—"),
+                                                "ساعات":      r.get("ساعات العمل","—"),
+                                                "إضافي":      r.get("الساعات الإضافية","—") or "—",
+                                                "نوع الدوام": r.get("نوع الدوام اليومي",""),
+                                            })
+                                            excel_rows.append({
+                                                "المدرسة": sch, "المهمة": task,
+                                                "الاسم": emp_data["الاسم"], "الرقم الشخصي": eid,
+                                                "التاريخ": norm_d(r.get("التاريخ","")),
+                                                "اليوم": r.get("اليوم",""),
+                                                "وقت الحضور": r.get("وقت الحضور",""),
+                                                "وقت الانصراف": r.get("وقت الانصراف",""),
+                                                "ساعات العمل": r.get("ساعات العمل",""),
+                                                "الساعات الإضافية": r.get("الساعات الإضافية","") or "",
+                                                "نوع الدوام": r.get("نوع الدوام اليومي",""),
+                                            })
+
+                                        task_work  += emp_work
+                                        task_extra += emp_extra
+
+                                        with st.expander(f"👤 {emp_data['الاسم']} — {fmt_m(emp_work)} عمل | {fmt_m(emp_extra)} إضافي", expanded=False):
+                                            df_emp = pd.DataFrame(day_rows)
+                                            st.dataframe(df_emp, use_container_width=True, hide_index=True)
+                                            c1,c2,c3 = st.columns(3)
+                                            c1.metric("عدد الأيام", len(day_rows))
+                                            c2.metric("إجمالي ساعات العمل", fmt_m(emp_work))
+                                            c3.metric("إجمالي الإضافي", fmt_m(emp_extra))
+
+                                    sch_work  += task_work
+                                    sch_extra += task_extra
+                                    st.markdown(f'<div style="background:#f0f4f8;border-radius:8px;padding:6px 14px;font-size:12px;direction:rtl;color:#444;">إجمالي {task}: ساعات عمل <b>{fmt_m(task_work)}</b> | إضافي <b>{fmt_m(task_extra)}</b></div>', unsafe_allow_html=True)
+
+                                grand_work  += sch_work
+                                grand_extra += sch_extra
+                                st.markdown(f'<div style="background:#0c3460;color:#fff;border-radius:8px;padding:8px 14px;font-size:13px;direction:rtl;margin-bottom:8px;">إجمالي {sch}: ساعات عمل <b>{fmt_m(sch_work)}</b> | إضافي <b>{fmt_m(sch_extra)}</b></div>', unsafe_allow_html=True)
+
+                            # الإجمالي الكلي
+                            st.markdown("---")
+                            c1,c2,c3 = st.columns(3)
+                            c1.metric("إجمالي السجلات", len(rows))
+                            c2.metric("إجمالي ساعات العمل الكلي", fmt_m(grand_work))
+                            c3.metric("إجمالي الساعات الإضافية الكلي", fmt_m(grand_extra))
+
+                            # ── تصدير Excel ──
+                            st.markdown("---")
+                            try:
+                                from openpyxl import load_workbook
+                                from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+                                from openpyxl.utils import get_column_letter
+
+                                buf = BytesIO()
+                                with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                                    pd.DataFrame(excel_rows).to_excel(writer, index=False, sheet_name="التقرير التفصيلي")
+
+                                buf.seek(0)
+                                wb = load_workbook(buf)
+                                ws = wb["التقرير التفصيلي"]
+                                ws.sheet_view.rightToLeft = True
+                                ws.freeze_panes = "A2"
+
+                                hf = PatternFill("solid", fgColor="0C3460")
+                                hfont = Font(name="Arial", bold=True, color="FFFFFF", size=11)
+                                bfont = Font(name="Arial", size=10)
+                                af = PatternFill("solid", fgColor="F5F5F5")
+                                wf = PatternFill("solid", fgColor="FFFFFF")
+                                thin = Side(style="thin", color="CCCCCC")
+                                brd  = Border(left=thin, right=thin, top=thin, bottom=thin)
+                                ctr  = Alignment(horizontal="center", vertical="center", wrap_text=True, readingOrder=2)
+                                rgt  = Alignment(horizontal="right",  vertical="center", wrap_text=True, readingOrder=2)
+
+                                col_widths = {"المدرسة":28,"المهمة":30,"الاسم":22,"الرقم الشخصي":16,
+                                              "التاريخ":14,"اليوم":10,"وقت الحضور":13,"وقت الانصراف":13,
+                                              "ساعات العمل":13,"الساعات الإضافية":16,"نوع الدوام":20}
+
+                                for cell in ws[1]:
+                                    cell.font=hfont; cell.fill=hf; cell.alignment=ctr; cell.border=brd
+                                    hv = str(cell.value or "")
+                                    ws.column_dimensions[get_column_letter(cell.column)].width = col_widths.get(hv, 16)
+                                ws.row_dimensions[1].height = 28
+
+                                prev_sch = prev_task = prev_name = ""
+                                for ri, row_cells in enumerate(ws.iter_rows(min_row=2), 2):
+                                    ws.row_dimensions[ri].height = 18
+                                    cur_sch  = str(ws.cell(ri,1).value or "")
+                                    cur_task = str(ws.cell(ri,2).value or "")
+                                    cur_name = str(ws.cell(ri,3).value or "")
+
+                                    # لون حسب المجموعة
+                                    if cur_sch != prev_sch:
+                                        row_fill = PatternFill("solid", fgColor="D6E4F0")
+                                    elif cur_task != prev_task:
+                                        row_fill = PatternFill("solid", fgColor="EAF3DE")
+                                    elif cur_name != prev_name:
+                                        row_fill = wf if ri%2==0 else af
+                                    else:
+                                        row_fill = wf if ri%2==0 else af
+
+                                    prev_sch = cur_sch; prev_task = cur_task; prev_name = cur_name
+
+                                    for cell in row_cells:
+                                        cell.font=bfont; cell.fill=row_fill; cell.border=brd
+                                        hv = str(ws.cell(1,cell.column).value or "")
+                                        cell.alignment = ctr if hv in ["التاريخ","اليوم","وقت الحضور","وقت الانصراف","ساعات العمل","الساعات الإضافية"] else rgt
+                                        if hv == "الرقم الشخصي":
+                                            cell.value=str(cell.value or ""); cell.number_format="@"
+
+                                ws.page_setup.orientation="landscape"; ws.page_setup.paperSize=9
+                                ws.page_setup.fitToPage=True; ws.page_setup.fitToWidth=1
+                                ws.print_title_rows="1:1"
+                                ws.oddHeader.center.text = f"مركز جدحفص الثانوية للتصحيح المركزي\nنظام الحضور والانصراف — {date_from} إلى {date_to}"
+                                ws.oddHeader.center.font = "Arial,Bold"
+                                ws.oddHeader.right.text  = "تصميم وبرمجة: أ. عفاف حسين"
+                                ws.oddFooter.right.text  = "صفحة &P من &N"
+                                ws.oddFooter.left.text   = "رئيسة المركز: أ. خلود يعقوب بدو"
+                                ws.oddFooter.left.font   = "Arial,Bold"
+
+                                buf2 = BytesIO(); wb.save(buf2); buf2.seek(0)
+                                st.download_button("📥 تحميل Excel — منسق وجاهز للطباعة",
+                                    data=buf2,
+                                    file_name=f"تقرير_تفصيلي_{date_from}_{date_to}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    use_container_width=True)
+                            except Exception as e:
+                                st.warning(f"⚠️ تعذّر إنشاء Excel: {e}")
+
+                    except Exception as e:
+                        st.error(f"❌ خطأ: {e}")
 
                 rpt_view = st.radio("نوع العرض", [
                     "📊 تقرير مدرسة", "👤 تقرير معلمة", "🏫 كل المدارس"
