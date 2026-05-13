@@ -1585,6 +1585,7 @@ default_state={
     "_loc_step_initialized": False,
     "_emp_session_active": False,
     "_trusted_cleared": False,
+    "edit_results": None,
 }
 for k,v in default_state.items():
     if k not in st.session_state: st.session_state[k]=v
@@ -2544,249 +2545,450 @@ else:
 
         # ── التقارير ──────────────────────────────────────────────
         elif admin_tab=="📑 التقارير":
-            st.markdown("#### 📑 التقارير")
+            st.markdown("#### 📑 التقارير والتعديل")
 
-            # فلاتر
-            col_f1, col_f2, col_f3 = st.columns(3)
-            with col_f1:
-                report_type = st.selectbox("نوع التقرير", ["يومي", "أسبوعي", "شهري", "نطاق مخصص"], key="rpt_type")
-            with col_f2:
-                if report_type == "يومي":
-                    rpt_date = st.date_input("التاريخ", value=now_bh().date(), key="rpt_date_single")
-                    date_from = date_to = rpt_date.strftime("%Y-%m-%d")
-                elif report_type == "أسبوعي":
-                    week_start = now_bh().date() - timedelta(days=now_bh().date().weekday())
-                    rpt_date = st.date_input("بداية الأسبوع", value=week_start, key="rpt_week")
-                    date_from = rpt_date.strftime("%Y-%m-%d")
-                    date_to   = (rpt_date + timedelta(days=6)).strftime("%Y-%m-%d")
-                elif report_type == "شهري":
-                    rpt_month = st.selectbox("الشهر", [f"{now_bh().year}-{m:02d}" for m in range(1,13)],
-                                             index=now_bh().month-1, key="rpt_month")
-                    date_from = f"{rpt_month}-01"
-                    date_to   = f"{rpt_month}-31"
+            rpt_main_tab = st.selectbox("القسم", [
+                "📊 التقارير",
+                "✏️ بحث وتعديل سجل",
+                "➕ إضافة سجل جديد",
+            ], key="rpt_main_tab")
+
+            # ══════════════════════════════════════════════
+            if rpt_main_tab == "📊 التقارير":
+
+
+                rpt_view = st.radio("نوع العرض", [
+                    "📊 تقرير مدرسة", "👤 تقرير معلمة", "🏫 كل المدارس"
+                ], horizontal=True, key="rpt_view")
+
+                col_r1, col_r2 = st.columns(2)
+                with col_r1:
+                    rpt_date_from = st.date_input("من تاريخ",
+                        value=now_bh().date().replace(day=1), key="rpt_from")
+                with col_r2:
+                    rpt_date_to = st.date_input("إلى تاريخ",
+                        value=now_bh().date(), key="rpt_to")
+                date_from = rpt_date_from.strftime("%Y-%m-%d")
+                date_to   = rpt_date_to.strftime("%Y-%m-%d")
+
+                if rpt_view == "📊 تقرير مدرسة":
+                    rpt_school = st.selectbox("المدرسة", schools, key="rpt_school_sel")
+                    rpt_emp_id = None
+                elif rpt_view == "👤 تقرير معلمة":
+                    rpt_emp_raw = st.text_input("الرقم الشخصي أو الاسم", key="rpt_emp_input")
+                    rpt_emp_id  = ar_to_en_digits(rpt_emp_raw).strip()
+                    rpt_school  = None
+                    if rpt_emp_id:
+                        f_emp = validate_employee(rpt_emp_id)
+                        if f_emp:
+                            st.success(f"✅ {f_emp.get('الاسم','')} — {f_emp.get('المدرسة','')}")
+                        else:
+                            # بحث بالاسم
+                            wl_all = get_whitelist()
+                            matches = [(eid,e) for eid,e in wl_all.items()
+                                       if rpt_emp_raw.strip() in str(e.get("الاسم",""))]
+                            if matches:
+                                names = [f"{e.get('الاسم','')} (#{eid})" for eid,e in matches[:5]]
+                                sel   = st.selectbox("اختاري الموظفة", names, key="rpt_emp_match")
+                                rpt_emp_id = sel.split("(#")[-1].rstrip(")")
                 else:
-                    rpt_date = st.date_input("من", value=now_bh().date(), key="rpt_from")
-                    date_from = rpt_date.strftime("%Y-%m-%d")
-                    date_to   = date_from
-            with col_f3:
-                if report_type == "نطاق مخصص":
-                    rpt_date_to = st.date_input("إلى", value=now_bh().date(), key="rpt_to")
-                    date_to = rpt_date_to.strftime("%Y-%m-%d")
-
-            rpt_school = st.selectbox("المدرسة", ["الكل"] + schools, key="rpt_school")
+                    rpt_school = "الكل"
+                    rpt_emp_id = None
 
             if st.button("📊 إنشاء التقرير", use_container_width=True, type="primary", key="btn_gen_report"):
                 try:
                     data = get_sheet_data()
+                    def norm_date(d): return str(d).strip().replace("/","-")
 
-                    def normalize_date(d):
-                        return str(d).strip().replace("/","-")
-
+                    # فلترة البيانات
                     rows = [r for r in data
-                            if date_from <= normalize_date(r.get("التاريخ","")) <= date_to
-                            and (rpt_school == "الكل" or str(r.get("اسم المدرسة","")).strip() == rpt_school)]
+                            if date_from <= norm_date(r.get("التاريخ","")) <= date_to
+                            and r.get("وقت الحضور","")]
+
+                    if rpt_view == "📊 تقرير مدرسة":
+                        rows = [r for r in rows if str(r.get("اسم المدرسة","")).strip() == rpt_school]
+                    elif rpt_view == "👤 تقرير معلمة" and rpt_emp_id:
+                        rows = [r for r in rows if str(r.get("الرقم الشخصي","")).strip() == rpt_emp_id]
 
                     if not rows:
                         st.warning("⚠️ لا توجد بيانات للنطاق المحدد.")
                     else:
-                        st.success(f"✅ تم تحميل {len(rows)} سجل.")
+                        def parse_hours(val):
+                            try:
+                                if not val or str(val).strip() in ["","0:00","00:00"]: return 0
+                                parts = str(val).strip().split(":")
+                                return int(parts[0])*60 + int(parts[1])
+                            except: return 0
 
-                        # ── ملخص إجمالي ──
-                        total     = len(rows)
-                        attended  = len([r for r in rows if r.get("وقت الحضور","")])
-                        departed  = len([r for r in rows if r.get("وقت الانصراف","")])
-                        late      = len([r for r in rows if is_late_for_statistics(r)])
-                        auto_cls  = len([r for r in rows if str(r.get("إغلاق تلقائي","")).strip()])
-                        no_gps    = len([r for r in rows if "GPS" in str(r.get("محاولة","")) or "GPS" in str(r.get("سبب التأخير",""))])
-                        extra_hrs_rows = [r for r in rows if r.get("الساعات الإضافية","") and str(r.get("الساعات الإضافية","")).strip() not in ["","0:00","00:00"]]
+                        def fmt_mins(m):
+                            if m <= 0: return "—"
+                            return f"{m//60}:{m%60:02d}"
 
-                        c1,c2,c3,c4 = st.columns(4)
-                        c1.metric("إجمالي السجلات", total)
-                        c2.metric("سجّلن حضور", attended)
-                        c3.metric("سجّلن انصراف", departed)
-                        c4.metric("حالات تأخير", late)
-                        c5,c6,c7,c8 = st.columns(4)
-                        c5.metric("إغلاق تلقائي", auto_cls)
-                        c6.metric("بدون GPS", no_gps)
-                        c7.metric("لديهن ساعات إضافية", len(extra_hrs_rows))
-                        c8.metric("نطاق التاريخ", f"{date_from} → {date_to}")
+                        # ══════════════════════════════
+                        # تقرير معلمة واحدة
+                        # ══════════════════════════════
+                        if rpt_view == "👤 تقرير معلمة":
+                            emp_name   = str(rows[0].get("الاسم الثلاثي","")).strip()
+                            emp_school = str(rows[0].get("اسم المدرسة","")).strip()
+                            emp_task   = str(rows[0].get("المهمة","")).strip()
 
+                            st.markdown(f"""
+                            <div style="background:#0c3460;color:#fff;border-radius:12px;padding:14px 18px;margin-bottom:16px;direction:rtl;">
+                            <b>👤 {emp_name}</b> — {emp_school} — {emp_task}<br>
+                            <small>من {date_from} إلى {date_to}</small>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                            total_work = 0; total_extra = 0; total_days = 0
+                            df_rows = []
+                            for r in sorted(rows, key=lambda x: norm_date(x.get("التاريخ",""))):
+                                work_m  = parse_hours(r.get("ساعات العمل",""))
+                                extra_m = parse_hours(r.get("الساعات الإضافية",""))
+                                total_work  += work_m
+                                total_extra += extra_m
+                                total_days  += 1
+                                df_rows.append({
+                                    "التاريخ":          norm_date(r.get("التاريخ","")),
+                                    "اليوم":            r.get("اليوم",""),
+                                    "وقت الحضور":       r.get("وقت الحضور","—"),
+                                    "وقت الانصراف":     r.get("وقت الانصراف","—"),
+                                    "ساعات العمل":      r.get("ساعات العمل","—"),
+                                    "الساعات الإضافية": r.get("الساعات الإضافية","—") or "—",
+                                    "نوع الدوام":       r.get("نوع الدوام اليومي",""),
+                                    "حالة الدوام":      r.get("حالة الدوام",""),
+                                })
+
+                            df = pd.DataFrame(df_rows)
+                            st.dataframe(df, use_container_width=True, hide_index=True)
+
+                            c1,c2,c3 = st.columns(3)
+                            c1.metric("عدد الأيام", total_days)
+                            c2.metric("إجمالي ساعات العمل", fmt_mins(total_work))
+                            c3.metric("إجمالي الساعات الإضافية", fmt_mins(total_extra))
+
+                        # ══════════════════════════════
+                        # تقرير مدرسة أو كل المدارس
+                        # ══════════════════════════════
+                        else:
+                            # تجميع حسب المدرسة ثم الموظفة
+                            school_emp = {}
+                            for r in rows:
+                                sch = str(r.get("اسم المدرسة","")).strip() or "غير محدد"
+                                eid = str(r.get("الرقم الشخصي","")).strip()
+                                if sch not in school_emp:
+                                    school_emp[sch] = {}
+                                if eid not in school_emp[sch]:
+                                    school_emp[sch][eid] = {
+                                        "الاسم":    str(r.get("الاسم الثلاثي","")).strip(),
+                                        "المهمة":   str(r.get("المهمة","")).strip(),
+                                        "أيام":     0,
+                                        "work_m":   0,
+                                        "extra_m":  0,
+                                        "تواريخ":   [],
+                                    }
+                                school_emp[sch][eid]["أيام"]   += 1
+                                school_emp[sch][eid]["work_m"]  += parse_hours(r.get("ساعات العمل",""))
+                                school_emp[sch][eid]["extra_m"] += parse_hours(r.get("الساعات الإضافية",""))
+                                school_emp[sch][eid]["تواريخ"].append(norm_date(r.get("التاريخ","")))
+
+                            grand_total_extra = 0
+
+                            for sch in sorted(school_emp.keys()):
+                                emps = school_emp[sch]
+                                sch_extra = sum(e["extra_m"] for e in emps.values())
+                                grand_total_extra += sch_extra
+
+                                st.markdown(f"""
+                                <div style="background:#0c3460;color:#fff;border-radius:10px;padding:10px 16px;margin:16px 0 8px 0;direction:rtl;">
+                                <b>🏫 {sch}</b> — {len(emps)} معلمة — إجمالي إضافي: <b>{fmt_mins(sch_extra)}</b>
+                                </div>
+                                """, unsafe_allow_html=True)
+
+                                sch_rows = []
+                                for eid, emp in sorted(emps.items(), key=lambda x: x[1]["الاسم"]):
+                                    sch_rows.append({
+                                        "الاسم":              emp["الاسم"],
+                                        "الرقم الشخصي":       eid,
+                                        "المهمة":             emp["المهمة"],
+                                        "عدد الأيام":         emp["أيام"],
+                                        "إجمالي ساعات العمل": fmt_mins(emp["work_m"]),
+                                        "الساعات الإضافية":   fmt_mins(emp["extra_m"]),
+                                    })
+                                st.dataframe(pd.DataFrame(sch_rows), use_container_width=True, hide_index=True)
+
+                            if rpt_view == "🏫 كل المدارس":
+                                st.metric("إجمالي الساعات الإضافية — كل المدارس", fmt_mins(grand_total_extra))
+
+                        # ── تصدير Excel ──────────────────────────────
                         st.markdown("---")
-
-                        # ── ترتيب البيانات: المهمة ← المدرسة ← وقت الحضور ──
-                        rows_sorted = sorted(rows, key=lambda r: (
-                            str(r.get("اسم المدرسة","")).strip(),
-                            str(r.get("المهمة","")).strip(),
-                            str(r.get("وقت الحضور","")).strip(),
-                        ))
-
-                        # ── جدول تفصيلي ──
-                        st.markdown("##### تفاصيل السجلات")
-                        cols_show = ["التاريخ","اليوم","اسم المدرسة","المهمة","الاسم الثلاثي","الرقم الشخصي",
-                                     "وقت الحضور","وقت الانصراف","ساعات العمل","الساعات الإضافية","حالة الدوام","نوع الدوام اليومي"]
-                        df_rows = []
-                        for r in rows_sorted:
-                            row_d = {c: r.get(c,"") for c in cols_show}
-                            row_d["الرقم الشخصي"] = str(r.get("الرقم الشخصي","")).strip()
-                            df_rows.append(row_d)
-                        df = pd.DataFrame(df_rows)
-                        st.dataframe(df, use_container_width=True, hide_index=True)
-
-                        # ── تصدير Excel منسق ──
-                        st.markdown("##### تصدير")
                         try:
                             from openpyxl import load_workbook
-                            from openpyxl.styles import (
-                                Font, Alignment, PatternFill, Border, Side, GradientFill
-                            )
+                            from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
                             from openpyxl.utils import get_column_letter
 
                             buf = BytesIO()
-                            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-                                df.to_excel(writer, index=False, sheet_name="التقرير")
-                                # ── ملخص موظفة ──
-                                emp_sum_rows = []
-                                for r in rows:
-                                    eid  = str(r.get("الرقم الشخصي","")).strip()
-                                    name = str(r.get("الاسم الثلاثي","")).strip()
-                                    if not eid: continue
-                                    found = next((x for x in emp_sum_rows if x["الرقم الشخصي"]==eid), None)
-                                    if not found:
-                                        found = {"الرقم الشخصي": eid, "الاسم": name, "عدد الأيام": 0,
-                                                 "أيام التأخير": 0, "إغلاق تلقائي": 0}
-                                        emp_sum_rows.append(found)
-                                    found["عدد الأيام"] += 1
-                                    if is_late_for_statistics(r): found["أيام التأخير"] += 1
-                                    if str(r.get("إغلاق تلقائي","")).strip(): found["إغلاق تلقائي"] += 1
-                                if emp_sum_rows:
-                                    pd.DataFrame(emp_sum_rows).to_excel(writer, index=False, sheet_name="ملخص الموظفات")
+                            if rpt_view == "👤 تقرير معلمة":
+                                export_rows = df_rows
+                            else:
+                                export_rows = []
+                                for sch in sorted(school_emp.keys()):
+                                    for eid, emp in sorted(school_emp[sch].items(), key=lambda x: x[1]["الاسم"]):
+                                        export_rows.append({
+                                            "المدرسة":            sch,
+                                            "الاسم":              emp["الاسم"],
+                                            "الرقم الشخصي":       eid,
+                                            "المهمة":             emp["المهمة"],
+                                            "عدد الأيام":         emp["أيام"],
+                                            "إجمالي ساعات العمل": fmt_mins(emp["work_m"]),
+                                            "الساعات الإضافية":   fmt_mins(emp["extra_m"]),
+                                        })
 
-                            # ── تنسيق الملف ──
+                            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                                pd.DataFrame(export_rows).to_excel(writer, index=False, sheet_name="التقرير")
+
                             buf.seek(0)
                             wb = load_workbook(buf)
+                            ws = wb["التقرير"]
+                            ws.sheet_view.rightToLeft = True
+                            ws.freeze_panes = "A2"
 
-                            # ألوان
-                            header_fill   = PatternFill("solid", fgColor="0C3460")   # أزرق داكن للهيدر
-                            white_fill    = PatternFill("solid", fgColor="FFFFFF")
-                            alt_fill      = PatternFill("solid", fgColor="F5F5F5")   # رمادي خفيف للصفوف الزوجية
+                            hdr_fill = PatternFill("solid", fgColor="0C3460")
+                            hdr_font = Font(name="Arial", bold=True, color="FFFFFF", size=11)
+                            body_font= Font(name="Arial", size=10)
+                            alt_fill = PatternFill("solid", fgColor="F5F5F5")
+                            wht_fill = PatternFill("solid", fgColor="FFFFFF")
+                            ctr = Alignment(horizontal="center", vertical="center", wrap_text=True, readingOrder=2)
+                            rgt = Alignment(horizontal="right",  vertical="center", wrap_text=True, readingOrder=2)
+                            thin= Side(style="thin", color="CCCCCC")
+                            brd = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-                            header_font  = Font(name="Arial", bold=True, color="FFFFFF", size=11)
-                            body_font    = Font(name="Arial", size=10)
-                            center_align = Alignment(horizontal="center", vertical="center",
-                                                     wrap_text=True, readingOrder=2)
-                            right_align  = Alignment(horizontal="right",  vertical="center",
-                                                     wrap_text=True, readingOrder=2)
-                            thin = Side(style="thin", color="CCCCCC")
-                            border = Border(left=thin, right=thin, top=thin, bottom=thin)
+                            for cell in ws[1]:
+                                cell.font=hdr_font; cell.fill=hdr_fill
+                                cell.alignment=ctr; cell.border=brd
+                                ws.column_dimensions[get_column_letter(cell.column)].width = 18
+                            ws.row_dimensions[1].height = 28
 
-                            # عرض الأعمدة لكل شيت
-                            col_widths = {
-                                "التاريخ": 14, "اليوم": 10, "اسم المدرسة": 28,
-                                "المهمة": 30, "الاسم الثلاثي": 28, "الرقم الشخصي": 16,
-                                "وقت الحضور": 13, "وقت الانصراف": 13,
-                                "ساعات العمل": 13, "الساعات الإضافية": 16,
-                                "حالة الدوام": 20, "نوع الدوام اليومي": 20,
-                            }
+                            for ri, row_cells in enumerate(ws.iter_rows(min_row=2), 2):
+                                ws.row_dimensions[ri].height = 18
+                                fl = alt_fill if ri%2==0 else wht_fill
+                                for cell in row_cells:
+                                    cell.font=body_font; cell.fill=fl; cell.border=brd
+                                    cell.alignment=ctr if str(ws.cell(1,cell.column).value or "") in [
+                                        "عدد الأيام","إجمالي ساعات العمل","الساعات الإضافية",
+                                        "وقت الحضور","وقت الانصراف","ساعات العمل","التاريخ","اليوم"
+                                    ] else rgt
+                                    if str(ws.cell(1,cell.column).value or "") == "الرقم الشخصي":
+                                        cell.value=str(cell.value or ""); cell.number_format="@"
 
-                            for sheet_name in wb.sheetnames:
-                                ws = wb[sheet_name]
-                                ws.sheet_view.rightToLeft = True  # RTL
-
-                                # ارتفاع الهيدر
-                                ws.row_dimensions[1].height = 30
-
-                                # تنسيق الهيدر
-                                for cell in ws[1]:
-                                    cell.font      = header_font
-                                    cell.fill      = header_fill
-                                    cell.alignment = center_align
-                                    cell.border    = border
-
-                                # عرض الأعمدة تلقائياً
-                                for col_idx, col_cells in enumerate(ws.columns, 1):
-                                    col_letter = get_column_letter(col_idx)
-                                    header_val = str(ws.cell(1, col_idx).value or "")
-                                    ws.column_dimensions[col_letter].width = col_widths.get(header_val, 18)
-
-                                # تنسيق صفوف البيانات
-                                for row_idx, row_cells in enumerate(ws.iter_rows(min_row=2), 2):
-                                    ws.row_dimensions[row_idx].height = 20
-                                    row_fill = alt_fill if row_idx % 2 == 0 else white_fill
-
-                                    for cell in row_cells:
-                                        cell.font      = body_font
-                                        cell.fill      = row_fill
-                                        cell.border    = border
-                                        h = str(ws.cell(1, cell.column).value or "")
-                                        # الأعمدة الرقمية والوقت توسيط، الباقي يمين
-                                        if h in ["وقت الحضور","وقت الانصراف","ساعات العمل",
-                                                 "الساعات الإضافية","التاريخ","اليوم"]:
-                                            cell.alignment = center_align
-                                        else:
-                                            cell.alignment = right_align
-                                        # الرقم الشخصي نصي دائماً
-                                        if h == "الرقم الشخصي" and cell.value:
-                                            cell.value     = str(cell.value)
-                                            cell.number_format = "@"
-
-                                # تجميد الهيدر
-                                ws.freeze_panes = "A2"
-
-                                # إعدادات الطباعة
-                                ws.page_setup.orientation      = "landscape"
-                                ws.page_setup.fitToPage        = True
-                                ws.page_setup.fitToWidth        = 1
-                                ws.page_setup.fitToHeight       = 0
-                                ws.page_setup.paperSize         = 9  # A4
-                                ws.print_title_rows             = "1:1"
-                                ws.page_margins.left            = 0.5
-                                ws.page_margins.right           = 0.5
-                                ws.page_margins.top             = 0.75
-                                ws.page_margins.bottom          = 0.75
-                                ws.sheet_properties.pageSetUpPr.fitToPage = True
-                                ws.oddHeader.center.text = f"مركز جدحفص الثانوية للتصحيح المركزي\nنظام الحضور والانصراف — {date_from} إلى {date_to}"
-                                ws.oddHeader.center.font = "Arial,Bold"
-                                ws.oddHeader.right.text  = "تصميم وبرمجة: أ. عفاف حسين"
-                                ws.oddHeader.right.font  = "Arial"
-                                ws.oddFooter.right.text  = "صفحة &P من &N"
-                                ws.oddFooter.left.text   = "رئيسة المركز: أ. خلود يعقوب بدو"
-                                ws.oddFooter.left.font   = "Arial,Bold"
+                            ws.page_setup.orientation="landscape"; ws.page_setup.paperSize=9
+                            ws.page_setup.fitToPage=True; ws.page_setup.fitToWidth=1
+                            ws.print_title_rows="1:1"
+                            ws.oddHeader.center.text = f"مركز جدحفص الثانوية للتصحيح المركزي\nنظام الحضور والانصراف — {date_from} إلى {date_to}"
+                            ws.oddHeader.center.font = "Arial,Bold"
+                            ws.oddHeader.right.text  = "تصميم وبرمجة: أ. عفاف حسين"
+                            ws.oddFooter.right.text  = "صفحة &P من &N"
+                            ws.oddFooter.left.text   = "رئيسة المركز: أ. خلود يعقوب بدو"
+                            ws.oddFooter.left.font   = "Arial,Bold"
 
                             buf2 = BytesIO()
-                            wb.save(buf2)
-                            buf2.seek(0)
-                            fname = f"تقرير_الحضور_{date_from}_{date_to}.xlsx"
-                            st.download_button(
-                                "📥 تحميل Excel — منسق وجاهز للطباعة",
+                            wb.save(buf2); buf2.seek(0)
+                            st.download_button("📥 تحميل Excel — منسق وجاهز للطباعة",
                                 data=buf2,
-                                file_name=fname,
+                                file_name=f"تقرير_{date_from}_{date_to}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True,
-                            )
+                                use_container_width=True)
                         except Exception as e:
-                            st.warning(f"⚠️ تعذّر إنشاء ملف Excel: {e}")
-
-                        # ── ملخص لكل موظفة (عرض في الصفحة) ──
-                        st.markdown("---")
-                        st.markdown("##### ملخص لكل موظفة")
-                        emp_summary = {}
-                        for r in rows_sorted:
-                            eid  = str(r.get("الرقم الشخصي","")).strip()
-                            name = str(r.get("الاسم الثلاثي","")).strip()
-                            if not eid: continue
-                            if eid not in emp_summary:
-                                emp_summary[eid] = {"الاسم": name, "المهمة": str(r.get("المهمة","")).strip(), "أيام": 0, "تأخير": 0, "إغلاق تلقائي": 0}
-                            emp_summary[eid]["أيام"] += 1
-                            if is_late_for_statistics(r): emp_summary[eid]["تأخير"] += 1
-                            if str(r.get("إغلاق تلقائي","")).strip(): emp_summary[eid]["إغلاق تلقائي"] += 1
-                        df_emp = pd.DataFrame([{"الرقم": k, **v} for k,v in emp_summary.items()])
-                        if not df_emp.empty:
-                            st.dataframe(df_emp, use_container_width=True, hide_index=True)
+                            st.warning(f"⚠️ تعذّر إنشاء Excel: {e}")
 
                 except Exception as e:
                     st.error(f"❌ خطأ في إنشاء التقرير: {e}")
 
-        # ── إصلاح شامل ────────────────────────────────────────────
+            # ══════════════════════════════════════════════
+            elif rpt_main_tab == "✏️ بحث وتعديل سجل":
+                st.markdown("##### 🔍 بحث وتعديل سجل في شيت1")
+
+                with st.container(border=True):
+                    search_by = st.radio("البحث بـ", ["رقم شخصي","اسم","مدرسة"], horizontal=True, key="edit_search_by")
+                    search_val = st.text_input("أدخلي قيمة البحث", key="edit_search_val")
+
+                    col_ed1, col_ed2 = st.columns(2)
+                    with col_ed1:
+                        edit_date_from = st.date_input("من تاريخ", value=now_bh().date().replace(day=1), key="edit_from")
+                    with col_ed2:
+                        edit_date_to = st.date_input("إلى تاريخ", value=now_bh().date(), key="edit_to")
+
+                    if st.button("🔍 بحث", use_container_width=True, type="primary", key="btn_edit_search"):
+                        if not search_val.strip():
+                            st.error("❌ أدخلي قيمة البحث.")
+                        else:
+                            data = get_sheet_data_fresh()
+                            sv   = search_val.strip()
+                            ef   = edit_date_from.strftime("%Y-%m-%d")
+                            et   = edit_date_to.strftime("%Y-%m-%d")
+
+                            def norm_d(d): return str(d).strip().replace("/","-")
+
+                            results = []
+                            for i, r in enumerate(data):
+                                if not (ef <= norm_d(r.get("التاريخ","")) <= et):
+                                    continue
+                                if search_by == "رقم شخصي":
+                                    match = ar_to_en_digits(sv) == str(r.get("الرقم الشخصي","")).strip()
+                                elif search_by == "اسم":
+                                    match = sv in str(r.get("الاسم الثلاثي",""))
+                                else:
+                                    match = sv in str(r.get("اسم المدرسة",""))
+                                if match:
+                                    results.append((i+2, r))
+
+                            if not results:
+                                st.warning("⚠️ لا توجد نتائج.")
+                            else:
+                                st.success(f"✅ وجد {len(results)} سجل.")
+                                st.session_state.edit_results = results
+
+                if st.session_state.get("edit_results"):
+                    results = st.session_state.edit_results
+                    st.markdown(f"**{len(results)} سجل — اختاري السجل للتعديل:**")
+
+                    # عرض النتائج
+                    for rn, r in results:
+                        label = f"{r.get('التاريخ','')} | {r.get('الاسم الثلاثي','')} | {r.get('اسم المدرسة','')} | حضور: {r.get('وقت الحضور','—')} | انصراف: {r.get('وقت الانصراف','—')}"
+                        with st.expander(label, expanded=False):
+                            st.markdown(f"**الصف:** {rn}")
+
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                new_name    = st.text_input("الاسم",           value=str(r.get("الاسم الثلاثي","")).strip(),  key=f"en_{rn}")
+                                new_school  = st.text_input("المدرسة",         value=str(r.get("اسم المدرسة","")).strip(),    key=f"es_{rn}")
+                                new_task    = st.text_input("المهمة",          value=str(r.get("المهمة","")).strip(),         key=f"et_{rn}")
+                                new_att     = st.text_input("وقت الحضور",      value=str(r.get("وقت الحضور","")).strip(),     key=f"ea_{rn}")
+                                new_att_rsn = st.text_input("سبب التأخير",     value=str(r.get("سبب التأخير","")).strip(),    key=f"ear_{rn}")
+                            with col2:
+                                new_dep     = st.text_input("وقت الانصراف",    value=str(r.get("وقت الانصراف","")).strip(),   key=f"ed_{rn}")
+                                new_dep_rsn = st.text_input("سبب الانصراف",    value=str(r.get("سبب الانصراف","")).strip(),   key=f"edr_{rn}")
+                                new_exit    = st.text_input("خروج استئذان",    value=str(r.get("خروج استئذان","")).strip(),   key=f"ee_{rn}")
+                                new_return  = st.text_input("عودة",            value=str(r.get("عودة","")).strip(),           key=f"er_{rn}")
+                                new_day_type= st.text_input("نوع الدوام اليومي", value=str(r.get("نوع الدوام اليومي","")).strip(), key=f"edy_{rn}")
+
+                            col_s1, col_s2 = st.columns(2)
+                            with col_s1:
+                                if st.button("💾 حفظ التعديلات", use_container_width=True, type="primary", key=f"save_{rn}"):
+                                    try:
+                                        updates = {
+                                            COL_NAME:          new_name,
+                                            3:                 new_school,
+                                            4:                 new_task,
+                                            COL_ATTEND:        new_att,
+                                            COL_LATE_REASON:   new_att_rsn,
+                                            COL_DEPART:        new_dep,
+                                            COL_DEPART_REASON: new_dep_rsn,
+                                            COL_EXIT:          new_exit,
+                                            COL_RETURN:        new_return,
+                                        }
+                                        for col, val in updates.items():
+                                            safe_update(sheet, rn, col, val)
+                                        # إعادة حساب الساعات
+                                        new_row = dict(r)
+                                        new_row.update({
+                                            "الاسم الثلاثي": new_name,
+                                            "اسم المدرسة":   new_school,
+                                            "المهمة":        new_task,
+                                            "وقت الحضور":   new_att,
+                                            "وقت الانصراف": new_dep,
+                                        })
+                                        update_work_calculation(rn, new_row)
+                                        clear_caches()
+                                        log_audit(str(r.get("الرقم الشخصي","")), new_name, "تعديل سجل من التقارير", f"تاريخ:{r.get('التاريخ','')}")
+                                        st.success("✅ تم الحفظ وإعادة حساب الساعات.")
+                                        st.session_state.edit_results = None
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ خطأ: {e}")
+                            with col_s2:
+                                if st.button("🗑️ حذف هذا السجل", use_container_width=True, key=f"del_{rn}"):
+                                    confirm_key = f"confirm_del_{rn}"
+                                    st.session_state[confirm_key] = True
+
+                                if st.session_state.get(f"confirm_del_{rn}"):
+                                    st.warning("⚠️ هل أنتِ متأكدة من الحذف؟")
+                                    if st.button("نعم، احذف", key=f"yes_del_{rn}", use_container_width=True):
+                                        try:
+                                            sheet.delete_rows(rn)
+                                            clear_caches()
+                                            log_audit(str(r.get("الرقم الشخصي","")), str(r.get("الاسم الثلاثي","")), "حذف سجل من التقارير", f"تاريخ:{r.get('التاريخ','')}")
+                                            st.success("✅ تم الحذف.")
+                                            st.session_state.edit_results = None
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"❌ خطأ: {e}")
+
+            # ══════════════════════════════════════════════
+            elif rpt_main_tab == "➕ إضافة سجل جديد":
+                st.markdown("##### ➕ إضافة سجل كامل لموظفة")
+                st.caption("لو سجّلت الموظفة ورقياً وما سجّلت إلكترونياً، أضيفي سجلها هنا.")
+
+                with st.container(border=True):
+                    add_id_raw = st.text_input("الرقم الشخصي *", key="add_id")
+                    add_id = ar_to_en_digits(add_id_raw).strip()
+                    add_emp = validate_employee(add_id) if add_id else None
+
+                    if add_emp:
+                        st.success(f"✅ {add_emp.get('الاسم','')} — {add_emp.get('المدرسة','')} — {add_emp.get('المهمة','')}")
+                        add_name   = add_emp.get("الاسم","")
+                        add_school = add_emp.get("المدرسة","")
+                        add_task   = add_emp.get("المهمة","")
+                        add_sup    = "نعم" if is_yes(str(add_emp.get("دعم",""))) else "لا"
+                    else:
+                        if add_id: st.warning("⚠️ الرقم غير موجود — أدخلي البيانات يدوياً.")
+                        add_name   = st.text_input("الاسم الثلاثي *", key="add_name")
+                        add_school = st.selectbox("المدرسة *", schools + ["أخرى"], key="add_school")
+                        if add_school == "أخرى":
+                            add_school = st.text_input("اكتبي اسم المدرسة", key="add_school_other").strip()
+                        add_task   = st.selectbox("المهمة *", TASKS_ALL, key="add_task")
+                        add_sup    = "لا"
+
+                    add_date = st.date_input("التاريخ *", value=now_bh().date(), key="add_date")
+                    add_date_str = add_date.strftime("%Y-%m-%d")
+                    add_day  = add_date.strftime("%A")
+
+                    col_a1, col_a2 = st.columns(2)
+                    with col_a1:
+                        add_att     = st.text_input("وقت الحضور (مثال: 07:00:00)", key="add_att")
+                        add_att_rsn = st.text_input("سبب التأخير (اختياري)", key="add_att_rsn")
+                        add_exit    = st.text_input("خروج استئذان (اختياري)", key="add_exit")
+                    with col_a2:
+                        add_dep     = st.text_input("وقت الانصراف (مثال: 14:00:00)", key="add_dep")
+                        add_dep_rsn = st.text_input("سبب الانصراف (اختياري)", key="add_dep_rsn")
+                        add_return  = st.text_input("عودة من استئذان (اختياري)", key="add_return")
+
+                    add_note = st.text_input("ملاحظة", value="تسجيل يدوي من التقارير", key="add_note")
+
+                    if st.button("➕ إضافة السجل", use_container_width=True, type="primary", key="btn_add_rec"):
+                        if not add_id or not add_name or not add_att:
+                            st.error("❌ الرقم الشخصي والاسم ووقت الحضور مطلوبة.")
+                        else:
+                            try:
+                                new_row_data = [
+                                    add_date_str, add_day,
+                                    add_school, add_task, add_sup,
+                                    add_name, add_id,
+                                    add_att, add_att_rsn,
+                                    add_dep, add_dep_rsn,
+                                    add_exit, add_return,
+                                    "","","","","","","","","","",add_note
+                                ]
+                                safe_append(sheet, new_row_data)
+                                # إعادة حساب الساعات
+                                _idx2, _row2 = find_today_row_fresh(add_date_str, add_id)
+                                if _idx2: update_work_calculation(_idx2, _row2)
+                                clear_caches()
+                                log_audit(add_id, add_name, "إضافة سجل يدوي من التقارير", f"تاريخ:{add_date_str}")
+                                st.success(f"✅ تم إضافة السجل بنجاح — {add_name} — {add_date_str}")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ خطأ: {e}")
+
         elif admin_tab=="🛠️ إصلاح شامل":
             st.markdown("#### 🛠️ إصلاح شامل")
             st.warning("⚠️ هذه الأدوات تعدّل البيانات مباشرة. استخدميها بحذر.")
@@ -3497,6 +3699,72 @@ else:
                             st.rerun()
                 except Exception as e:
                     st.error(f"❌ خطأ: {e}")
+
+            st.markdown("---")
+
+            # ── مزامنة بيانات القائمة البيضاء مع شيت1 ──
+            with st.container(border=True):
+                st.markdown("##### 🔄 مزامنة بيانات موظفة مع شيت1")
+                st.caption("لما تتعدل بيانات موظفة في القائمة البيضاء (اسم / مدرسة / مهمة)، اضغطي هنا لتحديث كل سجلاتها في شيت1.")
+
+                sync_id_raw = st.text_input("الرقم الشخصي للمزامنة", key="sync_wl_id")
+                sync_id = ar_to_en_digits(sync_id_raw).strip()
+                sync_all = st.checkbox("مزامنة كل القائمة البيضاء مع شيت1", key="sync_wl_all")
+
+                if sync_id and not sync_all:
+                    found_sync = validate_employee(sync_id)
+                    if found_sync:
+                        st.success(f"✅ {found_sync.get('الاسم','')} — {found_sync.get('المدرسة','')} — {found_sync.get('المهمة','')}")
+                    else:
+                        st.warning("⚠️ الرقم غير موجود في القائمة البيضاء")
+
+                if st.button("🔄 تنفيذ المزامنة", use_container_width=True, type="primary", key="btn_sync_wl"):
+                    try:
+                        wl_data    = get_whitelist()
+                        sheet_data = get_sheet_data_fresh()
+                        updated    = 0
+                        errors     = 0
+                        prog       = st.progress(0)
+
+                        # حدد الموظفات للمزامنة
+                        if sync_all:
+                            sync_ids = list(wl_data.keys())
+                        elif sync_id and sync_id in wl_data:
+                            sync_ids = [sync_id]
+                        else:
+                            st.error("❌ أدخلي رقماً صحيحاً أو اختاري مزامنة الكل.")
+                            sync_ids = []
+
+                        total = len(sync_ids)
+                        for j, eid in enumerate(sync_ids):
+                            prog.progress((j+1)/max(total,1))
+                            emp_wl = wl_data[eid]
+                            new_name   = str(emp_wl.get("الاسم","")).strip()
+                            new_school = str(emp_wl.get("المدرسة","")).strip()
+                            new_task   = str(emp_wl.get("المهمة","")).strip()
+
+                            for i, row in enumerate(sheet_data):
+                                if str(row.get("الرقم الشخصي","")).strip() != eid:
+                                    continue
+                                row_num = i + 2
+                                try:
+                                    # أعمدة: الاسم=6، المدرسة=3، المهمة=4
+                                    if new_name   and str(row.get("الاسم الثلاثي","")).strip()  != new_name:
+                                        safe_update(sheet, row_num, COL_NAME, new_name)
+                                    if new_school and str(row.get("اسم المدرسة","")).strip() != new_school:
+                                        safe_update(sheet, row_num, 3, new_school)
+                                    if new_task   and str(row.get("المهمة","")).strip()       != new_task:
+                                        safe_update(sheet, row_num, 4, new_task)
+                                    updated += 1
+                                except Exception:
+                                    errors += 1
+
+                        clear_caches()
+                        log_audit("—","أدمن","مزامنة القائمة البيضاء مع شيت1",
+                                  f"محدّث:{updated}|أخطاء:{errors}|{'الكل' if sync_all else sync_id}")
+                        st.success(f"✅ تم تحديث {updated} سجل في شيت1. أخطاء: {errors}")
+                    except Exception as e:
+                        st.error(f"❌ خطأ: {e}")
 
             st.markdown("---")
             st.markdown("#### إضافة موظفة")
