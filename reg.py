@@ -2922,10 +2922,10 @@ else:
                 col_r1, col_r2 = st.columns(2)
                 with col_r1:
                     rpt_date_from = st.date_input("من تاريخ",
-                        value=now_bh().date().replace(day=1), key="rpt_from")
+                        value=now_bh().date().replace(day=1), key="rpt_from_legacy")
                 with col_r2:
                     rpt_date_to = st.date_input("إلى تاريخ",
-                        value=now_bh().date(), key="rpt_to")
+                        value=now_bh().date(), key="rpt_to_legacy")
                 date_from = rpt_date_from.strftime("%Y-%m-%d")
                 date_to   = rpt_date_to.strftime("%Y-%m-%d")
 
