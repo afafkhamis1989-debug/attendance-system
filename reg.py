@@ -2423,10 +2423,8 @@ else:
                             with col_rem1:
                                 st.markdown(f'<div style="background:#d4edda;border-radius:10px;padding:8px 14px;font-size:12px;color:#155724;font-weight:700;">✅ تم التذكير — {emp.get("الاسم", "")} — #{eid}</div>', unsafe_allow_html=True)
                             with col_rem2:
-                                if st.button("🚫 غير مطلوبة اليوم", key=f"change_to_not_req_{eid}_{today_str}", use_container_width=True):
-                                    st.session_state[not_req_key]  = True
+                                if st.button("↩️ تراجع", key=f"undo_reminded_{eid}_{today_str}", use_container_width=True):
                                     st.session_state[reminded_key] = False
-                                    log_audit(eid, emp.get("الاسم",""), "تغيير لغير مطلوبة اليوم", "تم التحديد من الداشبورد")
                                     st.rerun()
                         else:
                             st.markdown(f'<div class="warn-row">🚨 {emp.get("الاسم", "")} — #{eid} — {emp.get("المدرسة", "")} — {emp.get("المهمة", "")}</div>', unsafe_allow_html=True)
