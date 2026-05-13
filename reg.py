@@ -2612,6 +2612,54 @@ else:
                 st.markdown("#### المتأخرون — حسب القواعد المعتمدة")
                 for r in late_list:
                     st.markdown(f'<div class="warn-row">⏰ {r.get("الاسم الثلاثي","")} — وصل {r.get("وقت الحضور","")} — السبب: {r.get("سبب التأخير","") or "بدون"}</div>',unsafe_allow_html=True)
+
+            # ── أسباب التأخير "أخرى" مع تعديل مباشر ──
+            other_reasons = [r for r in today_rows
+                             if str(r.get("سبب التأخير","")).strip()
+                             and str(r.get("سبب التأخير","")).strip() not in ["دوام مرن","موعد","مهمة رسمية","رعاية","الانتهاء من التصحيح",""]
+                             and "أخرى" not in str(r.get("سبب التأخير","")).strip() == False
+                             or (str(r.get("سبب التأخير","")).strip().startswith("أخرى") or
+                                 (str(r.get("سبب التأخير","")).strip() and
+                                  str(r.get("سبب التأخير","")).strip() not in ["دوام مرن","موعد","مهمة رسمية","رعاية","الانتهاء من التصحيح"]))]
+
+            # فلتر أبسط — كل سبب مو من القائمة الرسمية
+            official_reasons = {"دوام مرن","موعد","مهمة رسمية","رعاية","الانتهاء من التصحيح",""}
+            other_reasons = [r for r in today_rows
+                             if r.get("وقت الحضور","")
+                             and str(r.get("سبب التأخير","")).strip() not in official_reasons]
+
+            if other_reasons:
+                st.markdown("#### 📝 أسباب تأخير تحتاج مراجعة")
+                st.caption("موظفات كتبن سبباً غير رسمي — يمكنك تعديل وقت حضورهن مباشرة.")
+                for idx_or, r in enumerate(other_reasons):
+                    eid_or  = str(r.get("الرقم الشخصي","")).strip()
+                    rn_or   = None
+                    for ii, rd in enumerate(data):
+                        if str(rd.get("الرقم الشخصي","")).strip()==eid_or and str(rd.get("التاريخ","")).strip().replace("/","-")==today_str:
+                            rn_or = ii+2; break
+
+                    with st.expander(f"📝 {r.get('الاسم الثلاثي','')} — وصل: {r.get('وقت الحضور','')} — السبب: {r.get('سبب التأخير','')}", expanded=False):
+                        col_or1, col_or2 = st.columns(2)
+                        with col_or1:
+                            new_att_or = st.text_input("وقت الحضور الجديد", value=str(r.get("وقت الحضور","")).strip(), key=f"or_att_{idx_or}_{eid_or}", placeholder="مثال: 07:00:00")
+                        with col_or2:
+                            new_rsn_or = st.selectbox("تغيير السبب", ["أبقي كما هو"] + reasons, key=f"or_rsn_{idx_or}_{eid_or}")
+
+                        if st.button("💾 حفظ التعديل", key=f"or_save_{idx_or}_{eid_or}", use_container_width=True, type="primary"):
+                            try:
+                                if rn_or:
+                                    if new_att_or.strip() != str(r.get("وقت الحضور","")).strip():
+                                        safe_update(sheet, rn_or, COL_ATTEND, new_att_or.strip())
+                                    if new_rsn_or != "أبقي كما هو":
+                                        safe_update(sheet, rn_or, COL_LATE_REASON, new_rsn_or)
+                                    new_row = dict(r); new_row["وقت الحضور"] = new_att_or.strip()
+                                    update_work_calculation(rn_or, new_row)
+                                    clear_caches()
+                                    log_audit(eid_or, r.get("الاسم الثلاثي",""), "تعديل وقت حضور من الداشبورد", f"من:{r.get('وقت الحضور','')} إلى:{new_att_or}")
+                                    st.success("✅ تم الحفظ.")
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ خطأ: {e}")
             if auto_closed:
                 with st.expander("🔄 سجلات أُغلقت تلقائيًا", expanded=False):
                     for r in reversed(auto_closed[-50:]):
