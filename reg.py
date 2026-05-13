@@ -623,7 +623,8 @@ def calculate_work_values(row):
 def update_work_calculation(row_index, row_data=None):
     try:
         if row_data is None:
-            records = get_sheet_data()
+            # قراءة مباشرة بدون كاش حتى تكون إعادة الحساب مبنية على آخر بيانات في sheet1
+            records = get_sheet_data_fresh()
             row_data = records[row_index - 2]
         vals = calculate_work_values(row_data)
         if not vals:
@@ -645,7 +646,8 @@ def auto_close_previous_open_records():
         except Exception:
             close_time = time(22, 0)
 
-        records = get_sheet_data()
+        # قراءة مباشرة بدون كاش حتى لا يغلق النظام سجلات بناءً على نسخة قديمة
+        records = get_sheet_data_fresh()
         changed = 0
         for i, row in enumerate(records):
             row_num  = i + 2
@@ -2289,7 +2291,7 @@ else:
             col_ref1, col_ref2 = st.columns([3,1])
             with col_ref2:
                 if st.button("🔄 تحديث البيانات", key="btn_refresh_stats", use_container_width=True):
-                    get_sheet_data.clear()
+                    clear_caches()
                     get_whitelist.clear()
                     st.rerun()
             with col_ref1:
@@ -2333,12 +2335,25 @@ else:
             except:
                 abs_today=[]
 
+            # طلبات الحضور اليدوية المعلقة تعتبر "وصلت للنظام" فلا نرسل لها تذكير عدم حضور بالخطأ
+            try:
+                manual_reqs_all = manual_requests_sheet.get_all_records()
+                pending_manual_att_ids = set(
+                    str(r.get("الرقم الشخصي","")).strip()
+                    for r in manual_reqs_all
+                    if str(r.get("تاريخ الطلب","")).strip() == today_str
+                    and str(r.get("نوع الطلب","")).strip() == "حضور"
+                    and str(r.get("الحالة","")).strip() in ["", "بانتظار الاعتماد"]
+                )
+            except:
+                pending_manual_att_ids = set()
+
             attended=[r for r in today_required_rows if r.get("وقت الحضور")]
             late_list=[r for r in today_required_rows if is_late_for_statistics(r)]
             early_dep=[r for r in today_required_rows if r.get("وقت الانصراف","") and r.get("وقت الانصراف","")< "14:00:00"]
             on_leave=[r for r in today_required_rows if r.get("خروج استئذان") and not r.get("عودة") and not r.get("وقت الانصراف")]
             missing_depart=[r for r in today_required_rows if r.get("وقت الحضور") and not r.get("وقت الانصراف")]
-            auto_closed=[r for r in data if str(r.get("إغلاق تلقائي","")).strip()]
+            auto_closed=[r for r in today_required_rows if str(r.get("إغلاق تلقائي","")).strip()]
             correction_done_rows=[r for r in today_required_rows if is_correction_done_day(r)]
             no_gps_rows=[r for r in today_rows if "بدون تحقق GPS" in str(r.get("سبب التأخير", "")) or "بدون تحقق GPS" in str(r.get("سبب الانصراف", "")) or "بدون تحقق GPS" in str(r.get("محاولة", ""))]
 
@@ -2370,6 +2385,7 @@ else:
                     eid: emp for eid, emp in required_wl.items()
                     if str(eid).strip() not in attended_ids
                     and str(eid).strip() not in absent_ids
+                    and str(eid).strip() not in pending_manual_att_ids
                     and not is_yes(str(emp.get("دعم","")).strip())
                     and "دعم" not in str(emp.get("المهمة","")).strip()
                 }
@@ -2564,7 +2580,7 @@ else:
             # ── موظفات تكرر إغلاق سجلهن تلقائياً مرتين أو أكثر ──
             with st.container(border=True):
                 st.markdown("##### 🔁 تكرار الإغلاق التلقائي")
-                all_data = get_sheet_data()
+                all_data = data  # نفس القراءة المباشرة من sheet1 بدون كاش
                 auto_close_count = {}
                 for r in all_data:
                     if str(r.get("إغلاق تلقائي","")).strip():
@@ -4680,3 +4696,4 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
+
