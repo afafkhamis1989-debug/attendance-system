@@ -368,6 +368,24 @@ def normalize_name(name):
     for ch in [".",  "،",",","-","_","ـ",":",";"] : name=name.replace(ch," ")
     return " ".join(name.split())
 
+def normalize_school_name(value):
+    """تطبيع اسم المدرسة للمقارنة حتى لو كان فيه مسافات/اختلافات بسيطة."""
+    txt = str(value or "").strip()
+    txt = txt.replace("ـ", "")
+    txt = txt.replace("  ", " ")
+    txt = " ".join(txt.split())
+    return normalize_name(txt)
+
+
+def get_emp_school(emp):
+    """يدعم اختلاف اسم عمود المدرسة بين القائمة البيضاء والشيتات."""
+    return str(emp.get("المدرسة", emp.get("اسم المدرسة", "")) or "").strip()
+
+
+def get_emp_name(emp):
+    """يدعم اختلاف اسم عمود الاسم بين القائمة البيضاء والشيتات."""
+    return str(emp.get("الاسم", emp.get("الاسم الثلاثي", "")) or "").strip()
+
 def distance_m(lat1,lon1,lat2,lon2):
     R=6371000
     p1,p2=math.radians(lat1),math.radians(lat2)
@@ -945,15 +963,19 @@ def filter_rows_by_category(rows, category_choice):
 
 
 def whitelist_options_by_filters(school_filter="الكل", task_filter="الكل"):
-    """إرجاع خيارات أسماء من القائمة البيضاء حسب المدرسة والمهمة."""
+    """إرجاع خيارات أسماء من القائمة البيضاء حسب المدرسة والمهمة مع تطبيع اسم المدرسة."""
     opts = []
+    school_filter_norm = normalize_school_name(school_filter)
+    task_filter_norm = normalize_name(task_filter)
+
     for eid, emp in get_whitelist().items():
-        school = str(emp.get("المدرسة", "")).strip()
-        task = str(emp.get("المهمة", "")).strip()
-        name = str(emp.get("الاسم", "")).strip()
-        if school_filter and school_filter != "الكل" and school != school_filter:
+        school = get_emp_school(emp)
+        task = str(emp.get("المهمة", "") or "").strip()
+        name = get_emp_name(emp)
+
+        if school_filter and school_filter != "الكل" and normalize_school_name(school) != school_filter_norm:
             continue
-        if task_filter and task_filter != "الكل" and task != task_filter:
+        if task_filter and task_filter != "الكل" and normalize_name(task) != task_filter_norm:
             continue
         if eid and name:
             opts.append((eid, emp, f"{name} — #{eid} — {school} — {task}"))
@@ -1062,8 +1084,8 @@ def required_people_for_date(date_str):
 
         emp = dict(wl_all.get(eid, {}))
         emp["الرقم الشخصي"] = eid
-        emp["الاسم"] = str(r.get("الاسم", "") or emp.get("الاسم", "")).strip()
-        emp["المدرسة"] = str(r.get("المدرسة", "") or emp.get("المدرسة", "")).strip()
+        emp["الاسم"] = str(r.get("الاسم", "") or get_emp_name(emp)).strip()
+        emp["المدرسة"] = str(r.get("المدرسة", "") or get_emp_school(emp)).strip()
         emp["المهمة"] = str(r.get("المهمة", "") or emp.get("المهمة", "")).strip()
         emp["نشط"] = "نعم"
         if not emp.get("دعم"):
@@ -4245,18 +4267,22 @@ else:
                 with col_rt1:
                     rt_task_filter = st.selectbox("المهمة", ["الكل"] + sorted(set(str(e.get("المهمة", "")).strip() for e in wl_all.values() if str(e.get("المهمة", "")).strip())), key="rt_task_filter")
                 with col_rt2:
-                    rt_school_filter = st.selectbox("المدرسة", ["الكل"] + schools, key="rt_school_filter")
+                    whitelist_schools = sorted(set(get_emp_school(e) for e in wl_all.values() if get_emp_school(e)))
+                    rt_school_filter = st.selectbox("المدرسة", ["الكل"] + whitelist_schools, key="rt_school_filter")
 
                 rt_options = []
+                rt_task_filter_norm = normalize_name(rt_task_filter)
+                rt_school_filter_norm = normalize_school_name(rt_school_filter)
                 for eid, emp in wl_all.items():
-                    task = str(emp.get("المهمة", "")).strip()
-                    school = str(emp.get("المدرسة", "")).strip()
-                    name = str(emp.get("الاسم", "")).strip()
-                    if rt_task_filter != "الكل" and task != rt_task_filter:
+                    task = str(emp.get("المهمة", "") or "").strip()
+                    school = get_emp_school(emp)
+                    name = get_emp_name(emp)
+                    if rt_task_filter != "الكل" and normalize_name(task) != rt_task_filter_norm:
                         continue
-                    if rt_school_filter != "الكل" and school != rt_school_filter:
+                    if rt_school_filter != "الكل" and normalize_school_name(school) != rt_school_filter_norm:
                         continue
-                    rt_options.append((eid, emp, f"{task} — {school} — {name} — #{eid}"))
+                    if eid and name:
+                        rt_options.append((eid, emp, f"{task} — {school} — {name} — #{eid}"))
                 rt_options = sorted(rt_options, key=lambda x: x[2])
                 rt_label_map = {lbl: (eid, emp) for eid, emp, lbl in rt_options}
                 selected_labels = st.multiselect("اختاري المعلمات المطلوبات", list(rt_label_map.keys()), key="rt_selected_people")
@@ -4280,9 +4306,9 @@ else:
                                 required_today_sheet.append_row([
                                     req_date_str,
                                     str(emp.get("المهمة", "")).strip(),
-                                    str(emp.get("المدرسة", "")).strip(),
+                                    get_emp_school(emp),
                                     str(eid).strip(),
-                                    str(emp.get("الاسم", "")).strip(),
+                                    get_emp_name(emp),
                                     "نعم",
                                     rt_note,
                                 ], value_input_option="USER_ENTERED")
@@ -4329,8 +4355,8 @@ else:
                                     if (d_val, eid) in existing_keys:
                                         continue
                                     task_val = str(row.get("المهمة", "") or emp.get("المهمة", "")).strip()
-                                    school_val = str(row.get("المدرسة", "") or emp.get("المدرسة", "")).strip()
-                                    name_val = str(row.get("الاسم", "") or emp.get("الاسم", "")).strip()
+                                    school_val = str(row.get("المدرسة", row.get("اسم المدرسة", "")) or get_emp_school(emp)).strip()
+                                    name_val = str(row.get("الاسم", row.get("الاسم الثلاثي", "")) or get_emp_name(emp)).strip()
                                     active_val = str(row.get("نشط", "نعم") or "نعم").strip()
                                     note_val = str(row.get("ملاحظات", "") or "").strip()
                                     if active_val.lower() == "nan": active_val = "نعم"
