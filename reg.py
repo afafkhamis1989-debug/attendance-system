@@ -982,18 +982,25 @@ def whitelist_options_by_filters(school_filter="الكل", task_filter="الكل
     return sorted(opts, key=lambda x: x[2])
 
 
-def find_whitelist_matches(term, limit=30):
-    """بحث ذكي بالاسم أو الرقم الشخصي من القائمة البيضاء."""
+def find_whitelist_matches(term, limit=80):
+    """بحث عام بالاسم أو الرقم الشخصي من كل القائمة البيضاء، بدون التقيد بالمدرسة أو المهمة."""
     term = ar_to_en_digits(str(term or "")).strip()
     if not term:
         return []
+
     norm_term = normalize_name(term)
     matches = []
+
     for eid, emp in get_whitelist().items():
-        name = str(emp.get("الاسم", "")).strip()
-        if term in str(eid) or norm_term in normalize_name(name):
-            matches.append((eid, emp, f"{name} — #{eid} — {emp.get('المدرسة','')} — {emp.get('المهمة','')}"))
-    return matches[:limit]
+        name = get_emp_name(emp)
+        school = get_emp_school(emp)
+        task = str(emp.get("المهمة", "") or "").strip()
+
+        # البحث هنا عام من كل القائمة البيضاء، حتى لو كانت الموظفة مسجلة تحت مدرسة أخرى
+        if term in str(eid).strip() or norm_term in normalize_name(name):
+            matches.append((eid, emp, f"{name} — #{eid} — {school} — {task}"))
+
+    return sorted(matches, key=lambda x: x[2])[:limit]
 
 def day_ar_from_date(date_obj):
     return {"Saturday":"السبت","Sunday":"الأحد","Monday":"الاثنين","Tuesday":"الثلاثاء","Wednesday":"الأربعاء","Thursday":"الخميس","Friday":"الجمعة"}.get(date_obj.strftime("%A"), date_obj.strftime("%A"))
@@ -4285,12 +4292,25 @@ else:
                         rt_options.append((eid, emp, f"{task} — {school} — {name} — #{eid}"))
                 rt_options = sorted(rt_options, key=lambda x: x[2])
                 rt_label_map = {lbl: (eid, emp) for eid, emp, lbl in rt_options}
-                selected_labels = st.multiselect("اختاري المعلمات المطلوبات", list(rt_label_map.keys()), key="rt_selected_people")
+
+                st.caption("اختاري من الفلاتر، أو ابحثي بالاسم/الرقم من كل القائمة البيضاء حتى لو كانت مسجلة تحت مدرسة أخرى.")
+                selected_labels = st.multiselect("اختاري المعلمات المطلوبات حسب الفلتر", list(rt_label_map.keys()), key="rt_selected_people")
+
+                rt_search_term = st.text_input("بحث عام بالاسم أو الرقم الشخصي — يتجاوز فلتر المدرسة والمهمة", key="rt_global_search")
+                rt_search_matches = find_whitelist_matches(rt_search_term, limit=80) if rt_search_term else []
+                rt_search_map = {lbl: (eid, emp) for eid, emp, lbl in rt_search_matches}
+                selected_search_labels = []
+                if rt_search_term:
+                    if rt_search_matches:
+                        selected_search_labels = st.multiselect("نتائج البحث العام", list(rt_search_map.keys()), key="rt_selected_search_people")
+                    else:
+                        st.warning("⚠️ لم يتم العثور على اسم/رقم مطابق في القائمة البيضاء.")
+
                 rt_note = st.text_input("ملاحظات اختيارية", key="rt_note")
 
                 if st.button("💾 إضافة المختارات لقائمة اليوم", use_container_width=True, type="primary", key="btn_add_required_today"):
-                    if not selected_labels:
-                        st.error("❌ اختاري معلمة واحدة على الأقل.")
+                    if not selected_labels and not selected_search_labels:
+                        st.error("❌ اختاري معلمة واحدة على الأقل من الفلتر أو من البحث العام.")
                     else:
                         try:
                             existing = get_required_today_records()
@@ -4299,8 +4319,13 @@ else:
                                 for r in existing
                             )
                             added = 0
-                            for lbl in selected_labels:
-                                eid, emp = rt_label_map[lbl]
+                            selected_all_labels = list(dict.fromkeys((selected_labels or []) + (selected_search_labels or [])))
+                            combined_map = {}
+                            combined_map.update(rt_label_map)
+                            combined_map.update(rt_search_map)
+
+                            for lbl in selected_all_labels:
+                                eid, emp = combined_map[lbl]
                                 if (req_date_str, str(eid).strip()) in existing_keys:
                                     continue
                                 required_today_sheet.append_row([
