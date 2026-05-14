@@ -152,6 +152,7 @@ def get_all_sheets():
         "whitelist":   _get_or_create("القائمة_البيضاء",         ["الرقم الشخصي","الاسم","المدرسة","المهمة","دعم","رقم التواصل","البريد الإلكتروني","المسمى الوظيفي","نشط"]),
         "schedule":    _get_or_create("جدول_دوام_الأقسام",       ["المهمة","السبت","الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","نشط"]),
         "daily_schedule": _get_or_create("دوام_الأقسام_اليومي", ["التاريخ","المهمة","نشط","ملاحظات"]),
+        "required_today": _get_or_create("مطلوبات_اليوم", ["التاريخ","المهمة","المدرسة","الرقم الشخصي","الاسم","نشط","ملاحظات"]),
         "device":      _get_or_create("device_lock",              ["التاريخ","بصمة الجهاز","الرقم الشخصي","الاسم","وقت_القفل"]),
         "device_exceptions": _get_or_create("استثناءات_قفل_الجهاز", ["الرقم الشخصي","الاسم","تاريخ_الانتهاء","نشط","ملاحظات","تاريخ_الإضافة"]),
         "trusted_devices": _get_or_create("الأجهزة_الموثوقة", ["بصمة الجهاز","اسم الجهاز","نشط","ملاحظات","تاريخ الاعتماد","آخر استخدام"]),
@@ -178,6 +179,12 @@ absence_sheet   = _sheets["absence"]
 manual_requests_sheet = _sheets["manual_requests"]
 time_permits_sheet     = _sheets["time_permits"]
 custom_schedules_sheet = _sheets["custom_schedules"]
+required_today_sheet = _sheets["required_today"]
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_required_today_records():
+    try: return required_today_sheet.get_all_records()
+    except: return []
 
 @st.cache_data(ttl=120)
 def get_custom_schedules():
@@ -343,7 +350,9 @@ WHITELIST_HEADERS = [
 ensure_headers(sheet, SHEET1_HEADERS)
 ensure_headers(whitelist_sheet, WHITELIST_HEADERS)
 CUSTOM_SCHEDULE_HEADERS = ["تاريخ الإضافة","نوع النطاق","قيمة النطاق","نوع الدوام","تاريخ البداية","تاريخ النهاية","نشط","ملاحظات","وقت البداية","عدد الساعات"]
+REQUIRED_TODAY_HEADERS = ["التاريخ","المهمة","المدرسة","الرقم الشخصي","الاسم","نشط","ملاحظات"]
 ensure_headers(custom_schedules_sheet, CUSTOM_SCHEDULE_HEADERS)
+ensure_headers(required_today_sheet, REQUIRED_TODAY_HEADERS)
 
 # ─── دوال مساعدة ───────────────────────────────────────────────
 def ar_to_en_digits(text):
@@ -517,7 +526,7 @@ def get_daily_schedule_records():
     except: return []
 
 def clear_caches():
-    get_sheet_data.clear(); get_device_locks.clear(); get_device_exceptions.clear(); get_trusted_devices.clear(); get_settings_records.clear(); get_schedule_records.clear(); get_daily_schedule_records.clear(); get_manual_requests.clear(); get_time_permits.clear(); get_custom_schedules.clear()
+    get_sheet_data.clear(); get_device_locks.clear(); get_device_exceptions.clear(); get_trusted_devices.clear(); get_settings_records.clear(); get_schedule_records.clear(); get_daily_schedule_records.clear(); get_manual_requests.clear(); get_time_permits.clear(); get_custom_schedules.clear(); get_required_today_records.clear()
 
 
 # ─── دوال احتساب الدوام والساعات والإغلاق التلقائي ───────────────
@@ -1028,6 +1037,51 @@ def emp_required_on_day(emp, scheduled_tasks):
         if task_clean and task_clean==t_clean:
             return True
     return False
+
+
+def required_people_for_date(date_str):
+    """يرجع قائمة مطلوبات اليوم من ورقة مطلوبات_اليوم.
+    إذا رجعت None يعني لا توجد قائمة خاصة لهذا التاريخ، فيرجع النظام لجدول الأقسام.
+    الترتيب المعتمد: المهمة ← المدرسة ← الاسم.
+    """
+    date_str = str(date_str or "").strip()
+    wl_all = get_whitelist()
+    result = {}
+
+    for r in get_required_today_records():
+        r_date = str(r.get("التاريخ", "")).strip().replace("/", "-")
+        if r_date != date_str:
+            continue
+        active_raw = str(r.get("نشط", "نعم")).strip()
+        if active_raw and not is_yes(active_raw):
+            continue
+
+        eid = ar_to_en_digits(str(r.get("الرقم الشخصي", "")).strip())
+        if not eid:
+            continue
+
+        emp = dict(wl_all.get(eid, {}))
+        emp["الرقم الشخصي"] = eid
+        emp["الاسم"] = str(r.get("الاسم", "") or emp.get("الاسم", "")).strip()
+        emp["المدرسة"] = str(r.get("المدرسة", "") or emp.get("المدرسة", "")).strip()
+        emp["المهمة"] = str(r.get("المهمة", "") or emp.get("المهمة", "")).strip()
+        emp["نشط"] = "نعم"
+        if not emp.get("دعم"):
+            emp["دعم"] = "لا"
+        result[eid] = emp
+
+    if not result:
+        return None
+
+    return dict(sorted(result.items(), key=lambda item: (
+        str(item[1].get("المهمة", "")),
+        str(item[1].get("المدرسة", "")),
+        str(item[1].get("الاسم", "")),
+    )))
+
+
+def required_people_source_label(date_str):
+    return "قائمة مطلوبات اليوم" if required_people_for_date(date_str) is not None else "جدول الأقسام"
 
 def find_today_row(data, today, emp_id):
     for i,row in enumerate(data):
@@ -2476,6 +2530,7 @@ else:
             "📞 التواصل والمتابعة",
             "⚙️ إعدادات التسجيل اليدوي",
             "🔴 تسجيل الغياب",
+            "📋 مطلوبات اليوم",
             "📅 دوام الأقسام",
             "🧹 تنظيف التكرارات",
             "✏️ تعديل سجل",
@@ -2508,18 +2563,39 @@ else:
             data = get_sheet_data_fresh()
             today_rows=[r for r in data if str(r.get("التاريخ","")).strip().replace("/","-")==today_str]
 
-            # ربط إحصائيات اليوم بجدول دوام الأقسام الأسبوعي أو اليومي
+            # ربط إحصائيات اليوم بقائمة مطلوبات اليوم أولاً، ثم جدول دوام الأقسام إذا لا توجد قائمة
             today_day_ar = day_arabic
-            scheduled_tasks, schedule_source = scheduled_tasks_for_date(today_str)
             wl_all = get_whitelist()
-            if scheduled_tasks is None:
-                required_wl = wl_all
-                st.warning("⚠️ لم يتم تحديد دوام أقسام لهذا اليوم، لذلك ستعرض الإحصائيات على جميع القائمة البيضاء.")
+            required_from_people = required_people_for_date(today_str)
+
+            if required_from_people is not None:
+                required_wl = required_from_people
+                st.success("✅ الإحصائيات تعتمد على ورقة مطلوبات_اليوم لهذا التاريخ.")
+                with st.expander(f"📋 مطلوبات اليوم مرتبة حسب المهمة ← المدرسة ← المعلمات — {today_str}", expanded=False):
+                    last_task = None
+                    last_school = None
+                    for eid, emp in required_wl.items():
+                        task = str(emp.get("المهمة", "")).strip() or "غير محدد"
+                        school = str(emp.get("المدرسة", "")).strip() or "غير محدد"
+                        name = str(emp.get("الاسم", "")).strip()
+                        if task != last_task:
+                            st.markdown(f"### 📌 {task}")
+                            last_task = task
+                            last_school = None
+                        if school != last_school:
+                            st.markdown(f"**🏫 {school}**")
+                            last_school = school
+                        st.markdown(f"- {name} — #{eid}")
             else:
-                required_wl = {eid: emp for eid, emp in wl_all.items() if emp_required_on_day(emp, scheduled_tasks)}
-                with st.expander(f"📅 الأقسام المعتمدة في إحصائيات اليوم ({today_day_ar}) — مصدر الجدول: {schedule_source}", expanded=False):
-                    for t in scheduled_tasks:
-                        st.markdown(f"- {t}")
+                scheduled_tasks, schedule_source = scheduled_tasks_for_date(today_str)
+                if scheduled_tasks is None:
+                    required_wl = wl_all
+                    st.warning("⚠️ لا توجد قائمة مطلوبات اليوم ولم يتم تحديد دوام أقسام لهذا اليوم، لذلك ستعرض الإحصائيات على جميع القائمة البيضاء.")
+                else:
+                    required_wl = {eid: emp for eid, emp in wl_all.items() if emp_required_on_day(emp, scheduled_tasks)}
+                    with st.expander(f"📅 الأقسام المعتمدة في إحصائيات اليوم ({today_day_ar}) — مصدر الجدول: {schedule_source}", expanded=False):
+                        for t in scheduled_tasks:
+                            st.markdown(f"- {t}")
 
             required_ids = set(str(eid).strip() for eid in required_wl.keys())
 
@@ -4015,20 +4091,44 @@ else:
             abs_date_str=str(abs_date)
             abs_day_ar=day_ar_from_date(abs_date)
 
-            scheduled_tasks, schedule_source = scheduled_tasks_for_date(abs_date_str)
-            if scheduled_tasks is None:
-                st.warning("⚠️ لم يتم تحديد دوام أقسام لهذا اليوم في ورقة جدول_دوام_الأقسام، لذلك سيتم حصر الغياب على جميع القائمة البيضاء.")
-            else:
-                with st.expander(f"📅 الأقسام المطلوب دوامها يوم {abs_day_ar} — مصدر الجدول: {schedule_source}", expanded=False):
-                    for t in scheduled_tasks:
-                        st.markdown(f"- {t}")
-
             wl_all=get_whitelist()
+            required_from_people = required_people_for_date(abs_date_str)
+            scheduled_tasks = None
+            schedule_source = ""
+
+            if required_from_people is not None:
+                st.success("✅ تسجيل الغياب يعتمد على ورقة مطلوبات_اليوم لهذا التاريخ.")
+                with st.expander(f"📋 مطلوبات اليوم للغياب — {abs_date_str}", expanded=False):
+                    last_task = None
+                    last_school = None
+                    for eid, emp in required_from_people.items():
+                        task = str(emp.get("المهمة", "")).strip() or "غير محدد"
+                        school = str(emp.get("المدرسة", "")).strip() or "غير محدد"
+                        if task != last_task:
+                            st.markdown(f"### 📌 {task}")
+                            last_task = task
+                            last_school = None
+                        if school != last_school:
+                            st.markdown(f"**🏫 {school}**")
+                            last_school = school
+                        st.markdown(f"- {emp.get('الاسم','')} — #{eid}")
+            else:
+                scheduled_tasks, schedule_source = scheduled_tasks_for_date(abs_date_str)
+                if scheduled_tasks is None:
+                    st.warning("⚠️ لا توجد قائمة مطلوبات اليوم ولم يتم تحديد دوام أقسام لهذا اليوم، لذلك سيتم حصر الغياب على جميع القائمة البيضاء.")
+                else:
+                    with st.expander(f"📅 الأقسام المطلوب دوامها يوم {abs_day_ar} — مصدر الجدول: {schedule_source}", expanded=False):
+                        for t in scheduled_tasks:
+                            st.markdown(f"- {t}")
+
             if not wl_all:
                 st.warning("⚠️ القائمة البيضاء فارغة")
             else:
-                # فلترة القائمة البيضاء حسب جدول الدوام
-                required_wl={eid:emp for eid,emp in wl_all.items() if emp_required_on_day(emp, scheduled_tasks)}
+                # الأولوية لقائمة مطلوبات اليوم، وإذا غير موجودة يرجع لجدول الدوام
+                if required_from_people is not None:
+                    required_wl = required_from_people
+                else:
+                    required_wl={eid:emp for eid,emp in wl_all.items() if emp_required_on_day(emp, scheduled_tasks)}
 
                 data=get_sheet_data()
                 attended_ids=set(str(r.get("الرقم الشخصي","")).strip() for r in data if r.get("التاريخ")==abs_date_str and r.get("وقت الحضور"))
@@ -4046,7 +4146,9 @@ else:
                 c2.metric("حاضرات",len(attended_ids.intersection(set(required_wl.keys()))))
                 c3.metric("لم يسجّلن",len(not_registered))
 
-                if scheduled_tasks is not None:
+                if required_from_people is not None:
+                    st.info("✅ الحصر الحالي يعتمد فقط على المعلمات الموجودات في ورقة مطلوبات_اليوم لهذا التاريخ.")
+                elif scheduled_tasks is not None:
                     st.info("✅ الحصر الحالي يعتمد فقط على الأقسام/المهام المحددة في جدول دوام الأقسام لهذا اليوم.")
 
                 if already_absent:
@@ -4127,6 +4229,170 @@ else:
                                 st.success(f"✅ تم تسجيل غياب {emp.get('الاسم','')}"); st.rerun()
                 else:
                     st.success("✅ تم تسجيل وضع جميع الموظفات المطلوب دوامهن لهذا اليوم")
+
+        # ── مطلوبات اليوم ────────────────────────────────────────
+        elif admin_tab=="📋 مطلوبات اليوم":
+            st.markdown("#### 📋 تحديد المعلمات المطلوبات لليوم")
+            st.info("إذا تم إدخال قائمة لهذا التاريخ، ستعتمد إحصائيات اليوم وتسجيل الغياب على هذه القائمة فقط، وبالترتيب: المهمة ← المدرسة ← المعلمات.")
+
+            req_date = st.date_input("تاريخ القائمة", value=now_bh().date(), key="req_today_date")
+            req_date_str = req_date.strftime("%Y-%m-%d")
+            wl_all = get_whitelist()
+
+            with st.container(border=True):
+                st.markdown("##### ➕ إضافة من القائمة البيضاء")
+                col_rt1, col_rt2 = st.columns(2)
+                with col_rt1:
+                    rt_task_filter = st.selectbox("المهمة", ["الكل"] + sorted(set(str(e.get("المهمة", "")).strip() for e in wl_all.values() if str(e.get("المهمة", "")).strip())), key="rt_task_filter")
+                with col_rt2:
+                    rt_school_filter = st.selectbox("المدرسة", ["الكل"] + schools, key="rt_school_filter")
+
+                rt_options = []
+                for eid, emp in wl_all.items():
+                    task = str(emp.get("المهمة", "")).strip()
+                    school = str(emp.get("المدرسة", "")).strip()
+                    name = str(emp.get("الاسم", "")).strip()
+                    if rt_task_filter != "الكل" and task != rt_task_filter:
+                        continue
+                    if rt_school_filter != "الكل" and school != rt_school_filter:
+                        continue
+                    rt_options.append((eid, emp, f"{task} — {school} — {name} — #{eid}"))
+                rt_options = sorted(rt_options, key=lambda x: x[2])
+                rt_label_map = {lbl: (eid, emp) for eid, emp, lbl in rt_options}
+                selected_labels = st.multiselect("اختاري المعلمات المطلوبات", list(rt_label_map.keys()), key="rt_selected_people")
+                rt_note = st.text_input("ملاحظات اختيارية", key="rt_note")
+
+                if st.button("💾 إضافة المختارات لقائمة اليوم", use_container_width=True, type="primary", key="btn_add_required_today"):
+                    if not selected_labels:
+                        st.error("❌ اختاري معلمة واحدة على الأقل.")
+                    else:
+                        try:
+                            existing = get_required_today_records()
+                            existing_keys = set(
+                                (str(r.get("التاريخ", "")).strip().replace("/", "-"), str(r.get("الرقم الشخصي", "")).strip())
+                                for r in existing
+                            )
+                            added = 0
+                            for lbl in selected_labels:
+                                eid, emp = rt_label_map[lbl]
+                                if (req_date_str, str(eid).strip()) in existing_keys:
+                                    continue
+                                required_today_sheet.append_row([
+                                    req_date_str,
+                                    str(emp.get("المهمة", "")).strip(),
+                                    str(emp.get("المدرسة", "")).strip(),
+                                    str(eid).strip(),
+                                    str(emp.get("الاسم", "")).strip(),
+                                    "نعم",
+                                    rt_note,
+                                ], value_input_option="USER_ENTERED")
+                                added += 1
+                            get_required_today_records.clear()
+                            clear_caches()
+                            st.success(f"✅ تم إضافة {added} معلمة لقائمة {req_date_str}.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ تعذر الحفظ: {e}")
+
+            with st.container(border=True):
+                st.markdown("##### 📥 رفع قائمة من Excel")
+                st.caption("الأعمدة المقبولة: التاريخ، المهمة، المدرسة، الرقم الشخصي، الاسم، نشط، ملاحظات. أهم عمود هو الرقم الشخصي. إذا التاريخ فارغ يستخدم تاريخ القائمة المختار.")
+                up_req = st.file_uploader("ارفعي ملف Excel لقائمة المطلوبات", type=["xlsx"], key="upload_required_today")
+                if up_req is not None:
+                    try:
+                        df_req = pd.read_excel(up_req)
+                        df_req.columns = [str(c).strip() for c in df_req.columns]
+                        st.dataframe(df_req.head(30), use_container_width=True)
+                        if st.button("✅ اعتماد ورفع القائمة", use_container_width=True, type="primary", key="btn_import_required_today"):
+                            id_col = next((c for c in df_req.columns if c in ["الرقم الشخصي", "رقم شخصي", "CPR", "cpr", "ID", "id"]), None)
+                            if not id_col:
+                                st.error("❌ لم أجد عمود الرقم الشخصي في الملف.")
+                            else:
+                                added = 0
+                                existing = get_required_today_records()
+                                existing_keys = set(
+                                    (str(r.get("التاريخ", "")).strip().replace("/", "-"), str(r.get("الرقم الشخصي", "")).strip())
+                                    for r in existing
+                                )
+                                for _, row in df_req.iterrows():
+                                    eid = ar_to_en_digits(str(row.get(id_col, "")).strip()).replace(".0", "")
+                                    if not eid or eid.lower() == "nan":
+                                        continue
+                                    emp = wl_all.get(eid, {})
+                                    d_val = str(row.get("التاريخ", req_date_str) or req_date_str).strip()
+                                    if d_val.lower() == "nan" or not d_val:
+                                        d_val = req_date_str
+                                    try:
+                                        d_val = pd.to_datetime(d_val).strftime("%Y-%m-%d")
+                                    except Exception:
+                                        d_val = d_val.replace("/", "-")
+                                    if (d_val, eid) in existing_keys:
+                                        continue
+                                    task_val = str(row.get("المهمة", "") or emp.get("المهمة", "")).strip()
+                                    school_val = str(row.get("المدرسة", "") or emp.get("المدرسة", "")).strip()
+                                    name_val = str(row.get("الاسم", "") or emp.get("الاسم", "")).strip()
+                                    active_val = str(row.get("نشط", "نعم") or "نعم").strip()
+                                    note_val = str(row.get("ملاحظات", "") or "").strip()
+                                    if active_val.lower() == "nan": active_val = "نعم"
+                                    if note_val.lower() == "nan": note_val = ""
+                                    required_today_sheet.append_row([d_val, task_val, school_val, eid, name_val, active_val, note_val], value_input_option="USER_ENTERED")
+                                    added += 1
+                                get_required_today_records.clear()
+                                clear_caches()
+                                st.success(f"✅ تم رفع {added} سجل في مطلوبات اليوم.")
+                                st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ تعذر قراءة الملف: {e}")
+
+            existing_req = required_people_for_date(req_date_str)
+            st.markdown("##### 📌 القائمة الحالية")
+            if not existing_req:
+                st.warning("لا توجد مطلوبات مسجلة لهذا التاريخ. ستعمل الإحصائيات حسب جدول الأقسام.")
+            else:
+                st.metric("عدد المطلوبات", len(existing_req))
+                rows_show = []
+                for eid, emp in existing_req.items():
+                    rows_show.append({
+                        "المهمة": emp.get("المهمة", ""),
+                        "المدرسة": emp.get("المدرسة", ""),
+                        "الاسم": emp.get("الاسم", ""),
+                        "الرقم الشخصي": eid,
+                    })
+                st.dataframe(pd.DataFrame(rows_show), use_container_width=True, hide_index=True)
+
+                with st.expander("🗑️ حذف/تعطيل من قائمة هذا التاريخ", expanded=False):
+                    labels_del = [f"{r['المهمة']} — {r['المدرسة']} — {r['الاسم']} — #{r['الرقم الشخصي']}" for r in rows_show]
+                    selected_del = st.multiselect("اختاري من تريدين تعطيله من القائمة", labels_del, key="rt_delete_select")
+                    if st.button("🚫 تعطيل المختارات", use_container_width=True, key="btn_disable_required_today"):
+                        try:
+                            records = required_today_sheet.get_all_records()
+                            ids_to_disable = set(lbl.split("#")[-1].strip() for lbl in selected_del)
+                            changed = 0
+                            for i, r in enumerate(records, start=2):
+                                if str(r.get("التاريخ", "")).strip().replace("/", "-") == req_date_str and str(r.get("الرقم الشخصي", "")).strip() in ids_to_disable:
+                                    required_today_sheet.update_cell(i, 6, "لا")
+                                    changed += 1
+                            get_required_today_records.clear()
+                            clear_caches()
+                            st.success(f"✅ تم تعطيل {changed} سجل.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ تعذر التعطيل: {e}")
+
+                    if st.button("🧹 تعطيل كل قائمة هذا التاريخ", use_container_width=True, key="btn_disable_all_required_today"):
+                        try:
+                            records = required_today_sheet.get_all_records()
+                            changed = 0
+                            for i, r in enumerate(records, start=2):
+                                if str(r.get("التاريخ", "")).strip().replace("/", "-") == req_date_str and is_yes(r.get("نشط", "نعم")):
+                                    required_today_sheet.update_cell(i, 6, "لا")
+                                    changed += 1
+                            get_required_today_records.clear()
+                            clear_caches()
+                            st.success(f"✅ تم تعطيل كل قائمة هذا التاريخ: {changed} سجل.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ تعذر التعطيل: {e}")
 
         # ── دوام الأقسام ────────────────────────────────────────
         elif admin_tab=="📅 دوام الأقسام":
@@ -5216,4 +5482,5 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
+
 
