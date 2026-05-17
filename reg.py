@@ -2975,59 +2975,59 @@ else:
                     selected_idx = missing_labels.index(selected_missing)
                     add_eid, add_emp = missing_items[selected_idx]
 
-                        st.markdown(f"""
-                        <div class="audit-row">
-                            <b>{add_emp.get('الاسم','')}</b><br>
-                            الرقم الشخصي: {add_eid}<br>
-                            المدرسة: {add_emp.get('المدرسة','')}<br>
-                            المهمة: {add_emp.get('المهمة','')}
-                        </div>
-                        """, unsafe_allow_html=True)
+                    st.markdown(f"""
+                    <div class="audit-row">
+                        <b>{add_emp.get('الاسم','')}</b><br>
+                        الرقم الشخصي: {add_eid}<br>
+                        المدرسة: {add_emp.get('المدرسة','')}<br>
+                        المهمة: {add_emp.get('المهمة','')}
+                    </div>
+                    """, unsafe_allow_html=True)
 
-                        cadd1, cadd2 = st.columns(2)
-                        with cadd1:
-                            add_att_time = st.text_input("وقت الحضور", value="07:00:00", key="direct_add_att")
-                            add_late_reason = st.selectbox("سبب التأخير / الملاحظة", [""] + reasons, key="direct_add_late_reason")
-                        with cadd2:
-                            add_dep_time = st.text_input("وقت الانصراف اختياري", value="", key="direct_add_dep")
-                            add_dep_reason = st.selectbox("سبب الانصراف اختياري", [""] + reasons, key="direct_add_dep_reason")
+                    cadd1, cadd2 = st.columns(2)
+                    with cadd1:
+                        add_att_time = st.text_input("وقت الحضور", value="07:00:00", key="direct_add_att")
+                        add_late_reason = st.selectbox("سبب التأخير / الملاحظة", [""] + reasons, key="direct_add_late_reason")
+                    with cadd2:
+                        add_dep_time = st.text_input("وقت الانصراف اختياري", value="", key="direct_add_dep")
+                        add_dep_reason = st.selectbox("سبب الانصراف اختياري", [""] + reasons, key="direct_add_dep_reason")
 
-                        add_care_choice = st.selectbox("هل لديها رعاية؟", ["لا", "نعم"], key="direct_add_care")
-                        add_note = st.text_input("ملاحظة", value="إضافة حضور يدوي من صفحة حضور اليوم", key="direct_add_note")
+                    add_care_choice = st.selectbox("هل لديها رعاية؟", ["لا", "نعم"], key="direct_add_care")
+                    add_note = st.text_input("ملاحظة", value="إضافة حضور يدوي من صفحة حضور اليوم", key="direct_add_note")
 
-                        if st.button("➕ إضافة السجل الآن", use_container_width=True, type="primary", key="direct_add_record_btn"):
-                            if not str(add_att_time).strip():
-                                st.error("❌ وقت الحضور مطلوب.")
-                            else:
-                                try:
-                                    existing_idx, existing_row = find_today_row_fresh(direct_view_date_str, str(add_eid).strip())
-                                    if existing_row and str(existing_row.get("وقت الحضور","")).strip():
-                                        st.warning("⚠️ هذه الموظفة أصبح لديها سجل حضور، لم يتم إنشاء سجل مكرر.")
-                                    else:
-                                        add_name = str(add_emp.get("الاسم","")).strip()
-                                        add_school = str(add_emp.get("المدرسة","")).strip()
-                                        add_task = str(add_emp.get("المهمة","")).strip()
-                                        add_support = "نعم" if is_support_employee_record(add_emp) else "لا"
-                                        late_reason_to_save = "رعاية" if add_care_choice == "نعم" else str(add_late_reason or "").strip()
-                                        daily_type_to_save = "رعاية" if add_care_choice == "نعم" else ""
-                                        care_confirm_to_save = "نعم" if add_care_choice == "نعم" else ""
-                                        row_values = [
-                                            direct_view_date_str, direct_view_date.strftime("%A"), add_school, add_task, add_support,
-                                            add_name, str(add_eid).strip(), str(add_att_time).strip(), late_reason_to_save,
-                                            str(add_dep_time).strip(), str(add_dep_reason or "").strip(), "", "", "",
-                                            "", "", "", "", "", daily_type_to_save, "", care_confirm_to_save,
-                                            "إضافة يدوية من حضور اليوم"
-                                        ]
-                                        safe_append(sheet, row_values)
-                                        idx_new, row_new = find_today_row_fresh(direct_view_date_str, str(add_eid).strip())
-                                        if idx_new and row_new:
-                                            update_work_calculation(idx_new, row_new)
-                                        log_audit(str(add_eid).strip(), add_name, "إضافة حضور من صفحة حضور اليوم", f"تاريخ:{direct_view_date_str}|{add_note}")
-                                        clear_caches()
-                                        st.session_state.today_direct_msg = f"✅ تم إضافة سجل الحضور لـ {add_name} بنجاح."
-                                        st.success(st.session_state.today_direct_msg)
-                                except Exception as e:
-                                    st.error(f"❌ خطأ أثناء الإضافة: {e}")
+                    if st.button("➕ إضافة السجل الآن", use_container_width=True, type="primary", key="direct_add_record_btn"):
+                        if not str(add_att_time).strip():
+                            st.error("❌ وقت الحضور مطلوب.")
+                        else:
+                            try:
+                                existing_idx, existing_row = find_today_row_fresh(direct_view_date_str, str(add_eid).strip())
+                                if existing_row and str(existing_row.get("وقت الحضور","")).strip():
+                                    st.warning("⚠️ هذه الموظفة أصبح لديها سجل حضور، لم يتم إنشاء سجل مكرر.")
+                                else:
+                                    add_name = str(add_emp.get("الاسم","")).strip()
+                                    add_school = str(add_emp.get("المدرسة","")).strip()
+                                    add_task = str(add_emp.get("المهمة","")).strip()
+                                    add_support = "نعم" if is_support_employee_record(add_emp) else "لا"
+                                    late_reason_to_save = "رعاية" if add_care_choice == "نعم" else str(add_late_reason or "").strip()
+                                    daily_type_to_save = "رعاية" if add_care_choice == "نعم" else ""
+                                    care_confirm_to_save = "نعم" if add_care_choice == "نعم" else ""
+                                    row_values = [
+                                        direct_view_date_str, direct_view_date.strftime("%A"), add_school, add_task, add_support,
+                                        add_name, str(add_eid).strip(), str(add_att_time).strip(), late_reason_to_save,
+                                        str(add_dep_time).strip(), str(add_dep_reason or "").strip(), "", "", "",
+                                        "", "", "", "", "", daily_type_to_save, "", care_confirm_to_save,
+                                        "إضافة يدوية من حضور اليوم"
+                                    ]
+                                    safe_append(sheet, row_values)
+                                    idx_new, row_new = find_today_row_fresh(direct_view_date_str, str(add_eid).strip())
+                                    if idx_new and row_new:
+                                        update_work_calculation(idx_new, row_new)
+                                    log_audit(str(add_eid).strip(), add_name, "إضافة حضور من صفحة حضور اليوم", f"تاريخ:{direct_view_date_str}|{add_note}")
+                                    clear_caches()
+                                    st.session_state.today_direct_msg = f"✅ تم إضافة سجل الحضور لـ {add_name} بنجاح."
+                                    st.success(st.session_state.today_direct_msg)
+                            except Exception as e:
+                                st.error(f"❌ خطأ أثناء الإضافة: {e}")
 
         # ── إحصائيات اليوم ──────────────────────────────────────
         elif admin_tab=="📊 إحصائيات اليوم":
