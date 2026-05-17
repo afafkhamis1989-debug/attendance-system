@@ -2329,19 +2329,11 @@ if mode=="👤 موظفة":
         emp    = st.session_state.emp_data
         emp_id = str(emp.get("الرقم الشخصي","")).strip()
 
-        # تنفيذ العملية المؤجلة
-        if st.session_state.get("operation_saving"):
-            queued_op   = st.session_state.get("_queued_op","")
-            queued_note = st.session_state.get("_queued_note","")
-            with st.spinner("⏳ جارٍ حفظ العملية… يرجى الانتظار"):
-                if queued_op:
-                    register_operation(queued_op, emp_id, queued_note)
-                else:
-                    register_operation("عودة من استئذان", emp_id)
-            st.session_state.operation_saving = False
-            st.session_state._queued_op   = ""
-            st.session_state._queued_note = ""
-            st.rerun()
+        # إصلاح التسجيل: لا نؤجل العملية بعد الضغط حتى لا تضيع بسبب rerun.
+        # أي زر عملية ينفّذ register_operation مباشرة في نفس الضغط.
+        st.session_state.operation_saving = False
+        st.session_state._queued_op   = ""
+        st.session_state._queued_note = ""
 
         # قراءة مباشرة بدون كاش حتى يظهر تسجيل الحضور/الانصراف فورًا ولا تضغط الموظفة أكثر من مرة.
         data = get_sheet_data_fresh()
@@ -2405,38 +2397,31 @@ if mode=="👤 موظفة":
                     if st.button("نعم، لدي رعاية", use_container_width=True, key="btn_care"):
                         if mark_care_for_today(emp_id): st.rerun()
 
-            _saving = st.session_state.get("operation_saving", False)
             col1,col2 = st.columns(2)
             with col1:
-                if st.button("✅ تسجيل حضور", use_container_width=True, disabled=_saving or has_att, key="btn_att"):
+                if st.button("✅ تسجيل حضور", use_container_width=True, disabled=has_att, key="btn_att"):
                     if now_bh().time() > time(7,30):
                         st.session_state.pending_operation = "تسجيل حضور"
                         st.rerun()
                     else:
-                        st.session_state._queued_op   = "تسجيل حضور"
-                        st.session_state._queued_note = ""
-                        st.session_state.operation_saving = True
+                        register_operation("تسجيل حضور", emp_id, "")
                         st.rerun()
             with col2:
-                if st.button("🔵 تسجيل انصراف", use_container_width=True, disabled=_saving or has_dep, key="btn_dep"):
+                if st.button("🔵 تسجيل انصراف", use_container_width=True, disabled=has_dep, key="btn_dep"):
                     if now_bh().time() < time(14,0):
                         st.session_state.pending_operation = "تسجيل انصراف"
                         st.rerun()
                     else:
-                        st.session_state._queued_op   = "تسجيل انصراف"
-                        st.session_state._queued_note = ""
-                        st.session_state.operation_saving = True
+                        register_operation("تسجيل انصراف", emp_id, "")
                         st.rerun()
             col3,col4 = st.columns(2)
             with col3:
-                if st.button("📤 خروج استئذان", use_container_width=True, disabled=_saving, key="btn_exit"):
+                if st.button("📤 خروج استئذان", use_container_width=True, key="btn_exit"):
                     st.session_state.pending_operation = "خروج استئذان"
                     st.rerun()
             with col4:
-                if st.button("🔁 عودة من استئذان", use_container_width=True, disabled=_saving, key="btn_return"):
-                    st.session_state._queued_op   = ""
-                    st.session_state._queued_note = ""
-                    st.session_state.operation_saving = True
+                if st.button("🔁 عودة من استئذان", use_container_width=True, key="btn_return"):
+                    register_operation("عودة من استئذان", emp_id, "")
                     st.rerun()
 
             if st.session_state.get("pending_operation") == "تسجيل حضور":
@@ -2447,9 +2432,7 @@ if mode=="👤 موظفة":
                     final = "" if late_reason=="اختاري السبب (اختياري)" else (late_other.strip() if late_reason=="أخرى" else late_reason)
                     if st.button("تأكيد تسجيل الحضور", use_container_width=True, type="primary", key="btn_confirm_att"):
                         st.session_state.pending_operation = None
-                        st.session_state._queued_op   = "تسجيل حضور"
-                        st.session_state._queued_note = final
-                        st.session_state.operation_saving = True
+                        register_operation("تسجيل حضور", emp_id, final)
                         st.rerun()
 
             if st.session_state.get("pending_operation") == "تسجيل انصراف":
@@ -2462,9 +2445,7 @@ if mode=="👤 موظفة":
                         if not final: st.error("السبب مطلوب")
                         else:
                             st.session_state.pending_operation = None
-                            st.session_state._queued_op   = "تسجيل انصراف"
-                            st.session_state._queued_note = final
-                            st.session_state.operation_saving = True
+                            register_operation("تسجيل انصراف", emp_id, final)
                             st.rerun()
 
             if st.session_state.get("pending_operation") == "خروج استئذان":
@@ -2479,9 +2460,7 @@ if mode=="👤 موظفة":
                         if not reason_final: st.error("السبب مطلوب")
                         else:
                             st.session_state.pending_operation = None
-                            st.session_state._queued_op   = "خروج استئذان"
-                            st.session_state._queued_note = final
-                            st.session_state.operation_saving = True
+                            register_operation("خروج استئذان", emp_id, final)
                             st.rerun()
 
     # ── زر "موظفة أخرى" للأجهزة الموثوقة ──
@@ -6002,6 +5981,7 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
