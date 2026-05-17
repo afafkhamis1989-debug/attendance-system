@@ -2719,8 +2719,46 @@ else:
             with col_ref1:
                 st.info("هذه الصفحة تقرأ من Google Sheet مباشرة بدون كاش حتى تظهر سجلات اليوم بسرعة.")
 
+            # قراءة سجلات اليوم مباشرة من sheet1 بدون كاش، مع معالجة اختلاف أسماء الأعمدة وصيغة التاريخ
             data_direct = get_sheet_data_fresh()
-            today_rows_direct = [r for r in data_direct if str(r.get("التاريخ","")).strip().replace("/","-") == today_str]
+
+            def _direct_normalize_date(value):
+                txt = str(value or "").strip()
+                if not txt:
+                    return ""
+                txt = txt.replace("/", "-")
+                # إذا رجع التاريخ مع وقت مثل 2026-05-17 07:00:00 نأخذ أول 10 خانات
+                if len(txt) >= 10 and txt[4:5] == "-" and txt[7:8] == "-":
+                    return txt[:10]
+                # محاولة دعم صيغة يوم-شهر-سنة أو شهر-يوم-سنة إن وجدت
+                for fmt in ["%Y-%m-%d", "%d-%m-%Y", "%m-%d-%Y"]:
+                    try:
+                        return datetime.strptime(txt[:10], fmt).strftime("%Y-%m-%d")
+                    except Exception:
+                        pass
+                return txt[:10]
+
+            today_rows_direct = []
+            for rr in data_direct:
+                row_date = _direct_normalize_date(rr.get("التاريخ", rr.get("Date", "")))
+                if row_date != today_str:
+                    continue
+
+                # ننسخ السجل ونوحد أسماء الأعمدة حتى تظهر البيانات في الصفحة مهما كان اسم العمود في الشيت
+                r = dict(rr)
+                school_name = str(r.get("اسم المدرسة", "") or r.get("المدرسة", "") or r.get("School", "")).strip()
+                task_name   = str(r.get("المهمة", "") or r.get("القسم", "") or r.get("Task", "")).strip()
+                name_value  = str(r.get("الاسم الثلاثي", "") or r.get("الاسم", "") or r.get("Name", "")).strip()
+
+                r["التاريخ"] = row_date
+                r["اسم المدرسة"] = school_name
+                r["المدرسة"] = school_name
+                r["المهمة"] = task_name
+                r["الاسم الثلاثي"] = name_value
+                r["الاسم"] = name_value
+
+                today_rows_direct.append(r)
+
             wl_all_direct = get_whitelist()
 
             # تحديد المطلوبات: مطلوبات اليوم أولاً ثم جدول الأقسام ثم كل القائمة البيضاء
