@@ -1637,7 +1637,11 @@ def register_operation(operation, emp_id, note=""):
                 st.info(f"🧹 تم تنظيف {deleted_count} سجل مكرر تلقائيًا لهذا اليوم.")
         except Exception:
             pass
-        clear_caches(); st.success("✅ تم تسجيل الحضور بنجاح."); return True
+        clear_caches()
+        st.session_state.force_fresh_today_row = True
+        st.session_state.attendance_done_now = time_now
+        st.success(f"✅ تم تسجيل الحضور بنجاح الساعة {time_now}")
+        return True
 
     if operation=="تسجيل انصراف":
         if not row_index or not row or not row.get("وقت الحضور"): st.error("❌ يجب تسجيل الحضور أولاً."); return False
@@ -2326,6 +2330,17 @@ if mode=="👤 موظفة":
         # قراءة مباشرة بدون كاش حتى يظهر تسجيل الحضور/الانصراف فورًا ولا تضغط الموظفة أكثر من مرة.
         data = get_sheet_data_fresh()
         _, today_row = find_today_row(data, today_str, emp_id)
+
+        # إذا تأخر ظهور السجل من Google Sheet، نعرض وقت الحضور فوراً ونمنع الضغط المتكرر
+        if st.session_state.get("attendance_done_now") and not today_row:
+            today_row = {
+                "وقت الحضور": st.session_state.attendance_done_now,
+                "وقت الانصراف": "",
+                "خروج استئذان": "",
+                "عودة": "",
+                "سبب التأخير": "",
+                "سبب الانصراف": "",
+            }
 
         att_time    = today_row.get("وقت الحضور","—")   if today_row else "—"
         dep_time    = today_row.get("وقت الانصراف","—") if today_row else "—"
