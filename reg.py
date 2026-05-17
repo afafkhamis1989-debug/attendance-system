@@ -2596,7 +2596,7 @@ else:
         st.session_state.admin_last_active=now_bh()
         st.markdown("## 🛡️ لوحة الأدمن")
 
-        admin_tab=st.selectbox("القسم",[
+        admin_tab = st.selectbox("القسم",[
             "📊 إحصائيات اليوم",
             "✏️ حضور اليوم والتعديل المباشر",
             "📑 التقارير",
@@ -2620,13 +2620,95 @@ else:
             "⚠️ تقرير الأجهزة",
             "⏰ تصاريح الوقت اليدوي",
             "📅 إعدادات الدوام المخصص",
-        ])
+        ], key="admin_tab")
 
 
         # ── حضور اليوم والتعديل المباشر ─────────────────────────────
         if admin_tab=="✏️ حضور اليوم والتعديل المباشر":
             st.markdown("#### ✏️ حضور اليوم والتعديل المباشر")
             st.caption("يعرض كل من سجلت حضور اليوم، ويتيح تعديل الوقت مباشرة، وإضافة حضور لمن لم تسجل بدون البحث بالاسم.")
+
+            # ── تحديد دوام معلمات اليوم من الأقسام مباشرة من نفس الصفحة ──
+            with st.container(border=True):
+                st.markdown("##### 📌 تحديد دوام معلمات اليوم من الأقسام")
+                st.caption("اختاري الأقسام/المهام المطلوبة لهذا التاريخ. بعدها قائمة غير المسجلات ستتحدث بناءً على الاختيار.")
+
+                direct_schedule_date = st.date_input(
+                    "تاريخ الدوام",
+                    value=now_bh().date(),
+                    key="direct_schedule_date"
+                )
+                direct_schedule_date_str = direct_schedule_date.strftime("%Y-%m-%d")
+
+                current_direct_daily = [
+                    str(r.get("المهمة", "")).strip()
+                    for r in get_daily_schedule_records()
+                    if str(r.get("التاريخ", "")).strip() == direct_schedule_date_str
+                    and (str(r.get("نشط", "")).strip() == "" or is_yes(r.get("نشط", "")))
+                    and str(r.get("المهمة", "")).strip()
+                ]
+                current_direct_daily = list(dict.fromkeys(current_direct_daily))
+
+                selected_direct_tasks = st.multiselect(
+                    "الأقسام/المهام التي دوامها اليوم",
+                    TASKS_ALL,
+                    default=[t for t in current_direct_daily if t in TASKS_ALL],
+                    key="direct_schedule_tasks"
+                )
+                direct_schedule_note = st.text_input(
+                    "ملاحظة اختيارية",
+                    value="تحديد دوام من صفحة حضور اليوم",
+                    key="direct_schedule_note"
+                )
+
+                c_ds1, c_ds2 = st.columns(2)
+                with c_ds1:
+                    if st.button("💾 اعتماد دوام الأقسام لهذا اليوم", use_container_width=True, type="primary", key="direct_save_schedule_tasks"):
+                        if not selected_direct_tasks:
+                            st.error("❌ اختاري قسم/مهمة واحدة على الأقل.")
+                        else:
+                            try:
+                                records = daily_schedule_sheet.get_all_records()
+                                batch_updates = []
+                                for i, r in enumerate(records):
+                                    if str(r.get("التاريخ", "")).strip() == direct_schedule_date_str:
+                                        batch_updates.append({"range": f"C{i+2}", "values": [["لا"]]})
+                                if batch_updates:
+                                    daily_schedule_sheet.batch_update(batch_updates)
+
+                                for task_name in selected_direct_tasks:
+                                    daily_schedule_sheet.append_row(
+                                        [direct_schedule_date_str, task_name, "نعم", direct_schedule_note],
+                                        value_input_option="USER_ENTERED"
+                                    )
+                                get_daily_schedule_records.clear()
+                                clear_caches()
+                                st.success("✅ تم اعتماد دوام الأقسام لهذا اليوم.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ تعذر حفظ دوام الأقسام: {e}")
+
+                with c_ds2:
+                    if st.button("🗑️ إلغاء دوام الأقسام الخاص بهذا التاريخ", use_container_width=True, key="direct_disable_schedule_tasks"):
+                        try:
+                            records = daily_schedule_sheet.get_all_records()
+                            batch_updates = []
+                            for i, r in enumerate(records):
+                                if str(r.get("التاريخ", "")).strip() == direct_schedule_date_str:
+                                    batch_updates.append({"range": f"C{i+2}", "values": [["لا"]]})
+                            if batch_updates:
+                                daily_schedule_sheet.batch_update(batch_updates)
+                            get_daily_schedule_records.clear()
+                            clear_caches()
+                            st.success("✅ تم إلغاء دوام الأقسام الخاص بهذا التاريخ، وسيعود النظام للجدول الأسبوعي.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ تعذر الإلغاء: {e}")
+
+                if current_direct_daily:
+                    st.success("دوام هذا التاريخ محدد حالياً: " + "، ".join(current_direct_daily))
+                else:
+                    st.info("لا يوجد دوام خاص محفوظ لهذا التاريخ. النظام سيعتمد على الجدول الأسبوعي أو مطلوبات اليوم.")
 
             col_ref1, col_ref2 = st.columns([3,1])
             with col_ref2:
