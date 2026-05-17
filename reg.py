@@ -2628,6 +2628,10 @@ else:
             st.markdown("#### ✏️ حضور اليوم والتعديل المباشر")
             st.caption("يعرض كل من سجلت حضور اليوم، ويتيح تعديل الوقت مباشرة، وإضافة حضور لمن لم تسجل بدون البحث بالاسم.")
 
+            # رسالة نجاح ثابتة بدون عمل رفرش للصفحة، حتى تبقين على نفس الفلتر ونفس الخطوة
+            if st.session_state.get("today_direct_msg"):
+                st.success(st.session_state.get("today_direct_msg"))
+
             # ── تحديد دوام معلمات اليوم من الأقسام مباشرة من نفس الصفحة ──
             with st.container(border=True):
                 st.markdown("##### 📌 تحديد دوام معلمات اليوم من الأقسام")
@@ -2881,8 +2885,8 @@ else:
                                         update_work_calculation(row_num, updated_row)
                                         log_audit(eid, name_val, "تعديل مباشر لحضور اليوم", f"تاريخ:{date_val}|صف:{row_num}")
                                         clear_caches()
-                                        st.success("✅ تم حفظ التعديل وإعادة احتساب الساعات.")
-                                        st.rerun()
+                                        st.session_state.today_direct_msg = f"✅ تم تعديل {name_val} وحفظ التغييرات بنجاح."
+                                        st.success(st.session_state.today_direct_msg)
                                     except Exception as e:
                                         st.error(f"❌ خطأ أثناء الحفظ: {e}")
                             with col_delete:
@@ -2895,8 +2899,8 @@ else:
                                             sheet.delete_rows(row_num)
                                             log_audit(eid, name_val, "حذف سجل حضور اليوم", f"تاريخ:{date_val}|صف:{row_num}")
                                             clear_caches()
-                                            st.success("✅ تم حذف السجل.")
-                                            st.rerun()
+                                            st.session_state.today_direct_msg = f"✅ تم حذف سجل {name_val} بنجاح."
+                                            st.success(st.session_state.today_direct_msg)
                                         except Exception as e:
                                             st.error(f"❌ خطأ أثناء الحذف: {e}")
 
@@ -2967,8 +2971,8 @@ else:
                                         update_work_calculation(idx_new, row_new)
                                     log_audit(str(add_eid).strip(), add_name, "إضافة حضور من صفحة حضور اليوم", f"تاريخ:{today_str}|{add_note}")
                                     clear_caches()
-                                    st.success("✅ تم إضافة سجل الحضور بنجاح.")
-                                    st.rerun()
+                                    st.session_state.today_direct_msg = f"✅ تم إضافة سجل الحضور لـ {add_name} بنجاح."
+                                    st.success(st.session_state.today_direct_msg)
                             except Exception as e:
                                 st.error(f"❌ خطأ أثناء الإضافة: {e}")
 
