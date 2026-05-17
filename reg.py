@@ -736,7 +736,11 @@ def update_work_calculation(row_index, row_data=None):
         vals = calculate_work_values(row_data)
         if not vals:
             return False
-        sheet.update(f"O{row_index}:T{row_index}", [[vals["calc_start"], vals["expected_end"], vals["work_hours"], vals["extra_hours"], vals["status"], vals["daily_type"]]], value_input_option="USER_ENTERED")
+        sheet.update(
+            values=[[vals["calc_start"], vals["expected_end"], vals["work_hours"], vals["extra_hours"], vals["status"], vals["daily_type"]]],
+            range_name=f"O{row_index}:T{row_index}",
+            value_input_option="USER_ENTERED"
+        )
         return True
     except Exception:
         return False
@@ -1919,7 +1923,20 @@ for k,v in default_state.items():
     if k not in st.session_state: st.session_state[k]=v
 
 today_str=now_bh().strftime("%Y-%m-%d")
-auto_close_previous_open_records()
+
+# مهم:
+# تم إيقاف الإغلاق التلقائي عند فتح التطبيق لأنه كان يعمل على كل تحميل للصفحة
+# ويعمل تحديثات كثيرة في Google Sheet، وهذا يسبب صفحة بيضاء / timeout في Streamlit.
+# إذا رغبتِ بتفعيله لاحقًا، ضعي في ورقة إعدادات_النظام:
+# المفتاح: auto_close_enabled
+# القيمة: true
+_auto_close_enabled = get_system_setting("auto_close_enabled", "false").lower() in ["true", "1", "yes", "نعم", "on"]
+if _auto_close_enabled and st.session_state.get("_auto_close_ran_for_date") != today_str:
+    try:
+        auto_close_previous_open_records()
+        st.session_state["_auto_close_ran_for_date"] = today_str
+    except Exception:
+        pass
 
 _saved_date=ls_get("saved_date"); _saved_id=ls_get("saved_id")
 _saved_name=ls_get("saved_name"); _saved_school=ls_get("saved_school")
