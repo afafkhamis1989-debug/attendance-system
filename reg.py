@@ -361,6 +361,20 @@ def ar_to_en_digits(text):
     for a,e in zip(ar,en): result=result.replace(a,e)
     return result
 
+def normalize_emp_id(value):
+    """تنظيف الرقم الشخصي للمقارنة والبحث حتى لو رجع من Google Sheet كرقم أو .0."""
+    txt = ar_to_en_digits(str(value or "")).strip()
+    txt = txt.replace("'", "").replace('"', "").replace(" ", "")
+    if txt.endswith(".0"):
+        txt = txt[:-2]
+    # إذا كان رقمًا عشريًا من Google Sheets مثل 830704019.0
+    try:
+        if "." in txt and txt.replace(".", "", 1).isdigit():
+            txt = str(int(float(txt)))
+    except Exception:
+        pass
+    return txt.strip()
+
 def normalize_name(name):
     name=str(name).strip()
     for old,new in {"أ":"ا","إ":"ا","آ":"ا","ى":"ي","ة":"ه","ؤ":"و","ئ":"ي"}.items():
@@ -446,8 +460,10 @@ def get_whitelist():
         for r in records:
             active=str(r.get("نشط","")).strip()
             if active in ["نعم","yes","Yes","TRUE","true","1"]:
-                eid=str(r.get("الرقم الشخصي","")).strip()
-                if eid: result[eid]=r
+                eid=normalize_emp_id(r.get("الرقم الشخصي",""))
+                if eid:
+                    r["الرقم الشخصي"] = eid
+                    result[eid]=r
         return result
     except: return {}
 
@@ -935,7 +951,7 @@ def mark_care_for_today(emp_id):
     return True
 
 def validate_employee(emp_id):
-    return get_whitelist().get(str(emp_id).strip())
+    return get_whitelist().get(normalize_emp_id(emp_id))
 
 
 def validate_employee_fresh(emp_id):
@@ -2762,7 +2778,7 @@ else:
                 school_name = str(r.get("اسم المدرسة", "") or r.get("المدرسة", "") or r.get("School", "")).strip()
                 task_name   = str(r.get("المهمة", "") or r.get("القسم", "") or r.get("Task", "")).strip()
                 name_value  = str(r.get("الاسم الثلاثي", "") or r.get("الاسم", "") or r.get("Name", "")).strip()
-                eid_value   = ar_to_en_digits(str(r.get("الرقم الشخصي", "") or r.get("ID", "")).strip())
+                eid_value   = normalize_emp_id(r.get("الرقم الشخصي", "") or r.get("ID", ""))
 
                 r["_row_num"] = row_num_direct
                 r["التاريخ"] = row_date
@@ -2791,8 +2807,8 @@ else:
                     source_label_direct = f"جدول الأقسام — {schedule_source_direct}"
 
             attended_today_direct = [r for r in today_rows_direct if str(r.get("وقت الحضور","")).strip()]
-            attended_ids_direct = set(str(r.get("الرقم الشخصي","")).strip() for r in attended_today_direct)
-            missing_today_direct = {eid: emp for eid, emp in required_wl_direct.items() if str(eid).strip() not in attended_ids_direct}
+            attended_ids_direct = set(normalize_emp_id(r.get("الرقم الشخصي","")) for r in attended_today_direct)
+            missing_today_direct = {normalize_emp_id(eid): emp for eid, emp in required_wl_direct.items() if normalize_emp_id(eid) not in attended_ids_direct}
 
             m1, m2, m3 = st.columns(3)
             m1.metric("مصدر القائمة", source_label_direct)
@@ -2935,7 +2951,7 @@ else:
                 # نُخفي فقط من لديها حضور فعلي في التاريخ المختار حتى لا ننشئ تكرار.
                 whitelist_for_add = {}
                 for eid, emp in wl_all_direct.items():
-                    eid_clean = ar_to_en_digits(str(eid)).strip()
+                    eid_clean = normalize_emp_id(eid)
                     if not eid_clean:
                         continue
                     if eid_clean in attended_ids_direct:
@@ -2952,15 +2968,15 @@ else:
                     str(item[1].get("الاسم", "")),
                 ))
 
-                search_value = ar_to_en_digits(str(missing_search or "")).strip()
-                search_name = normalize_name(search_value) if search_value else ""
+                search_value = normalize_emp_id(missing_search)
+                search_name = normalize_name(str(missing_search or "")) if str(missing_search or "").strip() else ""
 
-                if search_value:
+                if search_value or search_name:
                     missing_items = []
                     for eid, emp in missing_items_all:
-                        emp_id_clean = ar_to_en_digits(str(eid)).strip()
+                        emp_id_clean = normalize_emp_id(eid)
                         emp_name_norm = normalize_name(str(emp.get("الاسم", "")))
-                        if search_value in emp_id_clean or search_name in emp_name_norm:
+                        if (search_value and search_value in emp_id_clean) or (search_name and search_name in emp_name_norm):
                             missing_items.append((eid, emp))
                 else:
                     missing_items = missing_items_all[:80]
