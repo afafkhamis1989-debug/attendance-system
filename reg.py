@@ -2598,6 +2598,7 @@ else:
 
         admin_tab=st.selectbox("القسم",[
             "📊 إحصائيات اليوم",
+            "✏️ حضور اليوم والتعديل المباشر",
             "📑 التقارير",
             "🛠️ إصلاح شامل",
             "🆘 طلبات التسجيل اليدوي",
@@ -2621,8 +2622,238 @@ else:
             "📅 إعدادات الدوام المخصص",
         ])
 
+
+        # ── حضور اليوم والتعديل المباشر ─────────────────────────────
+        if admin_tab=="✏️ حضور اليوم والتعديل المباشر":
+            st.markdown("#### ✏️ حضور اليوم والتعديل المباشر")
+            st.caption("يعرض كل من سجلت حضور اليوم، ويتيح تعديل الوقت مباشرة، وإضافة حضور لمن لم تسجل بدون البحث بالاسم.")
+
+            col_ref1, col_ref2 = st.columns([3,1])
+            with col_ref2:
+                if st.button("🔄 تحديث", key="btn_refresh_today_direct", use_container_width=True):
+                    clear_caches()
+                    get_whitelist.clear()
+                    st.rerun()
+            with col_ref1:
+                st.info("هذه الصفحة تقرأ من Google Sheet مباشرة بدون كاش حتى تظهر سجلات اليوم بسرعة.")
+
+            data_direct = get_sheet_data_fresh()
+            today_rows_direct = [r for r in data_direct if str(r.get("التاريخ","")).strip().replace("/","-") == today_str]
+            wl_all_direct = get_whitelist()
+
+            # تحديد المطلوبات: مطلوبات اليوم أولاً ثم جدول الأقسام ثم كل القائمة البيضاء
+            required_people_direct = required_people_for_date(today_str)
+            if required_people_direct is not None:
+                required_wl_direct = required_people_direct
+                source_label_direct = "مطلوبات اليوم"
+            else:
+                scheduled_tasks_direct, schedule_source_direct = scheduled_tasks_for_date(today_str)
+                if scheduled_tasks_direct is None:
+                    required_wl_direct = wl_all_direct
+                    source_label_direct = "كل القائمة البيضاء"
+                else:
+                    required_wl_direct = {eid: emp for eid, emp in wl_all_direct.items() if emp_required_on_day(emp, scheduled_tasks_direct)}
+                    source_label_direct = f"جدول الأقسام — {schedule_source_direct}"
+
+            required_ids_direct = set(str(eid).strip() for eid in required_wl_direct.keys())
+            attended_today_direct = [r for r in today_rows_direct if str(r.get("وقت الحضور","")).strip()]
+            attended_ids_direct = set(str(r.get("الرقم الشخصي","")).strip() for r in attended_today_direct)
+            missing_today_direct = {eid: emp for eid, emp in required_wl_direct.items() if str(eid).strip() not in attended_ids_direct}
+
+            m1, m2, m3 = st.columns(3)
+            m1.metric("مصدر القائمة", source_label_direct)
+            m2.metric("سجلوا حضور اليوم", len(attended_today_direct))
+            m3.metric("لم يسجلوا من المطلوبات", len(missing_today_direct))
+
+            direct_tab = st.radio("اختاري العملية", ["✅ الحاضرات اليوم", "➕ إضافة لمن لم تسجل"], horizontal=True, key="direct_today_tab")
+
+            if direct_tab == "✅ الحاضرات اليوم":
+                st.markdown("##### ✅ الحاضرات اليوم — تعديل مباشر")
+                if not attended_today_direct:
+                    st.warning("لا توجد سجلات حضور لهذا اليوم حتى الآن.")
+                else:
+                    # ترتيب حسب المهمة ثم المدرسة ثم الاسم
+                    attended_sorted = sorted(attended_today_direct, key=lambda r: (
+                        str(r.get("المهمة", "")),
+                        str(r.get("اسم المدرسة", r.get("المدرسة", ""))),
+                        str(r.get("الاسم الثلاثي", r.get("الاسم", ""))),
+                    ))
+
+                    school_filter_direct = st.selectbox(
+                        "فلترة بالمدرسة",
+                        ["الكل"] + sorted(list(set(str(r.get("اسم المدرسة", r.get("المدرسة", ""))).strip() for r in attended_sorted if str(r.get("اسم المدرسة", r.get("المدرسة", ""))).strip()))),
+                        key="direct_school_filter"
+                    )
+                    task_filter_direct = st.selectbox(
+                        "فلترة بالمهمة",
+                        ["الكل"] + sorted(list(set(str(r.get("المهمة","")).strip() for r in attended_sorted if str(r.get("المهمة","")).strip()))),
+                        key="direct_task_filter"
+                    )
+                    search_direct = st.text_input("بحث سريع بالاسم أو الرقم", key="direct_att_search")
+                    search_direct_norm = normalize_name(search_direct) if search_direct else ""
+
+                    filtered_attended = attended_sorted
+                    if school_filter_direct != "الكل":
+                        filtered_attended = [r for r in filtered_attended if str(r.get("اسم المدرسة", r.get("المدرسة", ""))).strip() == school_filter_direct]
+                    if task_filter_direct != "الكل":
+                        filtered_attended = [r for r in filtered_attended if str(r.get("المهمة","")).strip() == task_filter_direct]
+                    if search_direct.strip():
+                        filtered_attended = [r for r in filtered_attended if search_direct.strip() in str(r.get("الرقم الشخصي","")).strip() or search_direct_norm in normalize_name(r.get("الاسم الثلاثي", r.get("الاسم", "")))]
+
+                    st.caption(f"المعروض حالياً: {len(filtered_attended)} سجل")
+
+                    for idx_direct, r in enumerate(filtered_attended):
+                        eid = str(r.get("الرقم الشخصي","")).strip()
+                        date_val = str(r.get("التاريخ","")).strip().replace("/","-")
+                        row_num, fresh_row = find_today_row_fresh(date_val, eid)
+                        if not row_num:
+                            continue
+                        name_val = str(r.get("الاسم الثلاثي", r.get("الاسم", ""))).strip()
+                        school_val = str(r.get("اسم المدرسة", r.get("المدرسة", ""))).strip()
+                        task_val = str(r.get("المهمة","")).strip()
+                        att_val = str(r.get("وقت الحضور","")).strip()
+                        dep_val = str(r.get("وقت الانصراف","")).strip()
+
+                        with st.expander(f"{name_val} — #{eid} — حضور: {att_val or '—'} — انصراف: {dep_val or '—'}", expanded=False):
+                            st.markdown(f"""
+                            <div class="audit-row">
+                                <b>{name_val}</b><br>
+                                الرقم الشخصي: {eid}<br>
+                                المدرسة: {school_val}<br>
+                                المهمة: {task_val}<br>
+                                رقم الصف في Sheet1: {row_num}
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                new_att = st.text_input("وقت الحضور", value=att_val, key=f"direct_att_{idx_direct}_{row_num}", placeholder="07:00:00")
+                                new_late_reason = st.text_input("سبب التأخير", value=str(r.get("سبب التأخير","")).strip(), key=f"direct_late_{idx_direct}_{row_num}")
+                            with c2:
+                                new_dep = st.text_input("وقت الانصراف", value=dep_val, key=f"direct_dep_{idx_direct}_{row_num}", placeholder="14:00:00")
+                                new_dep_reason = st.text_input("سبب الانصراف", value=str(r.get("سبب الانصراف","")).strip(), key=f"direct_depr_{idx_direct}_{row_num}")
+
+                            c3, c4 = st.columns(2)
+                            with c3:
+                                care_choice = st.selectbox("رعاية؟", ["لا", "نعم"], index=1 if is_care_day(r) else 0, key=f"direct_care_{idx_direct}_{row_num}")
+                            with c4:
+                                daily_type_edit = st.text_input("نوع الدوام اليومي", value=str(r.get("نوع الدوام اليومي","")).strip(), key=f"direct_dtype_{idx_direct}_{row_num}")
+
+                            col_save, col_delete = st.columns(2)
+                            with col_save:
+                                if st.button("💾 حفظ التعديل وإعادة الحساب", use_container_width=True, type="primary", key=f"direct_save_{idx_direct}_{row_num}"):
+                                    try:
+                                        safe_update(sheet, row_num, COL_ATTEND, new_att.strip())
+                                        safe_update(sheet, row_num, COL_LATE_REASON, new_late_reason.strip())
+                                        safe_update(sheet, row_num, COL_DEPART, new_dep.strip())
+                                        safe_update(sheet, row_num, COL_DEPART_REASON, new_dep_reason.strip())
+                                        safe_update(sheet, row_num, COL_CARE_CONF, "نعم" if care_choice == "نعم" else "")
+                                        safe_update(sheet, row_num, COL_DAILY_TYPE, daily_type_edit.strip())
+                                        updated_row = dict(r)
+                                        updated_row.update({
+                                            "وقت الحضور": new_att.strip(),
+                                            "سبب التأخير": new_late_reason.strip(),
+                                            "وقت الانصراف": new_dep.strip(),
+                                            "سبب الانصراف": new_dep_reason.strip(),
+                                            "تأكيد الرعاية": "نعم" if care_choice == "نعم" else "",
+                                            "نوع الدوام اليومي": daily_type_edit.strip(),
+                                        })
+                                        update_work_calculation(row_num, updated_row)
+                                        log_audit(eid, name_val, "تعديل مباشر لحضور اليوم", f"تاريخ:{date_val}|صف:{row_num}")
+                                        clear_caches()
+                                        st.success("✅ تم حفظ التعديل وإعادة احتساب الساعات.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ خطأ أثناء الحفظ: {e}")
+                            with col_delete:
+                                if st.button("🗑️ حذف السجل", use_container_width=True, key=f"direct_delete_{idx_direct}_{row_num}"):
+                                    st.session_state[f"direct_confirm_delete_{row_num}"] = True
+                                if st.session_state.get(f"direct_confirm_delete_{row_num}"):
+                                    st.warning("تأكيد حذف السجل؟")
+                                    if st.button("نعم، احذفيه", use_container_width=True, key=f"direct_yes_delete_{idx_direct}_{row_num}"):
+                                        try:
+                                            sheet.delete_rows(row_num)
+                                            log_audit(eid, name_val, "حذف سجل حضور اليوم", f"تاريخ:{date_val}|صف:{row_num}")
+                                            clear_caches()
+                                            st.success("✅ تم حذف السجل.")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"❌ خطأ أثناء الحذف: {e}")
+
+            else:
+                st.markdown("##### ➕ إضافة حضور لمن لم تسجل")
+                st.caption("القائمة مبنية على مطلوبات اليوم، وإذا لا توجد مطلوبات تعتمد على جدول الأقسام أو القائمة البيضاء.")
+
+                if not missing_today_direct:
+                    st.success("✅ لا توجد موظفات مطلوبات بدون حضور.")
+                else:
+                    missing_items = sorted(missing_today_direct.items(), key=lambda item: (
+                        str(item[1].get("المهمة", "")),
+                        str(item[1].get("المدرسة", "")),
+                        str(item[1].get("الاسم", "")),
+                    ))
+                    missing_labels = [f"{emp.get('الاسم','')} — #{eid} — {emp.get('المدرسة','')} — {emp.get('المهمة','')}" for eid, emp in missing_items]
+                    selected_missing = st.selectbox("اختاري الموظفة لإضافة حضور", missing_labels, key="direct_missing_select")
+                    selected_idx = missing_labels.index(selected_missing)
+                    add_eid, add_emp = missing_items[selected_idx]
+
+                    st.markdown(f"""
+                    <div class="audit-row">
+                        <b>{add_emp.get('الاسم','')}</b><br>
+                        الرقم الشخصي: {add_eid}<br>
+                        المدرسة: {add_emp.get('المدرسة','')}<br>
+                        المهمة: {add_emp.get('المهمة','')}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    cadd1, cadd2 = st.columns(2)
+                    with cadd1:
+                        add_att_time = st.text_input("وقت الحضور", value="07:00:00", key="direct_add_att")
+                        add_late_reason = st.selectbox("سبب التأخير / الملاحظة", [""] + reasons, key="direct_add_late_reason")
+                    with cadd2:
+                        add_dep_time = st.text_input("وقت الانصراف اختياري", value="", key="direct_add_dep")
+                        add_dep_reason = st.selectbox("سبب الانصراف اختياري", [""] + reasons, key="direct_add_dep_reason")
+
+                    add_care_choice = st.selectbox("هل لديها رعاية؟", ["لا", "نعم"], key="direct_add_care")
+                    add_note = st.text_input("ملاحظة", value="إضافة حضور يدوي من صفحة حضور اليوم", key="direct_add_note")
+
+                    if st.button("➕ إضافة السجل الآن", use_container_width=True, type="primary", key="direct_add_record_btn"):
+                        if not str(add_att_time).strip():
+                            st.error("❌ وقت الحضور مطلوب.")
+                        else:
+                            try:
+                                # فحص مباشر أخير لمنع التكرار إذا كانت سجلت أثناء فتح الصفحة
+                                existing_idx, existing_row = find_today_row_fresh(today_str, str(add_eid).strip())
+                                if existing_row and str(existing_row.get("وقت الحضور","")).strip():
+                                    st.warning("⚠️ هذه الموظفة أصبح لديها سجل حضور، لم يتم إنشاء سجل مكرر.")
+                                else:
+                                    add_name = str(add_emp.get("الاسم","")).strip()
+                                    add_school = str(add_emp.get("المدرسة","")).strip()
+                                    add_task = str(add_emp.get("المهمة","")).strip()
+                                    add_support = "نعم" if is_support_employee_record(add_emp) else "لا"
+                                    late_reason_to_save = "رعاية" if add_care_choice == "نعم" else str(add_late_reason or "").strip()
+                                    daily_type_to_save = "رعاية" if add_care_choice == "نعم" else ""
+                                    care_confirm_to_save = "نعم" if add_care_choice == "نعم" else ""
+                                    row_values = [
+                                        today_str, now_bh().strftime("%A"), add_school, add_task, add_support,
+                                        add_name, str(add_eid).strip(), str(add_att_time).strip(), late_reason_to_save,
+                                        str(add_dep_time).strip(), str(add_dep_reason or "").strip(), "", "", "",
+                                        "", "", "", "", "", daily_type_to_save, "", care_confirm_to_save,
+                                        "إضافة يدوية من حضور اليوم"
+                                    ]
+                                    safe_append(sheet, row_values)
+                                    idx_new, row_new = find_today_row_fresh(today_str, str(add_eid).strip())
+                                    if idx_new and row_new:
+                                        update_work_calculation(idx_new, row_new)
+                                    log_audit(str(add_eid).strip(), add_name, "إضافة حضور من صفحة حضور اليوم", f"تاريخ:{today_str}|{add_note}")
+                                    clear_caches()
+                                    st.success("✅ تم إضافة سجل الحضور بنجاح.")
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ خطأ أثناء الإضافة: {e}")
+
         # ── إحصائيات اليوم ──────────────────────────────────────
-        if admin_tab=="📊 إحصائيات اليوم":
+        elif admin_tab=="📊 إحصائيات اليوم":
             # زر تحديث يدوي
             col_ref1, col_ref2 = st.columns([3,1])
             with col_ref2:
