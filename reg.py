@@ -938,6 +938,25 @@ def validate_employee(emp_id):
     return get_whitelist().get(str(emp_id).strip())
 
 
+def validate_employee_fresh(emp_id):
+    """قراءة مباشرة من ورقة القائمة_البيضاء بدون كاش.
+    نستخدمها في واجهة الموظفة حتى لا تظهر مدرسة/مهمة قديمة محفوظة في المتصفح أو الكاش.
+    """
+    emp_id = ar_to_en_digits(str(emp_id or "")).strip()
+    if not emp_id:
+        return None
+    try:
+        records = whitelist_sheet.get_all_records()
+        for r in records:
+            eid = ar_to_en_digits(str(r.get("الرقم الشخصي", "")).strip())
+            active = str(r.get("نشط", "")).strip()
+            if eid == emp_id and active in ["نعم", "yes", "Yes", "TRUE", "true", "1", "✅"]:
+                return r
+    except Exception:
+        pass
+    return validate_employee(emp_id)
+
+
 def is_support_employee_record(emp):
     """تحديد هل السجل دعم أو عضوة."""
     try:
@@ -1891,6 +1910,16 @@ _trusted_cleared_ls = str(ls_get("trusted_cleared") or "").strip() == "yes"
 _saved_id   = str(_saved_id   or "").strip()
 _saved_date = str(_saved_date or "").strip()
 
+# مهم: لا نعتمد على المدرسة/المهمة المحفوظة في المتصفح لأنها قد تكون قديمة.
+# إذا كان الرقم محفوظًا لهذا اليوم، نقرأ بياناته مباشرة من القائمة البيضاء في Google Sheet.
+if _saved_id:
+    fresh_emp = validate_employee_fresh(_saved_id)
+    if fresh_emp:
+        _saved_name = get_emp_name(fresh_emp) or _saved_name
+        _saved_school = get_emp_school(fresh_emp) or _saved_school
+        _saved_section = str(fresh_emp.get("المهمة", "") or _saved_section).strip()
+        _saved_support = "نعم" if is_yes(fresh_emp.get("دعم", "")) else "لا"
+
 # الجهاز الموثوق لا يستخدم التثبيت التلقائي — كل موظفة تدخل رقمها من جديد
 _is_trusted_device = is_current_device_trusted()[0]
 
@@ -2018,23 +2047,19 @@ if mode=="👤 موظفة":
             emp_id_raw = st.text_input("الرقم الشخصي", placeholder="أدخلي رقمك الشخصي", max_chars=20, key="main_emp_id")
             emp_id_input = ar_to_en_digits(emp_id_raw).strip()
 
-            # مهم: إذا تغير الرقم الشخصي نمسح بيانات الموظفة السابقة من نفس الجلسة
-            # حتى لا تظهر بيانات شخص آخر أو تنفذ العملية على بيانات قديمة.
+            # عند تغيير الرقم الشخصي نمسح بيانات الموظفة السابقة من الجلسة حتى لا تظهر مدرسة/مهمة قديمة.
             if st.session_state.get("last_emp_id_input", "") != emp_id_input:
                 st.session_state.last_emp_id_input = emp_id_input
                 st.session_state.emp_verified = False
                 st.session_state.emp_data = None
                 st.session_state.pending_operation = None
-                st.session_state._queued_op = ""
-                st.session_state._queued_note = ""
-                st.session_state.operation_saving = False
                 st.session_state.location_allowed = False
                 st.session_state.location_check_requested = False
                 st.session_state.allow_no_gps_today = False
-                st.session_state.no_gps_option_available = False
 
             if emp_id_input:
-                existing = validate_employee(emp_id_input)
+                # قراءة مباشرة من القائمة البيضاء لضمان أن الاسم/المدرسة/المهمة مثل Google Sheet تمامًا.
+                existing = validate_employee_fresh(emp_id_input)
                 if existing:
                     is_sup = str(existing.get("دعم","")).strip() in ["نعم","yes","Yes","TRUE","true","1"]
                     is_sup_pending = is_sup
@@ -2132,13 +2157,21 @@ if mode=="👤 موظفة":
         st.success("✅ تم التحقق من الموقع بنجاح.")
 
     else:
-        # اختصار الخطوات: بعد إدخال الرقم الشخصي وظهور البيانات، تظهر أيقونة الموقع مباشرة
-        # بدون زر إضافي وبدون Expander.
-        if st.session_state.emp_verified and st.session_state.emp_data:
-            with st.container(border=True):
-                st.markdown('<div class="card-title">📍 يرجى التحقق من الموقع</div>', unsafe_allow_html=True)
-                st.info("اضغطي أيقونة الموقع التي تظهر بالأسفل، ثم اختاري سماح / Allow.")
+        with st.expander("📍 التحقق من الموقع — اضغطي للفتح", expanded=False):
+            st.markdown('''
+            <div style="font-size:13px;color:#444;margin-bottom:12px;direction:rtl;">
+            اضغطي الزر ثم اضغطي أيقونة الموقع الصغيرة التي تظهر بالأسفل واختاري <b>سماح / Allow</b>
+            </div>
+            ''', unsafe_allow_html=True)
 
+            if st.button("📍 ابدئي التحقق من موقعي", use_container_width=True, type="primary", key="btn_gps"):
+                st.session_state.location_check_requested = True
+                st.session_state.no_gps_option_available  = False
+                st.session_state.location_allowed          = False
+                st.rerun()
+
+            if st.session_state.get("location_check_requested") and not st.session_state.get("location_allowed"):
+                st.info("⏳ جارٍ محاولة التحقق… اضغطي أيقونة الموقع بالأسفل")
                 try:
                     location = streamlit_geolocation()
                 except Exception:
@@ -2148,19 +2181,19 @@ if mode=="👤 موظفة":
                 if location:
                     lat   = location.get("latitude")
                     lon   = location.get("longitude")
-                    error = location.get("error", "")
-
+                    error = location.get("error","")
                     if error:
                         st.session_state.no_gps_option_available = True
                         st.warning("⚠️ الموقع غير مفعّل أو تم رفض السماح.")
-
                     elif lat is not None and lon is not None:
                         try:
-                            dist_val = distance_m(float(lat), float(lon), SCHOOL_LAT, SCHOOL_LON)
+                            dist_val = distance_m(float(lat),float(lon),SCHOOL_LAT,SCHOOL_LON)
                             if dist_val <= ALLOWED_RADIUS:
                                 st.session_state.location_allowed = True
                                 st.session_state.no_gps_option_available = False
                                 st.success(f"✅ داخل نطاق المدرسة — {int(dist_val)} م")
+                                st.info("⏳ تم التحقق من الموقع، جارٍ تحميل بياناتك… يرجى الانتظار")
+                                import time as _time; _time.sleep(1.5)
                                 st.rerun()
                             else:
                                 st.session_state.no_gps_option_available = True
@@ -2168,14 +2201,11 @@ if mode=="👤 موظفة":
                         except Exception:
                             st.session_state.no_gps_option_available = True
                             st.error("❌ خطأ في قراءة الموقع.")
-
                     else:
                         st.session_state.no_gps_option_available = True
-                        st.warning("⚠️ لم يتم استلام إحداثيات. تأكدي من السماح للموقع.")
-
+                        st.warning("⚠️ لم يتم استلام إحداثيات.")
                 else:
                     st.session_state.no_gps_option_available = True
-                    st.caption("إذا لم تظهر أيقونة الموقع، تأكدي من إعدادات المتصفح أو استخدمي طلب التسجيل بدون موقع من الدعم الفني.")
 
     # ══════════════════════════════════
     # كرت 3: تصريح الوقت اليدوي
@@ -2304,8 +2334,7 @@ if mode=="👤 موظفة":
             st.session_state._queued_note = ""
             st.rerun()
 
-        # قراءة مباشرة من Google Sheet بدون كاش حتى يظهر الحضور فوراً في الواجهة
-        # ويُمنع الضغط المتكرر الذي يسبب تكرار السجلات.
+        # قراءة مباشرة بدون كاش حتى يظهر تسجيل الحضور/الانصراف فورًا ولا تضغط الموظفة أكثر من مرة.
         data = get_sheet_data_fresh()
         _, today_row = find_today_row(data, today_str, emp_id)
 
