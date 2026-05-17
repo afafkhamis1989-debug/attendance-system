@@ -2018,6 +2018,21 @@ if mode=="👤 موظفة":
             emp_id_raw = st.text_input("الرقم الشخصي", placeholder="أدخلي رقمك الشخصي", max_chars=20, key="main_emp_id")
             emp_id_input = ar_to_en_digits(emp_id_raw).strip()
 
+            # مهم: إذا تغير الرقم الشخصي نمسح بيانات الموظفة السابقة من نفس الجلسة
+            # حتى لا تظهر بيانات شخص آخر أو تنفذ العملية على بيانات قديمة.
+            if st.session_state.get("last_emp_id_input", "") != emp_id_input:
+                st.session_state.last_emp_id_input = emp_id_input
+                st.session_state.emp_verified = False
+                st.session_state.emp_data = None
+                st.session_state.pending_operation = None
+                st.session_state._queued_op = ""
+                st.session_state._queued_note = ""
+                st.session_state.operation_saving = False
+                st.session_state.location_allowed = False
+                st.session_state.location_check_requested = False
+                st.session_state.allow_no_gps_today = False
+                st.session_state.no_gps_option_available = False
+
             if emp_id_input:
                 existing = validate_employee(emp_id_input)
                 if existing:
@@ -2117,21 +2132,13 @@ if mode=="👤 موظفة":
         st.success("✅ تم التحقق من الموقع بنجاح.")
 
     else:
-        with st.expander("📍 التحقق من الموقع — اضغطي للفتح", expanded=False):
-            st.markdown('''
-            <div style="font-size:13px;color:#444;margin-bottom:12px;direction:rtl;">
-            اضغطي الزر ثم اضغطي أيقونة الموقع الصغيرة التي تظهر بالأسفل واختاري <b>سماح / Allow</b>
-            </div>
-            ''', unsafe_allow_html=True)
+        # اختصار الخطوات: بعد إدخال الرقم الشخصي وظهور البيانات، تظهر أيقونة الموقع مباشرة
+        # بدون زر إضافي وبدون Expander.
+        if st.session_state.emp_verified and st.session_state.emp_data:
+            with st.container(border=True):
+                st.markdown('<div class="card-title">📍 يرجى التحقق من الموقع</div>', unsafe_allow_html=True)
+                st.info("اضغطي أيقونة الموقع التي تظهر بالأسفل، ثم اختاري سماح / Allow.")
 
-            if st.button("📍 ابدئي التحقق من موقعي", use_container_width=True, type="primary", key="btn_gps"):
-                st.session_state.location_check_requested = True
-                st.session_state.no_gps_option_available  = False
-                st.session_state.location_allowed          = False
-                st.rerun()
-
-            if st.session_state.get("location_check_requested") and not st.session_state.get("location_allowed"):
-                st.info("⏳ جارٍ محاولة التحقق… اضغطي أيقونة الموقع بالأسفل")
                 try:
                     location = streamlit_geolocation()
                 except Exception:
@@ -2141,19 +2148,19 @@ if mode=="👤 موظفة":
                 if location:
                     lat   = location.get("latitude")
                     lon   = location.get("longitude")
-                    error = location.get("error","")
+                    error = location.get("error", "")
+
                     if error:
                         st.session_state.no_gps_option_available = True
                         st.warning("⚠️ الموقع غير مفعّل أو تم رفض السماح.")
+
                     elif lat is not None and lon is not None:
                         try:
-                            dist_val = distance_m(float(lat),float(lon),SCHOOL_LAT,SCHOOL_LON)
+                            dist_val = distance_m(float(lat), float(lon), SCHOOL_LAT, SCHOOL_LON)
                             if dist_val <= ALLOWED_RADIUS:
                                 st.session_state.location_allowed = True
                                 st.session_state.no_gps_option_available = False
                                 st.success(f"✅ داخل نطاق المدرسة — {int(dist_val)} م")
-                                st.info("⏳ تم التحقق من الموقع، جارٍ تحميل بياناتك… يرجى الانتظار")
-                                import time as _time; _time.sleep(1.5)
                                 st.rerun()
                             else:
                                 st.session_state.no_gps_option_available = True
@@ -2161,11 +2168,14 @@ if mode=="👤 موظفة":
                         except Exception:
                             st.session_state.no_gps_option_available = True
                             st.error("❌ خطأ في قراءة الموقع.")
+
                     else:
                         st.session_state.no_gps_option_available = True
-                        st.warning("⚠️ لم يتم استلام إحداثيات.")
+                        st.warning("⚠️ لم يتم استلام إحداثيات. تأكدي من السماح للموقع.")
+
                 else:
                     st.session_state.no_gps_option_available = True
+                    st.caption("إذا لم تظهر أيقونة الموقع، تأكدي من إعدادات المتصفح أو استخدمي طلب التسجيل بدون موقع من الدعم الفني.")
 
     # ══════════════════════════════════
     # كرت 3: تصريح الوقت اليدوي
@@ -2294,7 +2304,9 @@ if mode=="👤 موظفة":
             st.session_state._queued_note = ""
             st.rerun()
 
-        data = get_sheet_data()
+        # قراءة مباشرة من Google Sheet بدون كاش حتى يظهر الحضور فوراً في الواجهة
+        # ويُمنع الضغط المتكرر الذي يسبب تكرار السجلات.
+        data = get_sheet_data_fresh()
         _, today_row = find_today_row(data, today_str, emp_id)
 
         att_time    = today_row.get("وقت الحضور","—")   if today_row else "—"
@@ -5533,5 +5545,6 @@ st.markdown("""
     <span>رئيسة المركز: <span class="hl">أ. خلود يعقوب بدو</span></span>
 </div>
 """, unsafe_allow_html=True)
+
 
 
