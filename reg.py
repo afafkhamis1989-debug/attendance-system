@@ -2930,34 +2930,50 @@ else:
                 st.caption("استخدمي الفلتر بالاسم أو الرقم الشخصي، ثم اختاري الموظفة وأضيفي الحضور.")
 
                 missing_search = st.text_input("فلتر بالاسم أو الرقم الشخصي", key="direct_missing_search", placeholder="اكتبي الاسم أو الرقم")
-                missing_search_norm = normalize_name(missing_search) if missing_search else ""
 
-                if not missing_today_direct:
-                    st.success("✅ لا توجد موظفات مطلوبات بدون حضور.")
+                # مصدر الإضافة هنا هو القائمة البيضاء كاملة، وليس مطلوبات اليوم.
+                # نُخفي فقط من لديها حضور فعلي في التاريخ المختار حتى لا ننشئ تكرار.
+                whitelist_for_add = {}
+                for eid, emp in wl_all_direct.items():
+                    eid_clean = ar_to_en_digits(str(eid)).strip()
+                    if not eid_clean:
+                        continue
+                    if eid_clean in attended_ids_direct:
+                        continue
+                    emp_copy = dict(emp)
+                    emp_copy["الاسم"] = get_emp_name(emp_copy)
+                    emp_copy["المدرسة"] = get_emp_school(emp_copy)
+                    emp_copy["المهمة"] = str(emp_copy.get("المهمة", "")).strip()
+                    whitelist_for_add[eid_clean] = emp_copy
+
+                missing_items_all = sorted(whitelist_for_add.items(), key=lambda item: (
+                    str(item[1].get("المهمة", "")),
+                    str(item[1].get("المدرسة", "")),
+                    str(item[1].get("الاسم", "")),
+                ))
+
+                search_value = ar_to_en_digits(str(missing_search or "")).strip()
+                search_name = normalize_name(search_value) if search_value else ""
+
+                if search_value:
+                    missing_items = []
+                    for eid, emp in missing_items_all:
+                        emp_id_clean = ar_to_en_digits(str(eid)).strip()
+                        emp_name_norm = normalize_name(str(emp.get("الاسم", "")))
+                        if search_value in emp_id_clean or search_name in emp_name_norm:
+                            missing_items.append((eid, emp))
                 else:
-                    missing_items_all = sorted(missing_today_direct.items(), key=lambda item: (
-                        str(item[1].get("المهمة", "")),
-                        str(item[1].get("المدرسة", "")),
-                        str(item[1].get("الاسم", "")),
-                    ))
-                    if missing_search.strip():
-                        missing_items = [
-                            (eid, emp) for eid, emp in missing_items_all
-                            if missing_search.strip() in str(eid).strip()
-                            or missing_search_norm in normalize_name(emp.get("الاسم", ""))
-                        ]
-                    else:
-                        missing_items = missing_items_all[:80]
+                    missing_items = missing_items_all[:80]
 
-                    st.caption(f"المعروض حالياً: {len(missing_items)} من أصل {len(missing_items_all)}")
+                st.caption(f"المعروض حالياً: {len(missing_items)} من أصل {len(missing_items_all)} من القائمة البيضاء بدون حضور لهذا التاريخ")
 
-                    if not missing_items:
-                        st.warning("لا توجد نتيجة مطابقة للفلتر.")
-                    else:
-                        missing_labels = [f"{emp.get('الاسم','')} — #{eid} — {emp.get('المدرسة','')} — {emp.get('المهمة','')}" for eid, emp in missing_items]
-                        selected_missing = st.selectbox("اختاري الموظفة لإضافة حضور", missing_labels, key="direct_missing_select")
-                        selected_idx = missing_labels.index(selected_missing)
-                        add_eid, add_emp = missing_items[selected_idx]
+                if not missing_items:
+                    st.warning("لا توجد نتيجة مطابقة للفلتر في القائمة البيضاء.")
+                else:
+                    missing_labels = [f"{emp.get('الاسم','')} — #{eid} — {emp.get('المدرسة','')} — {emp.get('المهمة','')}" for eid, emp in missing_items]
+                    selected_missing = st.selectbox("اختاري الموظفة لإضافة حضور", missing_labels, key="direct_missing_select")
+                    selected_idx = missing_labels.index(selected_missing)
+                    add_eid, add_emp = missing_items[selected_idx]
 
                         st.markdown(f"""
                         <div class="audit-row">
